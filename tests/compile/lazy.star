@@ -1,0 +1,10 @@
+r = range(10, 0, -3)
+print(r, range(3), range(1, 4), range(0), range(1, 10, 1), type(r), len(r), r[0], r[-1], r[1:3], r[::-1], list(r), 4 in r, 5 in r, bool(range(0)), bool(r))
+print(range(3) == range(3), range(0) == range(2, 2), range(0, 3) == range(3), range(1, 4, 2) == range(1, 5, 2), range(3) == [0, 1, 2], range(3)[::2], range(5)[10:], range(5)[1:100:2])
+print([x * 2 for x in range(4)], sorted(range(3), reverse = True), tuple(range(2)), enumerate(range(2)), max(range(5)), str(range(2)), dir(range(1)))
+for s in ["héllo", ""]:
+    e = s.elems()
+    print(e, type(e), list(e), len(s.elem_ords()) if False else "", s.elem_ords(), type(s.elem_ords()), s.codepoints(), type(s.codepoints()), s.codepoint_ords(), type(s.codepoint_ords()), list(s.codepoint_ords()))
+print(b"ab\xff".elems(), type(b"a".elems()), list(b"ab".elems()), "x".elems() == "x".elems(), [c for c in "ab".elems()], dir("a".elems()), bool("".elems()))
+print(sorted("cab".elems()), "a" in list("ab".elems()), zip("ab".elems(), range(2)), set(range(3)), {k: 1 for k in "ab".elems()})
+print(range(2, 9, 3)[1], range(-5), range(5, 1), r.__class__ if False else "", repr(range(-3, 3, 2)))

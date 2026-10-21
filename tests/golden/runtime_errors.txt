@@ -1,0 +1,8 @@
+err_shift: Error: shift count too large: 512
+err_type: Error: unknown binary op: int + string
+err_key: Error: key "z" not in dict
+err_index: Error: list index 5 out of range [-1:0]
+err_unhashable: Error: unhashable type: list
+err_divzero: Error: floored division by zero
+err_compare: Error: int < string not implemented
+err_len: Error: len: value of type int has no len

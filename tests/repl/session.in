@@ -1,0 +1,40 @@
+1 + 2
+x = [1, 2]
+x.append(3)
+x
+def f(n):
+    return n * 10
+
+f(4)
+"hi"
+None
+y
+x[9]
+x
+_
+s = set(x)
+s | set([7])
+print("printed")
+d = {
+  "a": 1,
+}
+d
+for i in range(2):
+    print(i)
+
+"""doc
+string"""
+sorted(x, reverse = True)
+:history
+:reset
+"""doc
+string"""
+load("tests/compile/modules/util.star", "twice")
+twice(lambda v: v * 3, 2)
+[1,
+ 2]
+z = 1 +
+z = 5
+z += 1
+z
+"%s-%d" % ("a", z)

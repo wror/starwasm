@@ -1,0 +1,66 @@
+3
+[1, 2, 3]
+40
+"hi"
+<input 9>:1:1: undefined: y
+Traceback (most recent call last):
+  <input 10>:1:2: in <toplevel>
+Error: list index 9 out of range [-3:2]
+[1, 2, 3]
+[1, 2, 3]
+set([1, 2, 3, 7])
+printed
+{"a": 1}
+0
+1
+"doc\nstring"
+[3, 2, 1]
+# <input 1>
+1 + 2
+# <input 2>
+x = [1, 2]
+# <input 3>
+x.append(3)
+# <input 4>
+x
+# <input 5>
+def f(n):
+    return n * 10
+# <input 6>
+f(4)
+# <input 7>
+"hi"
+# <input 8>
+None
+# <input 11>
+x
+# <input 12>
+_
+# <input 13>
+s = set(x)
+# <input 14>
+s | set([7])
+# <input 15>
+print("printed")
+# <input 16>
+d = {
+  "a": 1,
+}
+# <input 17>
+d
+# <input 18>
+for i in range(2):
+    print(i)
+# <input 19>
+"""doc
+string"""
+# <input 20>
+sorted(x, reverse = True)
+session cleared
+"doc\nstring"
+util init
+18
+[1, 2]
+<input 25>:1:8: got newline, want primary expression
+6
+"a-6"

@@ -1,0 +1,1 @@
+x = hasattr(1)

@@ -1,0 +1,1 @@
+x = getattr(1)
