@@ -18,39 +18,46 @@
 #   lambda {params, body}
 #
 # Statements:
-#   def {name, params, body}   params: list of {name, default (or None), star}
+#   def {name, params, body}   params: list of {name, default (or None), star,
+#                              pos, eqpos (a default's "=")}
 #   if {test, body, else_}     (elif becomes a nested if in else_)
 #   for {target, iter, body}   while {test, body}
 #   return {value}  break  continue  pass
 #   assign {op, lhs, rhs}      op: "=" "+=" "-=" ...
 #   expr {x}   load {module, names}
 
+# A port of starlark-go's parser (go.starlark.net/syntax/parse.go): the same
+# grammar, error messages and positions. Assignment targets and parameter
+# lists are checked by resolve.star, as starlark-go's resolver does.
+
 load("lexer.star", "lex")
 
-BINOP_PREC = {
-    "or": 1,
-    "and": 2,
-    # 3: not
-    "==": 4,
-    "!=": 4,
-    "<": 4,
-    ">": 4,
-    "<=": 4,
-    ">=": 4,
-    "in": 4,
-    "not in": 4,
-    "|": 5,
-    "^": 6,
-    "&": 7,
-    "<<": 8,
-    ">>": 8,
-    "+": 9,
-    "-": 9,
-    "*": 10,
-    "/": 10,
-    "//": 10,
-    "%": 10,
+# Binary operator precedence levels, as starlark-go's preclevels (2 is
+# unary "not").
+PREC = {
+    "or": 0,
+    "and": 1,
+    "==": 3,
+    "!=": 3,
+    "<": 3,
+    ">": 3,
+    "<=": 3,
+    ">=": 3,
+    "in": 3,
+    "not in": 3,
+    "|": 4,
+    "^": 5,
+    "&": 6,
+    "<<": 7,
+    ">>": 7,
+    "-": 8,
+    "+": 8,
+    "*": 9,
+    "%": 9,
+    "/": 9,
+    "//": 9,
 }
+NUM_PREC = 10
 
 AUG_OPS = {
     "=": True,
@@ -67,56 +74,63 @@ AUG_OPS = {
     ">>=": True,
 }
 
+# How starlark-go's errors name a token (Token.GoString): punctuation is
+# quoted, keywords are bare, and a bytes literal has no name at all.
+TOKEN_NAMES = {
+    "name": "identifier",
+    "int": "int literal",
+    "float": "float literal",
+    "string": "string literal",
+    "bytes": "",
+    "newline": "newline",
+    "indent": "indent",
+    "dedent": "outdent",
+    "eof": "end of file",
+}
+
+def token_name(kind):
+    n = TOKEN_NAMES.get(kind)
+    if n != None:
+        return n
+    if kind[0] >= "a" and kind[0] <= "z":
+        return kind  # a keyword (or "not in")
+    return "'" + kind + "'"
+
+# Tokens that end a comma-separated list of expressions (terminatesExprList).
+EXPR_LIST_END = {"eof": True, "newline": True, "=": True, "}": True, "]": True, ")": True, ";": True}
+
 # ---------------------------------------------------------------- token stream
 
 def peek(p):
     return p["toks"][p["i"]]
 
-def peek_kind(p):
+def tok(p):
     return p["toks"][p["i"]]["kind"]
 
-def peek2_kind(p):
-    i = p["i"] + 1
-    if i < len(p["toks"]):
-        return p["toks"][i]["kind"]
-    return "eof"
-
 def advance(p):
+    """Consume the lookahead token; returns it."""
     t = p["toks"][p["i"]]
     if t["kind"] != "eof":
         p["i"] += 1
     return t
 
-def describe(t):
-    k = t["kind"]
-    if k == "name":
-        return "identifier " + t["val"]
-    if k == "int":
-        return "int literal"
-    if k == "string":
-        return "string literal"
-    if k == "bytes":
-        return "bytes literal"
-    if k == "float":
-        return "float literal"
-    if k in ("newline", "indent", "dedent", "eof"):
-        return k
-    return "'" + k + "'"
+def fail_at(p, line, col, msg):
+    fail(p["file"] + ":" + str(line) + ":" + str(col) + ": " + msg)
+
+def error_here(p, msg):
+    """An error where starlark-go's scanner stands: just after the
+    lookahead token (p.in.pos)."""
+    t = peek(p)
+    fail_at(p, t["eline"], t["ecol"], msg)
 
 def error_at(p, t, msg):
-    fail(p["file"] + ":" + str(t["line"]) + ":" + str(t["col"]) + ": " + msg)
+    """An error at the start of token t."""
+    fail_at(p, t["line"], t["col"], msg)
 
-def expect(p, kind):
-    t = peek(p)
-    if t["kind"] != kind:
-        error_at(p, t, "got " + describe(t) + ", want '" + kind + "'")
+def consume(p, kind):
+    if tok(p) != kind:
+        error_here(p, "got " + token_name(tok(p)) + ", want " + token_name(kind))
     return advance(p)
-
-def accept(p, kind):
-    if peek_kind(p) == kind:
-        advance(p)
-        return True
-    return False
 
 def pos(t):
     return (t["line"], t["col"])
@@ -129,14 +143,17 @@ def node(kind, t):
 def parse_file(src, filename):
     p = {"toks": lex(src, filename), "i": 0, "file": filename}
     stmts = []
-    while peek_kind(p) != "eof":
-        if accept(p, "newline"):
+    for _ in range(len(p["toks"]) + 1):
+        if tok(p) == "eof":
+            break
+        if tok(p) == "newline":
+            advance(p)
             continue
-        parse_statement(p, stmts)
+        parse_stmt(p, stmts)
     return stmts
 
-def parse_statement(p, out):
-    k = peek_kind(p)
+def parse_stmt(p, out):
+    k = tok(p)
     if k == "def":
         out.append(parse_def(p))
     elif k == "if":
@@ -144,333 +161,372 @@ def parse_statement(p, out):
     elif k == "for":
         t = advance(p)
         n = node("for", t)
-        n["target"] = parse_loop_vars(p)
-        expect(p, "in")
-        n["iter"] = parse_expr(p)
-        expect(p, ":")
+        n["target"] = parse_for_loop_vars(p)
+        consume(p, "in")
+        n["iter"] = parse_expr(p, False)
+        consume(p, ":")
         n["body"] = parse_suite(p)
         out.append(n)
     elif k == "while":
         t = advance(p)
         n = node("while", t)
         n["test"] = parse_test(p)
-        expect(p, ":")
+        consume(p, ":")
         n["body"] = parse_suite(p)
         out.append(n)
     else:
-        parse_simple_line(p, out)
+        parse_simple_stmt(p, out, True)
 
 def parse_def(p):
-    t = expect(p, "def")
+    t = advance(p)
     n = node("def", t)
-    n["name"] = expect(p, "name")["val"]
-    expect(p, "(")
-    n["params"] = parse_params(p, ")")
-    expect(p, ")")
-    expect(p, ":")
+    n["name"] = parse_ident(p)["val"]
+    consume(p, "(")
+    n["params"] = parse_params(p)
+    consume(p, ")")
+    consume(p, ":")
     n["body"] = parse_suite(p)
     return n
 
-def parse_params(p, closer):
+def parse_params(p):
     params = []
-    while peek_kind(p) != closer:
-        t = peek(p)
-        if accept(p, "*"):
-            if peek_kind(p) == "name":
-                params.append({"name": advance(p)["val"], "default": None, "star": "*", "pos": pos(t)})
-            else:
-                params.append({"name": None, "default": None, "star": "*", "pos": pos(t)})
-        elif accept(p, "**"):
-            params.append({"name": expect(p, "name")["val"], "default": None, "star": "**", "pos": pos(t)})
-        else:
-            name = expect(p, "name")["val"]
-            default = None
-            if accept(p, "="):
-                default = parse_test(p)
-            params.append({"name": name, "default": default, "star": "", "pos": pos(t)})
-        if not accept(p, ","):
+    for _ in range(len(p["toks"])):
+        k = tok(p)
+        if k == ")" or k == ":" or k == "eof":
             break
+        if params:
+            consume(p, ",")
+        if tok(p) == ")":
+            break
+        t = peek(p)
+        if t["kind"] == "*" or t["kind"] == "**":
+            advance(p)
+            name = None
+            namepos = None
+            if t["kind"] == "**" or tok(p) == "name":
+                nt = parse_ident(p)
+                name = nt["val"]
+                namepos = pos(nt)
+            params.append({"name": name, "default": None, "star": t["kind"], "pos": pos(t), "namepos": namepos})
+            continue
+        name = parse_ident(p)["val"]
+        if tok(p) == "=":
+            eq = advance(p)
+            params.append({"name": name, "default": parse_test(p), "star": "", "pos": pos(t), "eqpos": pos(eq)})
+            continue
+        params.append({"name": name, "default": None, "star": "", "pos": pos(t)})
     return params
 
 def parse_if(p):
     t = advance(p)  # "if" or "elif"
     n = node("if", t)
     n["test"] = parse_test(p)
-    expect(p, ":")
+    consume(p, ":")
     n["body"] = parse_suite(p)
     n["else_"] = []
-    if peek_kind(p) == "elif":
+    if tok(p) == "elif":
         n["else_"] = [parse_if(p)]
-    elif accept(p, "else"):
-        expect(p, ":")
+    elif tok(p) == "else":
+        advance(p)
+        consume(p, ":")
         n["else_"] = parse_suite(p)
     return n
 
 def parse_suite(p):
     body = []
-    if accept(p, "newline"):
-        expect(p, "indent")
-        while not accept(p, "dedent"):
-            parse_statement(p, body)
-    else:
-        parse_simple_line(p, body)
+    if tok(p) == "newline":
+        advance(p)
+        consume(p, "indent")
+        for _ in range(len(p["toks"])):
+            if tok(p) == "dedent" or tok(p) == "eof":
+                break
+            parse_stmt(p, body)
+        consume(p, "dedent")
+        return body
+    parse_simple_stmt(p, body, True)
     return body
 
-def parse_simple_line(p, out):
-    out.append(parse_small(p))
-    while accept(p, ";"):
-        if peek_kind(p) == "newline":
-            break
-        out.append(parse_small(p))
+def parse_for_loop_vars(p):
+    """for x, y in ...: primary expressions separated by commas."""
     t = peek(p)
-    if t["kind"] != "newline" and t["kind"] != "eof":
-        error_at(p, t, "got " + describe(t) + ", want newline")
-    advance(p)
+    first = parse_primary_with_suffix(p)
+    if tok(p) != ",":
+        return first
+    elems = [first]
+    for _ in range(len(p["toks"])):
+        if tok(p) != ",":
+            break
+        advance(p)
+        if EXPR_LIST_END.get(tok(p), False):
+            break
+        elems.append(parse_primary_with_suffix(p))
+    n = node("tuple", t)
+    n["elems"] = elems
+    return n
 
-def parse_small(p):
+def parse_simple_stmt(p, out, consume_nl):
+    for _ in range(len(p["toks"])):
+        out.append(parse_small_stmt(p))
+        if tok(p) != ";":
+            break
+        advance(p)
+        if tok(p) == "newline" or tok(p) == "eof":
+            break
+    if tok(p) != "eof" and consume_nl:
+        consume(p, "newline")
+
+def parse_small_stmt(p):
     t = peek(p)
     k = t["kind"]
     if k == "return":
         advance(p)
         n = node("return", t)
         n["value"] = None
-        if peek_kind(p) not in ("newline", ";", "eof"):
-            n["value"] = parse_expr(p)
+        if tok(p) != "eof" and tok(p) != "newline" and tok(p) != ";":
+            n["value"] = parse_expr(p, False)
         return n
     if k == "break" or k == "continue" or k == "pass":
         advance(p)
         return node(k, t)
     if k == "load":
         return parse_load(p)
-    x = parse_expr(p)
-    op = peek_kind(p)
-    if AUG_OPS.get(op):
+    x = parse_expr(p, False)
+    op = tok(p)
+    if AUG_OPS.get(op, False):
         optok = advance(p)
         n = node("assign", t)
         n["op"] = op
         n["oppos"] = pos(optok)
         n["lhs"] = x
-        n["rhs"] = parse_expr(p)
-        check_target(p, x, op != "=")
+        n["rhs"] = parse_expr(p, False)
         return n
     n = node("expr", t)
     n["x"] = x
     return n
 
 def parse_load(p):
-    t = expect(p, "load")
+    t = advance(p)
     n = node("load", t)
-    expect(p, "(")
-    n["module"] = expect(p, "string")["val"]
+    lparen = consume(p, "(")
+    if tok(p) != "string":
+        error_here(p, "first operand of load statement must be a string literal")
+    n["module"] = advance(p)["val"]
     names = []
-    while accept(p, ","):
-        if peek_kind(p) == ")":
+    namepos = []  # of each original name, just inside its quote (as starlark-go)
+    for _ in range(len(p["toks"])):
+        if tok(p) == ")" or tok(p) == "eof":
             break
-        if peek_kind(p) == "string":
-            s = advance(p)["val"]
-            names.append((s, s))
+        consume(p, ",")
+        if tok(p) == ")":
+            break  # trailing comma
+        k = tok(p)
+        if k == "string":
+            st = advance(p)
+            names.append((st["val"], st["val"]))
+            namepos.append((st["line"], st["col"] + 1))
+        elif k == "name":
+            local = parse_ident(p)["val"]
+            if tok(p) != "=":
+                error_here(p, "load operand must be \"" + local + "\" or " + local + "=\"originalname\" (want '=' after " + local + ")")
+            consume(p, "=")
+            if tok(p) != "string":
+                error_here(p, "original name of loaded symbol must be quoted: " + local + "=\"originalname\"")
+            st = advance(p)
+            names.append((local, st["val"]))
+            namepos.append((st["line"], st["col"] + 1))
         else:
-            local = expect(p, "name")["val"]
-            expect(p, "=")
-            names.append((local, expect(p, "string")["val"]))
-    expect(p, ")")
+            error_here(p, "load operand must be \"name\" or localname=\"name\" (got " + token_name(k) + ")")
+    consume(p, ")")
+    if not names:
+        error_at(p, lparen, "load statement must import at least 1 symbol")
     n["names"] = names
+    n["namepos"] = namepos
     return n
 
-def check_target(p, x, augmented):
-    k = x["kind"]
-    if k == "name" or k == "index" or k == "slice" or k == "dot":
-        if k == "slice":
-            fail(p["file"] + ":" + str(x["pos"][0]) + ":" + str(x["pos"][1]) + ": cannot assign to a slice")
-        return
-    if (k == "tuple" or k == "list") and not augmented:
-        for e in x["elems"]:
-            check_target(p, e, False)
-        return
-    fail(p["file"] + ":" + str(x["pos"][0]) + ":" + str(x["pos"][1]) + ": cannot assign to this expression")
-
-def parse_loop_vars(p):
-    """for x, y in ...: parses primary expressions separated by commas."""
-    t = peek(p)
-    first = parse_primary(p)
-    if peek_kind(p) != ",":
-        check_target(p, first, False)
-        return first
-    elems = [first]
-    while accept(p, ","):
-        if peek_kind(p) == "in":
-            break
-        elems.append(parse_primary(p))
-    n = node("tuple", t)
-    n["elems"] = elems
-    check_target(p, n, False)
-    return n
+def parse_ident(p):
+    if tok(p) != "name":
+        error_here(p, "not an identifier")
+    return advance(p)
 
 # ---------------------------------------------------------------- expressions
 
-def parse_expr(p):
-    """Expression = Test {',' Test} [','] — a bare tuple if there are commas."""
+def parse_expr(p, in_parens):
+    """Test {',' Test}: a tuple if there are commas; a trailing comma only
+    in parentheses."""
     t = peek(p)
     x = parse_test(p)
-    if peek_kind(p) != ",":
+    if tok(p) != ",":
         return x
-    elems = [x]
-    while accept(p, ","):
-        if not starts_test(peek_kind(p)):
-            break
-        elems.append(parse_test(p))
     n = node("tuple", t)
-    n["elems"] = elems
+    n["elems"] = parse_exprs(p, [x], in_parens)
     return n
 
-def starts_test(k):
-    return k in ("name", "int", "float", "string", "bytes", "(", "[", "{", "-", "+", "~", "not", "lambda")
+def parse_exprs(p, elems, allow_trailing_comma):
+    for _ in range(len(p["toks"])):
+        if tok(p) != ",":
+            break
+        comma = advance(p)
+        if EXPR_LIST_END.get(tok(p), False):
+            if not allow_trailing_comma:
+                error_at(p, comma, "unparenthesized tuple with trailing comma")
+            break
+        elems.append(parse_test(p))
+    return elems
 
 def parse_test(p):
     t = peek(p)
     if t["kind"] == "lambda":
-        advance(p)
-        n = node("lambda", t)
-        n["params"] = parse_params(p, ":")
-        expect(p, ":")
-        n["body"] = parse_test(p)
-        return n
-    x = parse_binary(p, 1)
-    if peek_kind(p) == "if":
+        return parse_lambda(p, True)
+    x = parse_test_prec(p, 0)
+    if tok(p) == "if":
+        iftok = advance(p)
+        test = parse_test_prec(p, 0)
+        if tok(p) != "else":
+            error_at(p, iftok, "conditional expression without else clause")
         advance(p)
         n = node("cond", t)
         n["then"] = x
-        n["test"] = parse_binary(p, 1)
-        expect(p, "else")
+        n["test"] = test
         n["else_"] = parse_test(p)
         return n
     return x
 
-def peek_binop(p):
-    k = peek_kind(p)
-    if k == "not" and peek2_kind(p) == "in":
-        return "not in"
-    if BINOP_PREC.get(k) != None:
-        return k
-    return None
+def parse_test_nocond(p):
+    """A test without an unparenthesized conditional (parseTestNoCond), as
+    after a comprehension's "if"."""
+    if tok(p) == "lambda":
+        return parse_lambda(p, False)
+    return parse_test_prec(p, 0)
 
-def parse_binary(p, minprec):
-    t = peek(p)
-    if minprec <= 3 and t["kind"] == "not":
-        advance(p)
-        x = node("unop", t)
-        x["op"] = "not"
-        x["x"] = parse_binary(p, 3)
-    else:
-        x = parse_unary(p)
-    while True:
-        op = peek_binop(p)
-        if op == None:
-            return x
-        prec = BINOP_PREC[op]
-        if prec < minprec:
-            return x
-        optok = advance(p)
-        if op == "not in":
-            optok = advance(p)  # starlark-go reports `not in` at the `in`
-        y = parse_binary(p, prec + 1)
-        n = node("binop", optok)
-        n["op"] = op
-        n["x"] = x
-        n["y"] = y
-        x = n
-        if prec == 4:
-            nxt = peek_binop(p)
-            if nxt != None and BINOP_PREC[nxt] == 4:
-                error_at(p, peek(p), "comparison operators are not associative; use parentheses")
+def parse_lambda(p, allow_cond):
+    """lambda params: body; without allow_cond the body may not be an
+    unparenthesized conditional."""
+    t = advance(p)
+    n = node("lambda", t)
+    n["params"] = [] if tok(p) == ":" else parse_params(p)
+    consume(p, ":")
+    n["body"] = parse_test(p) if allow_cond else parse_test_nocond(p)
+    return n
 
-def parse_unary(p):
+def parse_test_prec(p, prec):
+    if prec >= NUM_PREC:
+        return parse_primary_with_suffix(p)
     t = peek(p)
-    k = t["kind"]
-    if k == "-" or k == "+" or k == "~":
+    if t["kind"] == "not" and prec == 2:
         advance(p)
         n = node("unop", t)
-        n["op"] = k
-        n["x"] = parse_unary(p)
+        n["op"] = "not"
+        n["x"] = parse_test_prec(p, prec)
         return n
-    return parse_primary(p)
+    return parse_binop_expr(p, prec)
 
-def parse_primary(p):
-    x = parse_operand(p)
-    while True:
+def parse_binop_expr(p, prec):
+    x = parse_test_prec(p, prec + 1)
+    first = True
+    for _ in range(len(p["toks"])):
+        if tok(p) == "not":
+            advance(p)
+            if tok(p) != "in":
+                error_here(p, "got " + token_name(tok(p)) + ", want in")
+            peek(p)["kind"] = "not in"  # the "in" is the operator "not in" now
+        op = tok(p)
+        opprec = PREC.get(op, -1)
+        if opprec < prec:
+            return x
+        if not first and opprec == 3:
+            error_here(p, x["op"] + " does not associate with " + op + " (use parens)")
+        optok = advance(p)
+        n = node("binop", optok)  # at the operator ("in" of "not in"), as starlark-go
+        n["op"] = op
+        n["x"] = x
+        n["y"] = parse_test_prec(p, opprec + 1)
+        x = n
+        first = False
+    return x
+
+def parse_primary_with_suffix(p):
+    x = parse_primary(p)
+    for _ in range(len(p["toks"])):
         t = peek(p)
         k = t["kind"]
         if k == ".":
             advance(p)
             n = node("dot", t)
             n["x"] = x
-            n["name"] = expect(p, "name")["val"]
+            n["name"] = parse_ident(p)["val"]
             x = n
+        elif k == "[":
+            x = parse_slice_suffix(p, x)
         elif k == "(":
             advance(p)
             n = node("call", t)
             n["pos"] = x["pos"]  # compile errors point at the callee...
             n["lparen"] = pos(t)  # ...runtime errors at the "(" (as starlark-go)
             n["fn"] = x
-            n["args"] = parse_args(p)
-            expect(p, ")")
+            n["args"] = []
+            if tok(p) == ")":
+                advance(p)
+            else:
+                n["args"] = parse_args(p)
+                consume(p, ")")
             x = n
-        elif k == "[":
-            advance(p)
-            x = parse_subscript(p, x, t)
-            expect(p, "]")
         else:
             return x
+    return x
 
-def parse_args(p):
-    args = []
-    while peek_kind(p) != ")":
-        t = peek(p)
-        if accept(p, "*"):
-            args.append({"name": None, "star": "*", "value": parse_test(p), "pos": pos(t)})
-        elif accept(p, "**"):
-            args.append({"name": None, "star": "**", "value": parse_test(p), "pos": pos(t)})
-        elif t["kind"] == "name" and peek2_kind(p) == "=":
-            advance(p)
-            advance(p)
-            args.append({"name": t["val"], "star": "", "value": parse_test(p), "pos": pos(t)})
-        else:
-            args.append({"name": None, "star": "", "value": parse_test(p), "pos": pos(t)})
-        if not accept(p, ","):
-            break
-    return args
-
-def parse_subscript(p, x, t):
+def parse_slice_suffix(p, x):
+    t = advance(p)  # "["
     lo = None
-    if peek_kind(p) != ":":
-        lo = parse_test(p)
-        if peek_kind(p) != ":":
-            if peek_kind(p) == ",":  # x[a, b] indexes with a tuple
-                elems = [lo]
-                while accept(p, ","):
-                    if peek_kind(p) == "]":
-                        break
-                    elems.append(parse_test(p))
-                lo = node("tuple", t)
-                lo["elems"] = elems
+    if tok(p) != ":":
+        y = parse_expr(p, False)  # x[a, b] indexes with a tuple; x[a, b:] slices from one
+        if tok(p) == "]":
+            advance(p)
             n = node("index", t)
             n["x"] = x
-            n["i"] = lo
+            n["i"] = y
             return n
+        lo = y
     n = node("slice", t)
     n["x"] = x
     n["lo"] = lo
     n["hi"] = None
     n["step"] = None
-    expect(p, ":")
-    if peek_kind(p) != ":" and peek_kind(p) != "]":
-        n["hi"] = parse_test(p)
-    if accept(p, ":"):
-        if peek_kind(p) != "]":
+    if tok(p) == ":":
+        advance(p)
+        if tok(p) != ":" and tok(p) != "]":
+            n["hi"] = parse_test(p)
+    if tok(p) == ":":
+        advance(p)
+        if tok(p) != "]":
             n["step"] = parse_test(p)
+    consume(p, "]")
     return n
 
-def parse_operand(p):
+def parse_args(p):
+    args = []
+    for _ in range(len(p["toks"])):
+        if tok(p) == ")" or tok(p) == "eof":
+            break
+        if args:
+            consume(p, ",")
+        if tok(p) == ")":
+            break
+        t = peek(p)
+        if t["kind"] == "*" or t["kind"] == "**":
+            advance(p)
+            args.append({"name": None, "star": t["kind"], "value": parse_test(p), "pos": pos(t)})
+            continue
+        x = parse_test(p)
+        if tok(p) == "=":
+            if x["kind"] != "name":
+                error_here(p, "keyword argument must have form name=expr")
+            advance(p)
+            args.append({"name": x["id"], "star": "", "value": parse_test(p), "pos": pos(t)})
+            continue
+        args.append({"name": None, "star": "", "value": x, "pos": pos(t)})
+    return args
+
+def parse_primary(p):
     t = peek(p)
     k = t["kind"]
     if k == "name":
@@ -483,87 +539,105 @@ def parse_operand(p):
         n = node(k, t)
         n["val"] = t["val"]
         return n
+    if k == "[":
+        return parse_list(p)
+    if k == "{":
+        return parse_dict(p)
     if k == "(":
         advance(p)
-        if accept(p, ")"):
+        if tok(p) == ")":
+            advance(p)
             n = node("tuple", t)
             n["elems"] = []
             return n
-        x = parse_test(p)
-        if peek_kind(p) == ",":
-            elems = [x]
-            while accept(p, ","):
-                if peek_kind(p) == ")":
-                    break
-                elems.append(parse_test(p))
-            x = node("tuple", t)
-            x["elems"] = elems
-        expect(p, ")")
+        x = parse_expr(p, True)
+        if x["kind"] == "tuple":
+            x["pos"] = pos(t)  # a parenthesized tuple is at its "("
+            x["paren"] = True
+        consume(p, ")")
         return x
-    if k == "[":
+    if k == "-" or k == "+" or k == "~":
         advance(p)
-        if accept(p, "]"):
-            n = node("list", t)
-            n["elems"] = []
-            return n
-        x = parse_test(p)
-        if peek_kind(p) == "for":
-            n = node("comp", t)
-            n["comp"] = "list"
-            n["body"] = x
-            n["clauses"] = parse_comp_clauses(p)
-            expect(p, "]")
-            return n
-        elems = [x]
-        while accept(p, ","):
-            if peek_kind(p) == "]":
-                break
-            elems.append(parse_test(p))
-        expect(p, "]")
-        n = node("list", t)
-        n["elems"] = elems
+        n = node("unop", t)
+        n["op"] = k
+        n["x"] = parse_primary_with_suffix(p)
         return n
-    if k == "{":
-        advance(p)
-        if accept(p, "}"):
-            n = node("dict", t)
-            n["entries"] = []
-            n["colons"] = []
-            return n
-        key = parse_test(p)
-        colon = expect(p, ":")
-        val = parse_test(p)
-        if peek_kind(p) == "for":
-            n = node("comp", t)
-            n["comp"] = "dict"
-            n["body"] = (key, val)
-            n["clauses"] = parse_comp_clauses(p)
-            expect(p, "}")
-            return n
-        entries = [(key, val)]
-        colons = [pos(colon)]  # runtime errors for an entry point at its ":"
-        while accept(p, ","):
-            if peek_kind(p) == "}":
-                break
-            k2 = parse_test(p)
-            colons.append(pos(expect(p, ":")))
-            entries.append((k2, parse_test(p)))
-        expect(p, "}")
-        n = node("dict", t)
-        n["entries"] = entries
-        n["colons"] = colons
-        return n
-    error_at(p, t, "got " + describe(t) + ", want primary expression")
+    error_at(p, t, "got " + token_name(k) + ", want primary expression")
 
-def parse_comp_clauses(p):
+def parse_list(p):
+    t = advance(p)
+    if tok(p) == "]":
+        advance(p)
+        n = node("list", t)
+        n["elems"] = []
+        return n
+    x = parse_test(p)
+    if tok(p) == "for":
+        n = node("comp", t)
+        n["comp"] = "list"
+        n["body"] = x
+        n["clauses"] = parse_comp_clauses(p, "]")
+        return n
+    elems = [x]
+    if tok(p) == ",":
+        parse_exprs(p, elems, True)
+    consume(p, "]")
+    n = node("list", t)
+    n["elems"] = elems
+    return n
+
+def parse_dict(p):
+    t = advance(p)
+    if tok(p) == "}":
+        advance(p)
+        n = node("dict", t)
+        n["entries"] = []
+        n["colons"] = []
+        return n
+    key = parse_test(p)
+    colon = consume(p, ":")
+    val = parse_test(p)
+    if tok(p) == "for":
+        n = node("comp", t)
+        n["comp"] = "dict"
+        n["body"] = (key, val)
+        n["colon"] = pos(colon)  # where errors setting an entry point
+        n["clauses"] = parse_comp_clauses(p, "}")
+        return n
+    entries = [(key, val)]
+    colons = [pos(colon)]  # runtime errors for an entry point at its ":"
+    for _ in range(len(p["toks"])):
+        if tok(p) != ",":
+            break
+        advance(p)
+        if tok(p) == "}":
+            break
+        k2 = parse_test(p)
+        colons.append(pos(consume(p, ":")))
+        entries.append((k2, parse_test(p)))
+    consume(p, "}")
+    n = node("dict", t)
+    n["entries"] = entries
+    n["colons"] = colons
+    return n
+
+def parse_comp_clauses(p, end):
+    """The for/if clauses of a comprehension, and its closing bracket."""
     clauses = []
-    while True:
+    for _ in range(len(p["toks"])):
         t = peek(p)
-        if accept(p, "for"):
-            target = parse_loop_vars(p)
-            expect(p, "in")
-            clauses.append({"kind": "for", "target": target, "iter": parse_binary(p, 1), "pos": pos(t)})
-        elif accept(p, "if"):
-            clauses.append({"kind": "if", "test": parse_binary(p, 1), "pos": pos(t)})
+        k = t["kind"]
+        if k == end:
+            break
+        if k == "for":
+            advance(p)
+            target = parse_for_loop_vars(p)
+            consume(p, "in")
+            clauses.append({"kind": "for", "target": target, "iter": parse_test_prec(p, 0), "pos": pos(t)})
+        elif k == "if":
+            advance(p)
+            clauses.append({"kind": "if", "test": parse_test_nocond(p), "pos": pos(t)})
         else:
-            return clauses
+            error_here(p, "got " + token_name(k) + ", want '" + end + "', for, or if")
+    advance(p)
+    return clauses

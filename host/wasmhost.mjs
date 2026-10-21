@@ -135,7 +135,7 @@ class StarlarkError extends Error {}
 // V8 reports each Wasm frame as wasm-function[index]:0xOFFSET, where OFFSET
 // is the call instruction being executed in that frame; the marker at that
 // offset gives the Starlark position.
-Error.stackTraceLimit = 10000;
+Error.stackTraceLimit = 200000; // starlark-go tracebacks can be 100,000 frames deep
 
 const debugCache = new WeakMap();
 

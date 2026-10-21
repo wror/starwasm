@@ -1998,6 +1998,13 @@ def _dicts(m):
         ),
     ])
 
+    # d[k] = v for a dict literal: a key may not repeat ("duplicate key: k")
+    add_func(m, "rt_dict_set_uniq", [("d", DICT), ("k", V), ("v", V)], [], locals = [("n", I32)], body = [
+        set("n", F("len")),
+        call("rt_dict_set", d, get("k"), get("v")),
+        if_(op("i32.eq", F("len"), get("n")), call("rt_fail", call("rt_str_concat", S(m, "duplicate key: "), call("rt_repr", get("k"))))),
+    ])
+
     # a | b for dicts: a fresh dict with a's entries, then b's (as
     # starlark-go's Dict.Union).
     add_func(m, "rt_dict_union", [("a", DICT), ("b", DICT)], [V], locals = [("r", DICT), ("x", DICT), ("i", I32), ("k", V)], body = [

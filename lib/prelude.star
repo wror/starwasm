@@ -810,6 +810,9 @@ def _m_remove(l, x):
             _error("remove: cannot delete from frozen hash table")
         if _iterating(l):
             _error("remove: cannot delete from hash table during iteration")
+        u = _unhashable(x)
+        if u != None:
+            _error("remove: unhashable type: " + u)
         d = _set_dict(l)
         if x not in d:
             _error("remove: missing key")
@@ -847,6 +850,8 @@ def _m_clear(x):
             x.pop(k)
         return None
     if type(x) == "set":
+        if len(x) == 0:
+            return None  # starlark-go: nothing to clear, even if frozen
         if _frozen(x):
             _error("clear: cannot clear frozen hash table")
         if _iterating(x):
@@ -859,12 +864,22 @@ def _m_clear(x):
 
 def _m_update(d, *args, **kwargs):
     if type(d) == "set":
-        if _frozen(d):
-            _error("update: cannot insert into frozen hash table")
-        if _iterating(d):
-            _error("update: cannot insert into hash table during iteration")
+        if kwargs:
+            _error("update: does not accept keyword arguments")
+        # as starlark-go: mutability is checked for each element inserted
+        sd = _set_dict(d)
         for i, a in enumerate(args):
-            _set_add_all("update", _set_dict(d), a, i)
+            if not _is_iterable(a):
+                _error("update: argument #" + str(i + 1) + " is not iterable: " + type(a))
+            for x in a:
+                if _frozen(d):
+                    _error("update: cannot insert into frozen hash table")
+                if _iterating(d):
+                    _error("update: cannot insert into hash table during iteration")
+                u = _unhashable(x)
+                if u != None:
+                    _error("update: unhashable type: " + u)
+                sd[x] = None
         return None
     if type(d) != "dict":
         _no_attr(d, "update")
@@ -962,6 +977,9 @@ def _m_discard(s, x):
         _error("discard: cannot delete from frozen hash table")
     if _iterating(s):
         _error("discard: cannot delete from hash table during iteration")
+    u = _unhashable(x)
+    if u != None:
+        _error("discard: unhashable type: " + u)
     d = _set_dict(s)
     if x in d:
         d.pop(x)

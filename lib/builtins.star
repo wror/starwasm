@@ -177,8 +177,10 @@ def _misc(m):
 
     # x += y: lists are extended in place; everything else is x = x + y.
     add_func(m, "rt_iadd", P, [V], [
-        if_(is_("List", a), [
-            if_(op("i32.shr_u", field("List", "frozen", as_("List", a)), i32(1)), fail_(m, "cannot apply += to list during iteration")),
+        # as starlark-go: only an iterable y extends x in place (else x + y,
+        # e.g. "unknown binary op: list + int")
+        if_(and_(is_("List", a), or_(or_(or_(is_("List", b), is_("Tuple", b)), or_(is_("Dict", b), is_("Set", b))), or_(is_("Range", b), is_("Lazy", b)))), [
+            check_mutable(m, field("List", "frozen", as_("List", a)), "cannot apply += to frozen list", "cannot apply += to list during iteration"),
             call("rt_list_extend", as_("List", a), b),
             ret(a),
         ]),
@@ -1318,7 +1320,8 @@ def _intrinsics(m):
     # _to_bytes(x): a string's bytes, or a list of ints 0..255 (checked by
     # the caller, lib/prelude.star's bytes()) as bytes
     add_func(m, "rt_to_bytes", [("x", V)], [V], locals = [("t", VALS), ("a", U8A), ("i", I32)], body = [
-        if_(is_("Str", get("x")), ret(str_bytes(as_("Str", get("x"))))),
+        # bytes(string): invalid UTF-8 becomes U+FFFD's encoding (starlark-go)
+        if_(is_("Str", get("x")), ret(str_bytes(call("rt_bytes_str", field("Str", "b", as_("Str", get("x"))))))),
         set("t", _items(call("rt_iter", get("x")))),
         set("a", arr_new_default("U8", arr_len(get("t")))),
         for_i32("i", i32(0), arr_len(get("t")), [
@@ -1480,8 +1483,8 @@ def _methods(m):
             if_(eqz(is_null(a)), call("rt_fail", call("rt_str_concat", call("rt_str_concat", S(m, "pop: got "),
                 call("rt_str", op("ref.i31", select_(is_null(b), i32(1), i32(2), I32)))), S(m, " arguments, want 0")))),
             set("sd", field("Set", "d", as_("Set", x))),
+            if_(eqz(field("Dict", "len", get("sd"))), fail_(m, "pop: empty set")),  # before the frozen check, as starlark-go
             check_mutable(m, field("Dict", "frozen", get("sd")), "pop: cannot delete from frozen hash table", "pop: cannot delete from hash table during iteration"),
-            if_(eqz(field("Dict", "len", get("sd"))), fail_(m, "pop: empty set")),
             set("i", i32(0)),
             while_(is_null(arr_get("Vals", field("Dict", "keys", get("sd")), get("i"))), inc("i"), label = "first"),
             set("v", arr_get("Vals", field("Dict", "keys", get("sd")), get("i"))),
@@ -1620,8 +1623,11 @@ def add_test_builtins(m):
         call("rt_call", get("f"), arr_new_default("Vals", i32(0)), null("eq")),
         "drop",
     ], export = "test_call0")
-    add_func(m, "rt_test_catch", [("f", V)], [V], locals = [("n", I32)], body = [
+    add_func(m, "rt_test_catch", [("f", V)], [V], locals = [("n", I32), ("depth", I32)], body = [
+        # an error skips the uncounting of the calls it unwinds
+        set("depth", gget("call_depth")),
         set("n", call("host_catch", get("f"))),
+        gset("call_depth", get("depth")),
         if_(op("i32.lt_s", get("n"), i32(0)), ret(gget("None"))),
         new("Str", i32(0), call("rt_mem_take", get("n"))),
     ])

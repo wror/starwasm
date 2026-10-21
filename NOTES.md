@@ -37,7 +37,9 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     tests/errors/         programs that fail: stderr must equal starlark-go's
     tests/compile_one.sh  one differential test (compile.sh runs them in parallel)
     tests/repl/           scripted REPL session and its expected transcript
-    tests/compile_errors/ "# error: <text>" first line; compile must fail so
+    tests/compile_errors/ "# error: <text>" first line; compile must fail so;
+                          when starlark-go rejects the file statically too,
+                          the message must be exactly starlark-go's
     tests/selfhost/       compiled front end vs interpreted, on every .star file
     tests/upstream/       starlark-go's own test files (testdata/*.star) run
                           against starwasm; see tests/upstream/README.md
@@ -503,10 +505,51 @@ chunk fails only when starwasm differs from the second. The assert module
 (tests/upstream/assert.star) needs five test-only builtins (test_catch,
 test_error, ...), visible only with `compiler/main.star --test`; normal
 compiles, and the bootstrap, are unchanged. known_failures.txt lists what
-starwasm fails today, with reasons; that list is the to-do list for
-starlark-go parity.
+starwasm fails today, with reasons (now empty: every chunk that can pass
+does; see tests/upstream/README.md for the verdicts that aren't failures).
 
-- `assert` is no longer a reserved word: starlark-go accepts it as a name.
+Parity fixes these tests led to (milestone 18):
+
+- Lexer/parser: `assert` is not reserved; tabs in indentation are allowed;
+  `a, b, = ...` and `x = 1, 2,` are errors ("unparenthesized tuple with
+  trailing comma"); `x[1, 2:]`; a lambda as a comprehension's `if`
+  condition (its body may not be an unparenthesized conditional);
+  `load("m")` with no names is an error.
+- Resolver: call argument order (positional, named once each, *args,
+  **kwargs) as starlark-go's messages; a loaded name may be rebound with
+  GlobalReassign (tests/compile/load_rebind.star). Top-level names resolve
+  in source order, as starlark-go with GlobalReassign: a use before the
+  first binding means the builtin of that name, or "undefined: x"
+  (tests/compile/toplevel_order.star). Spelling hints ("did you mean")
+  come from compiler/spell.star, a port of starlark-go's internal/spell.
+- Runtime: dict literals reject duplicate keys; dict | dict; bools are
+  ordered; ord(bytes); bytes() of a string with invalid UTF-8; chr() and
+  repeat-count messages; set.update rejects keywords; method-prefixed
+  messages (discard:, ...); clear() of an empty frozen set; `x += y` for a
+  list x extends it only for an iterable y (else x + y), and a frozen x
+  says "cannot apply += to frozen list".
+- The lexer and parser are ports of starlark-go's scanner and parser
+  (scan.go, quote.go, parse.go): the same tokens, grammar, messages and
+  positions (most syntax errors are reported just after the lookahead
+  token, so tokens carry their end as eline/ecol). Columns count code
+  points, not bytes, which also fixes runtime traceback columns on lines
+  with non-ASCII text (tests/errors/utf8_column.star). Reserved words are
+  tokens no rule accepts ("got class, want primary expression"); a file
+  not ending in a newline has no newline token. Assignment targets and
+  parameter lists are checked by resolve.star with starlark-go's resolver
+  messages ("can't assign to callexpr", "duplicate parameter: a", ...), so
+  a parse error anywhere in the file wins, as in starlark-go. Every
+  tests/compile_errors file that starlark-go rejects statically gets its
+  exact message (tests/compile_errors.sh checks); the upstream syntax and
+  resolver chunks have no wording differences left.
+- Calls nest at most 100,000 deep (counting the top level), then fail with
+  "Starlark stack overflow", as starlark-go. Every non-prelude function
+  counts itself in the call_depth global on entry and uncounts on return;
+  test_catch restores the count. host/run.mjs runs the module in a worker
+  thread with a 256 MB stack so V8 has room for that depth, and the host
+  keeps up to 200,000 traceback frames (tests/errors/stack_overflow.star
+  matches starlark-go's 100,003-line traceback byte for byte). The REPL
+  still runs on the main thread's stack.
 
 ## Gotchas learned
 
@@ -592,6 +635,9 @@ starlark-go parity.
 17. [x] starlark-go's own test files run against starwasm
        (tests/upstream/): 182 chunks, failures listed with reasons in
        tests/upstream/known_failures.txt.
+18. [x] Every upstream chunk that can pass does (143 pass, 9 first-error,
+       3 compile-time, 26 dialect, 1 n/a); fixes listed under
+       "starlark-go's own tests". Static errors identical to starlark-go's.
 
 Possible next steps: performance (unboxed int fast
 paths in codegen, static calls to nested defs, avoiding rt_iter snapshots);

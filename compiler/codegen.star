@@ -210,6 +210,10 @@ CONSTANTS = {"None": "None", "True": "True", "False": "False", "argv": "argv"}
 
 MAX_I64 = 9223372036854775807
 
+# starlark-go fails a call with "Starlark stack overflow" when the thread's
+# stack already holds this many frames (counting the module's top level).
+MAX_CALL_DEPTH = 100000
+
 # ---------------------------------------------------------------- errors
 
 def cerr(mc, posn, msg):
@@ -228,6 +232,7 @@ def new_fc(name, fscope, has_env):
         "scopes": [],  # active comprehension scopes, innermost last
         "loops": 0,
         "iters": [],  # loop_setup infos of the enclosing for loops (for return)
+        "depth": False,  # counts itself in call_depth (see gen_function)
     }
 
 def temp(fc, typ):
@@ -239,7 +244,7 @@ def temp(fc, typ):
 def cell_local(name):
     return "%cell." + name
 
-def lookup(mc, fc, name, posn):
+def lookup(mc, fc, name, posn, early = None):
     """Resolve a name for reading. Returns (kind, x):
       scope   comprehension variable, x = Wasm local (always bound)
       param   function parameter, x = Wasm local (always bound)
@@ -249,7 +254,10 @@ def lookup(mc, fc, name, posn):
       func    top-level def, x = name
       global  module variable, x = Wasm global
       const   predeclared value, x = Wasm global
-      builtin builtin function, x = name"""
+      builtin builtin function, x = name
+    early: for a top-level use before any binding of the name
+    (resolve.star), the top-level names bound so far: module variables
+    don't count yet."""
     scopes = fc["scopes"]
     for i in range(len(scopes) - 1, -1, -1):
         w = scopes[i]["wasm"].get(name)
@@ -267,7 +275,7 @@ def lookup(mc, fc, name, posn):
         idx = fs["free_index"].get(name)
         if idx != None:
             return ("free", idx)
-    r = lookup_module(mc, mc["mod"], name)
+    r = None if early != None else lookup_module(mc, mc["mod"], name)
     if r != None:
         return r
     if CONSTANTS.get(name) != None:
@@ -278,7 +286,7 @@ def lookup(mc, fc, name, posn):
         return ("func", pre["funcs"][name])  # a builtin written in Starlark
     if BUILTINS.get(name) != None and (in_prelude or not name.startswith("_")) and (mc["test"] or not TEST_BUILTINS.get(name, False)):
         return ("builtin", name)
-    cerr(mc, posn, "undefined: " + name + spell_hint(name, visible_names(mc, fc)))
+    cerr(mc, posn, "undefined: " + name + spell_hint(name, early if early != None else visible_names(mc, fc)))
 
 def spell_hint(name, names):
     """ " (did you mean x?)" for the name nearest to name, or ""."""
@@ -415,7 +423,8 @@ def gen(mc, fc, e):
         d = temp(fc, V)
         code = [set(d, call("rt_dict_new"))]
         for i, (key, val) in enumerate(e["entries"]):
-            code.append(callat(mc, e["colons"][i], "rt_dict_set", as_("Dict", get(d)), gen(mc, fc, key), gen(mc, fc, val)))
+            # a repeated key is an error, as in starlark-go (SETDICTUNIQ)
+            code.append(callat(mc, e["colons"][i], "rt_dict_set_uniq", as_("Dict", get(d)), gen(mc, fc, key), gen(mc, fc, val)))
         code.append(get(d))
         return code
     if k == "binop":
@@ -481,10 +490,12 @@ def float_const(mc, text):
 def gen_name(mc, fc, e):
     m = mc["m"]
     name = e["id"]
-    kind, w = lookup(mc, fc, name, e["pos"])
+    kind, w = lookup(mc, fc, name, e["pos"], e.get("early"))
     if kind == "scope" or kind == "param":
         return get(w)
     posn = e["pos"]
+    if kind == "scope_u":  # a comprehension variable not bound yet
+        return checked(mc, get(w), "local", name, posn)
     if kind == "local":
         return checked(mc, get(w), "local", name, posn)
     if kind == "cell":
@@ -1038,27 +1049,8 @@ def prelude_kind(fdef):
         return 2
     return 1
 
-def check_params(mc, params):
-    seen = {}
-    star = False
-    dstar = False
-    for p in params:
-        if dstar:
-            cerr(mc, p["pos"], "**kwargs must be the last parameter")
-        if p["star"] == "*":
-            if star:
-                cerr(mc, p["pos"], "multiple * parameters")
-            star = True
-        if p["star"] == "**":
-            dstar = True
-        if p["name"] != None:
-            if seen.get(p["name"]):
-                cerr(mc, p["pos"], "duplicate parameter " + p["name"])
-            seen[p["name"]] = True
-
 def gen_function(mc, node, wasm_name, has_env, is_lambda):
     """Compile the body of a def or lambda as Wasm function wasm_name."""
-    check_params(mc, node["params"])
     fs = node["scope"]
     fc = new_fc(wasm_name, fs, has_env)
     params = []
@@ -1081,11 +1073,32 @@ def gen_function(mc, node, wasm_name, has_env, is_lambda):
     # Argument-binding errors are reported in the callee's frame, at its
     # first instruction (as starlark-go does).
     node["entry_tag"] = at(mc, first_pos(mc, fc, node))[1]
+    # Call depth, as starlark-go's limit (MAX_CALL_DEPTH): counted on entry,
+    # uncounted on every way out but an error (which ends the program, or
+    # is caught by test_catch, which restores the count).
+    if not hidden:
+        fc["depth"] = True
+        prologue.append([
+            gset("call_depth", op("i32.add", gget("call_depth"), i32(1))),
+            if_(op("i32.gt_s", gget("call_depth"), i32(MAX_CALL_DEPTH)), [
+                S(mc["m"], "Starlark stack overflow"),
+                at(mc, first_pos(mc, fc, node)),
+                call("rt_fail"),
+                "unreachable",
+            ]),
+        ])
     if is_lambda:
-        body = gen(mc, fc, node["body"])
+        t = temp(fc, V)
+        body = [set(t, gen(mc, fc, node["body"])), depth_leave(fc), get(t)]
     else:
-        body = [gen_block(mc, fc, node["body"]), NONE]
+        body = [gen_block(mc, fc, node["body"]), depth_leave(fc), NONE]
     add_func(mc["m"], wasm_name, params, [V], [prologue, body], locals = fc["wlocals"])
+
+def depth_leave(fc):
+    """Code that uncounts this call in call_depth, if it counts."""
+    if not fc["depth"]:
+        return []
+    return gset("call_depth", op("i32.sub", gget("call_depth"), i32(1)))
 
 def first_pos(mc, fc, node):
     """Position starlark-go gives a function's first instruction: the first
@@ -1354,8 +1367,11 @@ def gen_comp(mc, fc, e):
             cs["wasm"][name] = ("cell", w)
             cells.append(set(w, new("Cell", null("eq"))))
         else:
+            # unbound until its for clause binds it ("scope_u": reads are
+            # checked); reset each time the comprehension runs
             fc["wlocals"].append((w, V))
-            cs["wasm"][name] = ("scope", w)
+            cs["wasm"][name] = ("scope_u", w)
+            cells.append(set(w, null("eq")))
     code = [set(res, init), cells, gen_clauses(mc, fc, e, 0, res), get(res)]
     fc["scopes"].pop()
     return code
@@ -1366,13 +1382,20 @@ def gen_clauses(mc, fc, e, i, res):
         if e["comp"] == "list":
             return call("rt_list_append", as_("List", get(res)), gen(mc, fc, e["body"]))
         k, v = e["body"]
-        return call("rt_dict_set", as_("Dict", get(res)), gen(mc, fc, k), gen(mc, fc, v))
+        return callat(mc, e["colon"], "rt_dict_set", as_("Dict", get(res)), gen(mc, fc, k), gen(mc, fc, v))
     c = clauses[i]
     if c["kind"] == "if":
         return if_(gen_cond(mc, fc, c["test"]), gen_clauses(mc, fc, e, i + 1, res))
     info = loop_setup(mc, fc, c["iter"], c["pos"])
     if i == 0:
         fc["scopes"].append(e["scope"])  # the first iterable sees outer bindings only
+    # the target's variables are bound from here on (later clauses, body)
+    names = []
+    target_names(c["target"], names)
+    for n in names:
+        w = e["scope"]["wasm"].get(n)
+        if w != None and w[0] == "scope_u":
+            e["scope"]["wasm"][n] = ("scope", w[1])
     assign_code = gen_assign(mc, fc, c["target"], info["elem"], c["pos"])
     return loop_code(info, assign_code, gen_clauses(mc, fc, e, i + 1, res))
 
@@ -1457,12 +1480,13 @@ def gen_stmt(mc, fc, s):
         # leaving enclosing for loops ends their iterations (after the
         # value is computed, which may not change those iterables either)
         ends = [iter_end(info) for info in reversed(fc["iters"])]
+        leave = depth_leave(fc)
         if s["value"] == None:
-            return [ends, ret(NONE)]
-        if not fc["iters"]:
+            return [ends, leave, ret(NONE)]
+        if not fc["iters"] and not leave:
             return ret(gen(mc, fc, s["value"]))
         t = temp(fc, V)
-        return [set(t, gen(mc, fc, s["value"])), ends, ret(get(t))]
+        return [set(t, gen(mc, fc, s["value"])), ends, leave, ret(get(t))]
     if k == "break" or k == "continue":
         if fc["loops"] == 0:
             cerr(mc, s["pos"], k + " not in a loop")
@@ -1477,7 +1501,15 @@ def gen_stmt(mc, fc, s):
     if k == "load":
         if not fc["is_module"]:
             cerr(mc, s["pos"], "load() must be at the top level")
-        return callat(mc, s["pos"], "init" + str(s["mod"]))  # run the module once; names were bound statically
+        # run the module once; names were bound statically, except those
+        # that are module variables here (see declare_module)
+        code = [callat(mc, s["pos"], "init" + str(s["mod"]))]
+        child = mc["mods"][s["mod"]]
+        for local, remote in s.get("rebind", []):
+            kind, x = lookup_module(mc, child, remote)
+            value = gget("fv_" + x) if kind == "func" else gget(x)
+            code.append(gset(mc["mod"]["globals"][local], value))
+        return code
     cerr(mc, s["pos"], "internal error: unknown statement kind " + k)
 
 def gen_toplevel_def_stmt(mc, fc, s):
@@ -1579,13 +1611,46 @@ def discover(mc, path, src):
     mc["order"].append(mod)
     return mod
 
+def check_loads(mc, stmts, within):
+    """starlark-go's resolver checks of load statements, in source order:
+    only at the top level (within: "" or "function", "loop", "conditional"),
+    no empty names, no names with leading underscores."""
+    for s in stmts:
+        k = s["kind"]
+        if k == "load":
+            if within != "":
+                cerr(mc, s["pos"], "load statement within a " + within)
+            for i, (_, remote) in enumerate(s["names"]):
+                if remote == "":
+                    cerr(mc, s["namepos"][i], "load: empty identifier")
+                if remote.startswith("_"):
+                    cerr(mc, s["namepos"][i], "load: names with leading underscores are not exported: " + remote)
+        elif k == "def":
+            check_loads(mc, s["body"], "function")
+        elif k == "for" or k == "while":
+            check_loads(mc, s["body"], within or "loop")
+        elif k == "if":
+            check_loads(mc, s["body"], within or "conditional")
+            check_loads(mc, s["else_"], within or "conditional")
+
 def declare_module(mc, mod):
     """Module-level symbols of mod: its defs, globals and loaded names."""
     m = mc["m"]
     mc["mod"] = mod
     mc["file"] = mod["path"]
     stmts = mod["stmts"]
-    resolve_module(stmts)
+    check_loads(mc, stmts, "")
+    resolve_module(stmts, mod["path"])
+    bound = {}
+    collect_bindings(stmts, bound)
+    # A loaded name is normally an alias for the other module's symbol. One
+    # that is also assigned, or loaded twice, is a module variable instead,
+    # set by each load (bin/starhost allows reassigning it, globalreassign).
+    nloads = {}
+    for s in stmts:
+        if s["kind"] == "load":
+            for local, _ in s["names"]:
+                nloads[local] = nloads.get(local, 0) + 1
     for s in stmts:
         if s["kind"] == "def":
             if mod["funcs"].get(s["name"]) != None:
@@ -1601,20 +1666,23 @@ def declare_module(mc, mod):
         elif s["kind"] == "load":
             child = mc["mods"][s["mod"]]
             for local, remote in s["names"]:
-                if remote.startswith("_"):
-                    cerr(mc, s["pos"], "load: names with leading underscores are not exported: " + remote)
                 if lookup_module(mc, child, remote) == None:
                     cerr(mc, s["pos"], "load: name " + remote + " not found in module " + s["module"] +
                          spell_hint(remote, list(child["funcs"].keys()) + list(child["globals"].keys())))
-                if mod["funcs"].get(local) != None or mod["aliases"].get(local) != None:
+                if mod["funcs"].get(local) != None:
                     cerr(mc, s["pos"], "load: " + local + " is already defined")
-                mod["aliases"][local] = (child["id"], remote)
-    bound = {}
-    collect_bindings(stmts, bound)
+                if nloads[local] > 1 or bound.get(local) != None:
+                    s.setdefault("rebind", []).append((local, remote))
+                    if mod["globals"].get(local) == None:
+                        g = "g_" + qualify(mod, local)
+                        mod["globals"][local] = g
+                        add_global(m, g, V, True, [null("eq")])
+                else:
+                    mod["aliases"][local] = (child["id"], remote)
     for name in bound:
         if mod["funcs"].get(name) == None:
-            if mod["aliases"].get(name) != None:
-                cerr(mc, bound[name], "cannot reassign " + name + ", which was loaded from another module")
+            if mod["globals"].get(name) != None:
+                continue  # a loaded name that is reassigned (see above)
             g = "g_" + qualify(mod, name)
             mod["globals"][name] = g
             add_global(m, g, V, True, [null("eq")])
@@ -1824,6 +1892,7 @@ def compile_program(src, filename, test = False):
     for mod in mc["order"]:
         compile_module_init(mc, mod)
     add_global(m, "argv", V, True, [null("eq")])
+    add_global(m, "call_depth", I32, True, [i32(1)])  # the top level counts, as in starlark-go
     main_body = [gset("argv", call("rt_argv")), call("init" + str(mc["prelude"]["id"]))]
     if mc["prelude"]["funcs"].get("_attr") != None:
         # the method table for bound methods (after the prelude's defs ran)

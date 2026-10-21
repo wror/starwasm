@@ -4,32 +4,4 @@
 # chunk that passes now (remove it). A single-chunk file stops at its first
 # run-time error, so fixing one may expose more in the same chunk.
 
-# --- run-time errors / semantics (starlark/testdata)
-assign.star:32   [x for _ in [3] for x in x]: "<unbound> value is not iterable", want "local variable x referenced before assignment"
-assign.star:38   load() of a name after reassigning it (globalreassign): compile error "load: assert is already defined"
-assign.star:39   as assign.star:38 (with loadbindsglobally)
-bytes.star:1     bytes(str) with invalid UTF-8 at the end differs; ord(b"a") not supported
-dict.star:1      dict literal duplicate keys not detected; dict(..., a=, **{a:}) message ("dict: duplicate keyword arg")
-dict.star:3      dict literal duplicate key not detected ("duplicate key: \"one\"")
-dict.star:4      unhashable key in a dict comprehension reported at the "for" line, not the key's line
-float.star:1     dict literal duplicate keys not detected ({123.0: .., 123: ..}, {nan: .., nan: ..})
-list.star:1      parser rejects lambda as a comprehension "if" condition: [x for x in l if lambda: None]
-set.star:1       set.update(kw=...) accepted; discard() message lacks "discard: " prefix; clear() of an empty frozen set fails
-recursion.star:1 tab characters in indentation rejected (starlark-go accepts them)
-while.star:1     tab characters in indentation rejected
-
-# --- static checks (resolve/testdata, syntax/testdata)
-resolve.star:15  load() errors reported out of order: load inside a function (line 136) missed; empty name message
-resolve.star:31  call arguments after **kwargs accepted (f(**{}, 1), f(**{}, *[]), ...)
-resolve.star:32  call arguments after *args accepted (f(*[], 1), f(*[], *[]), ...)
-resolve.star:35  use of a global before its definition (globalreassign, as bin/starhost runs): starlark-go "undefined: x" statically
-resolve.star:38  f(a=1, a=1): repeated keyword argument not a static error
-resolve.star:42  load() of a name after reassigning it: "load: x is already defined"
-resolve.star:43  as resolve.star:42 (with loadbindsglobally)
-errors.star:14   tab characters in indentation rejected
-errors.star:15   tab characters in indentation rejected
-errors.star:19   parser rejects lambda as a comprehension "if" condition
-errors.star:30   load("") with no names accepted
-errors.star:46   x[1, 2:] (unparenthesized tuple as the first index) rejected
-errors.star:49   a, b, = 1, 2 (trailing comma in unparenthesized tuple) accepted
-errors.star:50   a, b = 1, 2, (trailing comma in unparenthesized tuple) accepted
+# (none)

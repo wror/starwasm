@@ -1,11 +1,21 @@
-# lexer.star — Starlark source text to tokens.
+# lexer.star — Starlark source text to tokens: a port of starlark-go's
+# scanner (go.starlark.net/syntax/scan.go and quote.go), with the same
+# tokens, error messages and positions.
 #
-# A token is a dict {"kind", "val", "line", "col"}. Kinds:
+# A token is a dict {"kind", "val", "line", "col", "eline", "ecol"}:
+# (line, col) is where it starts; (eline, ecol) is just after it, which is
+# where starlark-go's scanner stands while the token is the parser's
+# lookahead (the position most syntax errors are reported at). Columns
+# count Unicode code points from 1 (a tab counts 1). Kinds:
 #   "name" "int" "string"          val = identifier / int value / string value
 #   "bytes"                         val = list of byte values (b"..." literals)
 #   "float"                         val = the literal's text ("1.5e3")
 #   "newline" "indent" "dedent" "eof"
-#   keywords and operators          kind is the text itself: "def", "+=", "("
+#   keywords, reserved words and operators: kind is the text itself
+#
+# As in starlark-go: blank lines and comments make no tokens; a file not
+# ending in a newline has none before "eof" unless a block is open; newlines
+# inside brackets are ignored.
 #
 # Plain Starlark: the compiler compiles this file too (stage2 runs it).
 
@@ -26,11 +36,8 @@ KEYWORDS = {
     "pass": True,
     "return": True,
     "while": True,
-}
-
-# Python keywords that Starlark reserves. Not "assert": starlark-go accepts
-# it as a name (its test files load an assert module).
-RESERVED = {
+    # reserved words (from Python): tokens of their own, which no rule of
+    # the grammar accepts. Not "assert": starlark-go's tests use the name.
     "as": True,
     "async": True,
     "await": True,
@@ -49,35 +56,10 @@ RESERVED = {
     "yield": True,
 }
 
-OPS3 = {"//=": True, "<<=": True, ">>=": True}
-OPS2 = {
-    "==": True,
-    "!=": True,
-    "<=": True,
-    ">=": True,
-    "//": True,
-    "<<": True,
-    ">>": True,
-    "+=": True,
-    "-=": True,
-    "*=": True,
-    "/=": True,
-    "%=": True,
-    "&=": True,
-    "|=": True,
-    "^=": True,
-    "**": True,
-    "->": True,
-}
-OPS1 = "+-*/%&|^~<>()[]{},:.;="
-OPEN = "([{"
-CLOSE = ")]}"
+# Operators that may be followed by "=" (as starlark-go's scanner).
+EQ_OPS = {"=": True, "<": True, ">": True, "!": True, "+": True, "-": True, "%": True, "/": True, "&": True, "|": True, "^": True}
 
-DIGITS = {
-    "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9,
-    "a": 10, "b": 11, "c": 12, "d": 13, "e": 14, "f": 15,
-    "A": 10, "B": 11, "C": 12, "D": 13, "E": 14, "F": 15,
-}
+HEX = "0123456789abcdefABCDEF"
 
 SIMPLE_ESCAPES = {
     "n": "\n",
@@ -94,36 +76,233 @@ SIMPLE_ESCAPES = {
 
 MAX_INT = 9223372036854775807  # 2^63 - 1, written out: 1 << 63 would overflow
 
-def is_letter(c):
-    return (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or c == "_"
-
 def is_digit(c):
     return c >= "0" and c <= "9"
+
+def is_ascii_ident(c):
+    return (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or c == "_" or (c >= "0" and c <= "9")
+
+# Non-ASCII bytes (any c > "\x7f") are told apart by their values (a
+# Starlark string literal can't hold a lone "\xc0"): byte_at reads them from
+# the source's byte values, listed on first use.
+
+def byte_at(st, i):
+    bv = st["bv"]
+    if bv == None:
+        bv = list(bytes(st["src"]).elems())
+        st["bv"] = bv
+    return bv[i]
+
+def rune_len(st, i):
+    """Bytes in the UTF-8 sequence that starts at non-ASCII byte i."""
+    v = byte_at(st, i)
+    if v < 0xe0:
+        return 2
+    if v < 0xf0:
+        return 3
+    return 4
+
+def is_cont(st, i):
+    """Byte i is a UTF-8 continuation byte: not a code point of its own."""
+    v = byte_at(st, i)
+    return v >= 0x80 and v < 0xc0
 
 def lex_error(st, msg, line, col):
     fail(st["file"] + ":" + str(line) + ":" + str(col) + ": " + msg)
 
+def here_error(st, msg):
+    lex_error(st, msg, st["line"], st["col"])
+
 def emit(st, kind, val, line, col):
-    st["toks"].append({"kind": kind, "val": val, "line": line, "col": col})
+    """A token from (line, col) to where the scanner is now."""
+    st["toks"].append({"kind": kind, "val": val, "line": line, "col": col, "eline": st["line"], "ecol": st["col"]})
 
-def col_of(st, i):
-    return i - st["linestart"] + 1
+def skip_to(st, j):
+    """Move to byte j on the same line, counting code points."""
+    src = st["src"]
+    col = st["col"]
+    for k in range(st["i"], j):
+        if src[k] <= "\x7f" or not is_cont(st, k):
+            col += 1
+    st["col"] = col
+    st["i"] = j
 
-def digit_value(st, c, base, line, col):
-    v = DIGITS.get(c)
-    if v == None or v >= base:
-        lex_error(st, "invalid digit '" + c + "' in base-" + str(base) + " literal", line, col)
-    return v
+def skip_ascii(st, j):
+    """skip_to for a run of ASCII characters."""
+    st["col"] += j - st["i"]
+    st["i"] = j
+
+def read_newline(st):
+    st["i"] += 1
+    st["line"] += 1
+    st["col"] = 1
+
+def hex_text(n, upper, width):
+    s = ("%X" if upper else "%x") % n
+    return "0" * (width - len(s)) + s
+
+def is_hex(s):
+    for c in s.elems():
+        if c not in HEX:
+            return False
+    return True
+
+def byte_char(c):
+    """A byte as the character Go's %c gives it (Latin-1 for >= 0x80)."""
+    return chr(list(bytes(c).elems())[0])
+
+# ---------------------------------------------------------------- strings
+
+def unquote(st, quoted, raw, is_bytes, triple, line, col):
+    """The value of a string literal's text between its quotes (as
+    starlark-go's unquote): a string, or for bytes a list of byte values.
+    Errors are reported at (line, col), the opening quote."""
+    if raw or "\\" not in quoted:
+        if is_bytes:
+            return list(bytes(quoted).elems())
+        return quoted
+    out = []  # strings, and byte values (ints) from escapes in bytes literals
+    n = len(quoted)
+    i = 0
+    for _ in range(n + 1):
+        if i >= n:
+            break
+        k = quoted.find("\\", i)
+        if k < 0:
+            out.append(quoted[i:])
+            break
+        if k > i:
+            out.append(quoted[i:k])
+        rest = quoted[k:]
+        if k + 1 >= n:
+            lex_error(st, "truncated escape sequence \\", line, col)
+        e = quoted[k + 1]
+        simple = SIMPLE_ESCAPES.get(e)
+        if e == "\n":  # line continuation
+            i = k + 2
+        elif simple != None:
+            out.append(simple)
+            i = k + 2
+        elif e >= "0" and e <= "7":
+            v = int(e)
+            j = k + 2
+            for _ in range(2):
+                if j >= n or quoted[j] < "0" or quoted[j] > "7":
+                    break
+                v = v * 8 + int(quoted[j])
+                j += 1
+            if not is_bytes and v > 127:
+                h = hex_text(v, True, 4)
+                lex_error(st, "non-ASCII octal escape \\" + ("%o" % v) + " (use \\u" + h + " for the UTF-8 encoding of U+" + h + ")", line, col)
+            if v >= 256:
+                o = "%o" % v
+                lex_error(st, "invalid escape sequence \\" + "0" * (3 - len(o)) + o, line, col)
+            out.append(v if is_bytes else chr(v))
+            i = j
+        elif e == "x":
+            if len(rest) < 4:
+                lex_error(st, "truncated escape sequence " + rest, line, col)
+            if not is_hex(rest[2:4]):
+                lex_error(st, "invalid escape sequence " + rest[:4], line, col)
+            v = int(rest[2:4], 16)
+            if not is_bytes and v > 127:
+                h = hex_text(v, True, 4)
+                lex_error(st, "non-ASCII hex escape " + rest[:4] + " (use \\u" + h + " for the UTF-8 encoding of U+" + h + ")", line, col)
+            out.append(v if is_bytes else chr(v))
+            i = k + 4
+        elif e == "u" or e == "U":
+            sz = 6 if e == "u" else 10
+            if len(rest) < sz:
+                lex_error(st, "truncated escape sequence " + rest, line, col)
+            if not is_hex(rest[2:sz]):
+                lex_error(st, "invalid escape sequence " + rest[:sz], line, col)
+            v = int(rest[2:sz], 16)
+            if v > 0x10ffff:
+                lex_error(st, "code point out of range: " + rest[:sz] + " (max \\U" + hex_text(v, False, 8) + ")", line, col)
+            if v >= 0xd800 and v < 0xe000:
+                lex_error(st, "invalid Unicode code point U+" + hex_text(v, True, 4), line, col)
+            out.append(chr(v))
+            i = k + sz
+        else:
+            lex_error(st, "invalid escape sequence \\" + byte_char(e), line, col)
+    if not is_bytes:
+        return "".join(out)
+    b = []
+    for x in out:
+        if type(x) == "int":
+            b.append(x)
+        else:
+            b.extend(list(bytes(x).elems()))
+    return b
+
+def scan_string(st, start, raw, is_bytes, line, col):
+    """A string literal whose opening quote is at the scanner (its prefix,
+    if any, began at byte start, line, col)."""
+    src = st["src"]
+    n = st["n"]
+    qline = st["line"]
+    qcol = st["col"]
+    q = src[st["i"]]
+    triple = src[st["i"]:st["i"] + 3] == q + q + q
+    skip_ascii(st, st["i"] + (3 if triple else 1))
+    body = st["i"]
+    i = st["i"]
+    ln = st["line"]
+    c0 = st["col"]
+    quotes = 0
+    for _ in range(n + 1):
+        if i >= n:
+            st["i"] = i
+            st["line"] = ln
+            st["col"] = c0
+            lex_error(st, "unexpected EOF in string", line, col)
+        c = src[i]
+        i += 1
+        if c == "\n":
+            ln += 1
+            c0 = 1
+        elif c <= "\x7f" or not is_cont(st, i - 1):
+            c0 += 1
+        if c == q:
+            if not triple:
+                break
+            quotes += 1
+            if quotes == 3:
+                break
+            continue
+        quotes = 0
+        if c == "\n" and not triple:
+            lex_error(st, "unexpected newline in string", line, col)
+        if c == "\\":
+            if i >= n:
+                lex_error(st, "unexpected EOF in string", line, col)
+            c = src[i]
+            i += 1
+            if c == "\n":
+                ln += 1
+                c0 = 1
+            elif c <= "\x7f" or not is_cont(st, i - 1):
+                c0 += 1
+    st["i"] = i
+    st["line"] = ln
+    st["col"] = c0
+    quoted = src[body:i - (3 if triple else 1)]
+    val = unquote(st, quoted, raw, is_bytes, triple, qline, qcol)
+    emit(st, "bytes" if is_bytes else "string", val, line, col)
+
+# ---------------------------------------------------------------- numbers
 
 # The largest decimal value that still rounds to a finite float64: 2**1024
 # - 2**970, i.e. 1.797693134862315807937289714053...e308 (as digits).
 FLOAT_LIMIT = "17976931348623158079372897140530341507993413277"
 
-def float_too_large(st, digits, exp):
+def float_too_large(digits, exp):
     """Whether the float literal with these significand digits (no dot)
     and decimal exponent (value = 0.d1d2... * 10**exp) overflows."""
     k = 0
-    while k < len(digits) and digits[k] == "0":
+    for _ in range(len(digits)):
+        if k >= len(digits) or digits[k] != "0":
+            break
         k += 1
     digits = digits[k:]
     if digits == "":
@@ -137,337 +316,322 @@ def float_too_large(st, digits, exp):
             return d > FLOAT_LIMIT[j]
     return True
 
-def scan_float(st, i, line, col):
-    """A decimal float literal at i ("1.5", ".5", "1.", "1e3", "2.5E-3")."""
-    src = st["src"]
-    n = len(src)
-    j = i
-    while j < n and is_digit(src[j]):
-        j += 1
-    intpart = src[i:j]
-    frac = ""
-    if j < n and src[j] == ".":
-        k = j + 1
-        while k < n and is_digit(src[k]):
-            k += 1
-        frac = src[j + 1:k]
-        j = k
+def float_overflows(text):
+    """Whether a decimal float literal is out of float64 range."""
+    s = text.lower()
+    e = s.find("e")
     exp = 0
-    if j < n and (src[j] == "e" or src[j] == "E"):
-        k = j + 1
-        sign = 1
-        if k < n and (src[k] == "+" or src[k] == "-"):
-            sign = -1 if src[k] == "-" else 1
-            k += 1
-        if k >= n or not is_digit(src[k]):
-            lex_error(st, "invalid float literal", line, col)
-        while k < n and is_digit(src[k]):
-            if exp < 100000:
-                exp = exp * 10 + DIGITS[src[k]]
-            k += 1
-        exp *= sign
-        j = k
-    if j < n and is_letter(src[j]):
-        lex_error(st, "invalid float literal", line, col)
-    if float_too_large(st, intpart + frac, exp + len(intpart)):
-        lex_error(st, "invalid float literal", line, col)
-    emit(st, "float", src[i:j], line, col)
-    return j
+    if e >= 0:
+        t = s[e + 1:]
+        sign = -1 if t.startswith("-") else 1
+        t = t.lstrip("+-")
+        t = t.lstrip("0")
+        if len(t) > 6:  # an exponent this large: overflow (or underflow, which is fine)
+            return sign > 0 and s[:e].replace(".", "").strip("0") != ""
+        exp = sign * (int(t) if t else 0)
+        s = s[:e]
+    dot = s.find(".")
+    intpart = s if dot < 0 else s[:dot]
+    frac = "" if dot < 0 else s[dot + 1:]
+    return float_too_large(intpart + frac, exp + len(intpart))
 
-def is_float_start(src, i):
-    """Whether the number at i is a float: digits followed by ".", "e" or "E"."""
-    n = len(src)
-    j = i
-    while j < n and is_digit(src[j]):
-        j += 1
-    return j < n and (src[j] == "." or src[j] == "e" or src[j] == "E")
+def digits_end(src, i, n, chars):
+    for _ in range(n - i):
+        if i >= n or src[i] not in chars:
+            break
+        i += 1
+    return i
 
-def scan_number(st, i):
+def scan_number(st):
+    """A number, or a lone "." (as starlark-go's scanNumber)."""
     src = st["src"]
-    n = len(src)
+    n = st["n"]
     line = st["line"]
-    col = col_of(st, i)
-    if not (src[i] == "0" and i + 1 < n and src[i + 1] in "xXoObB") and is_float_start(src, i):
-        return scan_float(st, i, line, col)
+    col = st["col"]
+    i0 = st["i"]
+    c = src[i0]
+    fraction = False
+    exponent = False
     base = 10
-    j = i
-    if src[i] == "0" and i + 1 < n and src[i + 1] in "xXoObB":
-        p = src[i + 1]
-        if p == "x" or p == "X":
+    if c == ".":
+        skip_ascii(st, i0 + 1)
+        if st["i"] >= n or not is_digit(src[st["i"]]):
+            emit(st, ".", None, line, col)
+            return
+        fraction = True
+    elif c == "0":
+        skip_ascii(st, i0 + 1)
+        c = src[st["i"]] if st["i"] < n else ""
+        if c == ".":
+            fraction = True
+        elif c == "x" or c == "X":
             base = 16
-        elif p == "o" or p == "O":
-            base = 8
+            skip_ascii(st, st["i"] + 1)
+            if st["i"] >= n or src[st["i"]] not in HEX:
+                lex_error(st, "invalid hex literal", line, col)
+            skip_ascii(st, digits_end(src, st["i"], n, HEX))
+        elif c == "o" or c == "O" or c == "b" or c == "B":
+            base = 8 if c == "o" or c == "O" else 2
+            ds = "01234567" if base == 8 else "01"
+            skip_ascii(st, st["i"] + 1)
+            if st["i"] >= n or src[st["i"]] not in ds:
+                here_error(st, "invalid octal literal" if base == 8 else "invalid binary literal")
+            skip_ascii(st, digits_end(src, st["i"], n, ds))
         else:
-            base = 2
-        j = i + 2
-    start = j
-    val = 0
-    while j < n and (is_letter(src[j]) or is_digit(src[j])):
-        val = val * base + digit_value(st, src[j], base, line, col)
-        j += 1
-    # ints are unbounded, but (as in starlark-go) octal and binary literals
-    # must fit in 64 bits
-    if (base == 8 or base == 2) and val > MAX_INT:
-        lex_error(st, "invalid int literal", line, col)
-    if j == start:
-        lex_error(st, "missing digits in int literal", line, col)
-    if base == 10 and src[i] == "0" and j > i + 1:
-        lex_error(st, "obsolete form of octal literal; use 0o...", line, col)
-    emit(st, "int", val, line, col)
-    return j
-
-def scan_hex(st, i, count, line, col):
-    """Value of exactly `count` hex digits at i."""
-    src = st["src"]
-    if i + count > len(src):
-        lex_error(st, "truncated escape sequence", line, col)
-    v = 0
-    for k in range(count):
-        v = v * 16 + digit_value(st, src[i + k], 16, line, col)
-    return v
-
-def scan_string(st, i, raw, is_bytes = False):
-    """A string literal at i (the opening quote); emits a "string" token, or
-    for b"..." a "bytes" token whose value is a list of byte values."""
-    src = st["src"]
-    n = len(src)
-    line = st["line"]
-    col = col_of(st, i)
-    q = src[i]
-    triple = i + 2 < n and src[i + 1] == q and src[i + 2] == q
-    j = i + 3 if triple else i + 1
-    out = []
-    while True:
-        if j >= n:
-            lex_error(st, "unterminated string literal", line, col)
-        c = src[j]
-        if c == q:
-            if not triple:
-                j += 1
-                break
-            if j + 2 < n and src[j + 1] == q and src[j + 2] == q:
-                j += 3
-                break
-            out.append(c)
-            j += 1
-            continue
-        if c == "\n":
-            if not triple:
-                lex_error(st, "unterminated string literal", line, col)
-            st["line"] += 1
-            st["linestart"] = j + 1
-            out.append(c)
-            j += 1
-            continue
-        if c != "\\":
-            out.append(c)
-            j += 1
-            continue
-
-        # backslash
-        if j + 1 >= n:
-            lex_error(st, "unterminated string literal", line, col)
-        e = src[j + 1]
-        if raw:
-            out.append("\\")
-            out.append(e)
-            if e == "\n":
-                st["line"] += 1
-                st["linestart"] = j + 2
-            j += 2
-            continue
-        if e == "\n":  # line continuation inside a string
-            st["line"] += 1
-            st["linestart"] = j + 2
-            j += 2
-            continue
-        simple = SIMPLE_ESCAPES.get(e)
-        if simple != None:
-            out.append(simple)
-            j += 2
-            continue
-        if e == "x":
-            v = scan_hex(st, j + 2, 2, line, col)
-            if is_bytes:
-                out.append(v)
-                j += 4
-                continue
-            if v >= 128:
-                lex_error(st, "non-ASCII \\x escapes are not supported", line, col)
-            out.append(chr(v))
-            j += 4
-            continue
-        if e == "u" or e == "U":
-            count = 4 if e == "u" else 8
-            v = scan_hex(st, j + 2, count, line, col)
-            if v > 0x10ffff or (v >= 0xd800 and v < 0xe000):
-                lex_error(st, "invalid Unicode code point in escape", line, col)
-            out.append(chr(v))
-            j += 2 + count
-            continue
-        if e >= "0" and e <= "7":
-            v = 0
-            k = j + 1
-            while k < n and k < j + 4 and src[k] >= "0" and src[k] <= "7":
-                v = v * 8 + DIGITS[src[k]]
-                k += 1
-            if is_bytes and v < 256:
-                out.append(v)
-                j = k
-                continue
-            if v >= 128:
-                lex_error(st, "non-ASCII octal escapes are not supported", line, col)
-            out.append(chr(v))
-            j = k
-            continue
-        lex_error(st, "invalid escape sequence \\" + e, line, col)
-    if is_bytes:
-        # one value per byte (escapes like \xff already are)
-        b = []
-        for x in out:
-            if type(x) == "int":
-                b.append(x)
-            else:
-                b.extend(x.elem_ords())
-        emit(st, "bytes", b, line, col)
+            j = digits_end(src, st["i"], n, "0123456789")
+            ds = src[st["i"]:j]
+            skip_ascii(st, j)
+            c = src[j] if j < n else ""
+            if c == ".":
+                fraction = True
+            elif c == "e" or c == "E":
+                exponent = True
+            elif ds.strip("0") != "" and ds.strip("01234567") == "":
+                here_error(st, "obsolete form of octal literal; use 0o" + src[i0 + 1:j])
     else:
-        emit(st, "string", "".join(out), line, col)
-    return j
+        j = digits_end(src, i0, n, "0123456789")
+        skip_ascii(st, j)
+        c = src[j] if j < n else ""
+        if c == ".":
+            fraction = True
+        elif c == "e" or c == "E":
+            exponent = True
+    if fraction:
+        skip_ascii(st, digits_end(src, st["i"] + 1, n, "0123456789"))
+        c = src[st["i"]] if st["i"] < n else ""
+        if c == "e" or c == "E":
+            exponent = True
+    if exponent:
+        skip_ascii(st, st["i"] + 1)
+        c = src[st["i"]] if st["i"] < n else ""
+        if c == "+" or c == "-":
+            skip_ascii(st, st["i"] + 1)
+            if st["i"] >= n or not is_digit(src[st["i"]]):
+                here_error(st, "invalid float literal")
+        skip_ascii(st, digits_end(src, st["i"], n, "0123456789"))
+    text = src[i0:st["i"]]
+    if fraction or exponent:
+        last = text[-1]
+        if last == "e" or last == "E" or float_overflows(text):
+            here_error(st, "invalid float literal")
+        emit(st, "float", text, line, col)
+        return
+    if base == 16:
+        val = int(text[2:], 16)
+    elif base != 10:
+        val = int(text[2:], base)
+        if val > MAX_INT:  # as starlark-go: octal and binary must fit 64 bits
+            lex_error(st, "invalid int literal", line, col)
+    elif len(text) > 1 and text[0] == "0":
+        if text.strip("0") != "":  # 08, 09: not octal either
+            lex_error(st, "invalid int literal", line, col)
+        val = 0
+    else:
+        val = int(text)
+    emit(st, "int", val, line, col)
 
-def handle_indent(st, i):
-    """At the start of a logical line: measure indentation, skip blank and
-    comment-only lines, emit indent/dedent tokens. Returns the index of the
-    first significant character, or len(src) at end of input."""
+# ---------------------------------------------------------------- tokens
+
+def next_token(st):
+    """Scan the next token(s) (as starlark-go's nextToken; indentation may
+    give several). Returns True at the end of the input."""
     src = st["src"]
-    n = len(src)
-    while True:
-        j = i
-        width = 0
-        while j < n and (src[j] == " " or src[j] == "\t" or src[j] == "\r"):
-            if src[j] == "\t":
-                lex_error(st, "tab characters are not allowed in indentation", st["line"], col_of(st, j))
-            if src[j] == " ":
-                width += 1
-            j += 1
-        if j >= n:
-            return n
-        if src[j] == "#":
-            while j < n and src[j] != "\n":
-                j += 1
-        if j < n and src[j] == "\n":
-            st["line"] += 1
-            st["linestart"] = j + 1
-            i = j + 1
+    n = st["n"]
+    for _ in range(n + 3):  # starlark-go's "goto start"
+        blank = False
+        saved_line_start = st["line_start"]
+        if st["line_start"]:
+            st["line_start"] = False
+            width = 0
+            i = st["i"]
+            for _ in range(n - i + 1):
+                c = src[i] if i < n else ""
+                if c == " ":
+                    width += 1
+                elif c == "\t":
+                    width += 8 - (st["col"] + (i - st["i"]) - 1) % 8
+                else:
+                    break
+                i += 1
+            skip_ascii(st, i)
+            c = src[i] if i < n else ""
+            if c == "#" or c == "\n" or c == "":
+                blank = True
+            if not blank and st["depth"] == 0:
+                ind = st["indents"]
+                if width > ind[-1]:
+                    ind.append(width)
+                    emit(st, "indent", None, st["line"], st["col"])
+                    return False
+                if width < ind[-1]:
+                    k = 0
+                    for _ in range(len(ind)):
+                        if width >= ind[-1]:
+                            break
+                        ind.pop()
+                        k += 1
+                    if width != ind[-1]:
+                        here_error(st, "unindent does not match any outer indentation level")
+                    for _ in range(k):
+                        emit(st, "dedent", None, st["line"], st["col"])
+                    return False
+
+        i = st["i"]
+        for _ in range(n - i + 1):
+            if i >= n or (src[i] != " " and src[i] != "\t"):
+                break
+            i += 1
+        skip_ascii(st, i)
+        c = src[i] if i < n else ""
+        if c == "#":
+            j = src.find("\n", i)
+            skip_to(st, n if j < 0 else j)
+            i = st["i"]
+            c = src[i] if i < n else ""
+
+        if c == "\n":
+            st["line_start"] = True
+            if st["depth"] > 0 or blank:
+                read_newline(st)
+                continue
+            line = st["line"]
+            col = st["col"]
+            read_newline(st)
+            emit(st, "newline", None, line, col)
+            return False
+
+        if c == "":
+            if len(st["indents"]) > 1:
+                if saved_line_start:
+                    k = len(st["indents"]) - 1
+                    st["indents"] = st["indents"][:1]
+                    for _ in range(k):
+                        emit(st, "dedent", None, st["line"], st["col"])
+                    return False
+                st["line_start"] = True
+                emit(st, "newline", None, st["line"], st["col"])
+                return False
+            emit(st, "eof", None, st["line"], st["col"])
+            return True
+
+        if c == "\\":
+            skip_ascii(st, i + 1)
+            if st["i"] >= n or src[st["i"]] != "\n":
+                here_error(st, "stray backslash in program")
+            read_newline(st)
             continue
-        if j >= n:
-            return n
-        indents = st["indents"]
-        if width > indents[-1]:
-            indents.append(width)
-            emit(st, "indent", None, st["line"], col_of(st, j))
-        elif width < indents[-1]:
-            while width < indents[-1]:
-                indents.pop()
-                emit(st, "dedent", None, st["line"], col_of(st, j))
-            if width != indents[-1]:
-                lex_error(st, "unindent does not match any outer indentation level", st["line"], col_of(st, j))
-        return j
+
+        line = st["line"]
+        col = st["col"]
+        if c == ",":
+            skip_ascii(st, i + 1)
+            emit(st, ",", None, line, col)
+            return False
+        if c == "\"" or c == "'":
+            scan_string(st, i, False, False, line, col)
+            return False
+        if is_ascii_ident(c) and not is_digit(c) or c > "\x7f" and src[i:i + rune_len(st, i)].isalpha():
+            nxt = src[i + 1] if i + 1 < n else ""
+            if (c == "r" or c == "b") and (nxt == "\"" or nxt == "'"):
+                skip_ascii(st, i + 1)
+                scan_string(st, i, c == "r", c == "b", line, col)
+                return False
+            if c == "r" and nxt == "b" and i + 2 < n and (src[i + 2] == "\"" or src[i + 2] == "'"):
+                skip_ascii(st, i + 2)
+                scan_string(st, i, True, True, line, col)
+                return False
+            j = i
+            ascii = True
+            for _ in range(n - i + 1):
+                if j >= n:
+                    break
+                d = src[j]
+                if is_ascii_ident(d):
+                    j += 1
+                elif d > "\x7f" and src[j:j + rune_len(st, j)].isalpha():
+                    j += rune_len(st, j)
+                    ascii = False
+                else:
+                    break
+            if ascii:
+                skip_ascii(st, j)
+            else:
+                skip_to(st, j)
+            word = src[i:j]
+            if KEYWORDS.get(word, False):
+                emit(st, word, None, line, col)
+            else:
+                emit(st, "name", word, line, col)
+            return False
+        if c == "(" or c == "[" or c == "{":
+            st["depth"] += 1
+            if st["depth"] > 1000:
+                here_error(st, "excessive nesting")
+            skip_ascii(st, i + 1)
+            emit(st, c, None, line, col)
+            return False
+        if c == ")" or c == "]" or c == "}":
+            if st["depth"] == 0:
+                here_error(st, "unexpected '" + c + "'")
+            st["depth"] -= 1
+            skip_ascii(st, i + 1)
+            emit(st, c, None, line, col)
+            return False
+        if is_digit(c) or c == ".":
+            scan_number(st)
+            return False
+        nxt = src[i + 1] if i + 1 < n else ""
+        if EQ_OPS.get(c, False):
+            if nxt == "=":
+                skip_ascii(st, i + 2)
+                emit(st, c + "=", None, line, col)
+                return False
+            if c == "!":
+                here_error(st, "unexpected input character '!'")
+            if (c == "<" or c == ">" or c == "/") and nxt == c:
+                if i + 2 < n and src[i + 2] == "=":
+                    skip_ascii(st, i + 3)
+                    emit(st, c + c + "=", None, line, col)
+                else:
+                    skip_ascii(st, i + 2)
+                    emit(st, c + c, None, line, col)
+                return False
+            skip_ascii(st, i + 1)
+            emit(st, c, None, line, col)
+            return False
+        if c == ":" or c == ";" or c == "~":
+            skip_ascii(st, i + 1)
+            emit(st, c, None, line, col)
+            return False
+        if c == "*":
+            if nxt == "*" or nxt == "=":
+                skip_ascii(st, i + 2)
+                emit(st, "*" + nxt, None, line, col)
+            else:
+                skip_ascii(st, i + 1)
+                emit(st, "*", None, line, col)
+            return False
+        ch = src[i:i + rune_len(st, i)] if c > "\x7f" else c
+        here_error(st, "unexpected input character '" + ch + "'")
+    fail("lexer: no progress")
 
 def lex(src, filename):
+    # "\r\n" and "\r" read as "\n" (starlark-go's readRune)
+    src = src.replace("\r\n", "\n").replace("\r", "\n")
     st = {
         "src": src,
+        "n": len(src),
+        "bv": None,  # byte values (byte_at)
         "file": filename,
         "toks": [],
+        "i": 0,
         "line": 1,
-        "linestart": 0,
+        "col": 1,
+        "line_start": True,
         "indents": [0],
         "depth": 0,  # bracket nesting; newlines inside brackets are ignored
     }
-    n = len(src)
-    i = 0
-    at_line_start = True
-    while True:
-        if at_line_start and st["depth"] == 0:
-            i = handle_indent(st, i)
-            at_line_start = False
-        if i >= n:
+    for _ in range(len(src) + 2):
+        if next_token(st):
             break
-        c = src[i]
-        if c == " " or c == "\t" or c == "\r":
-            i += 1
-        elif c == "#":
-            while i < n and src[i] != "\n":
-                i += 1
-        elif c == "\\" and i + 1 < n and src[i + 1] == "\n":
-            i += 2
-            st["line"] += 1
-            st["linestart"] = i
-        elif c == "\n":
-            if st["depth"] == 0:
-                emit(st, "newline", None, st["line"], col_of(st, i))
-                at_line_start = True
-            i += 1
-            st["line"] += 1
-            st["linestart"] = i
-        elif is_letter(c):
-            col = col_of(st, i)
-            j = i
-            while j < n and (is_letter(src[j]) or is_digit(src[j])):
-                j += 1
-            word = src[i:j]
-            if j < n and (src[j] == "\"" or src[j] == "'") and (word == "r" or word == "R"):
-                i = scan_string(st, j, True)
-                continue
-            if j < n and (src[j] == "\"" or src[j] == "'") and (word == "b" or word == "B"):
-                i = scan_string(st, j, False, True)
-                st["toks"][-1]["col"] = col  # the literal starts at the prefix
-                continue
-            if j < n and (src[j] == "\"" or src[j] == "'") and word == "rb":
-                i = scan_string(st, j, True, True)
-                st["toks"][-1]["col"] = col
-                continue
-            if KEYWORDS.get(word):
-                emit(st, word, None, st["line"], col)
-            elif RESERVED.get(word):
-                lex_error(st, "keyword " + word + " is reserved", st["line"], col)
-            else:
-                emit(st, "name", word, st["line"], col)
-            i = j
-        elif is_digit(c):
-            i = scan_number(st, i)
-        elif c == "." and i + 1 < n and is_digit(src[i + 1]):
-            i = scan_float(st, i, st["line"], col_of(st, i))
-        elif c == "\"" or c == "'":
-            i = scan_string(st, i, False)
-        else:
-            col = col_of(st, i)
-            three = src[i:i + 3]
-            two = src[i:i + 2]
-            if OPS3.get(three):
-                emit(st, three, None, st["line"], col)
-                i += 3
-            elif OPS2.get(two):
-                emit(st, two, None, st["line"], col)
-                i += 2
-            elif c in OPS1:
-                if c in OPEN:
-                    st["depth"] += 1
-                elif c in CLOSE:
-                    st["depth"] -= 1
-                    if st["depth"] < 0:
-                        lex_error(st, "unbalanced '" + c + "'", st["line"], col)
-                emit(st, c, None, st["line"], col)
-                i += 1
-            else:
-                lex_error(st, "unexpected character '" + c + "'", st["line"], col)
-
-    if st["depth"] != 0:
-        lex_error(st, "unexpected end of file inside brackets", st["line"], col_of(st, i))
-    toks = st["toks"]
-    if toks and toks[-1]["kind"] != "newline":
-        emit(st, "newline", None, st["line"], col_of(st, i))
-    while len(st["indents"]) > 1:
-        st["indents"].pop()
-        emit(st, "dedent", None, st["line"], 1)
-    emit(st, "eof", None, st["line"], col_of(st, i))
-    return toks
+    return st["toks"]

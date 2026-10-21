@@ -18,10 +18,14 @@ def kinds(src):
     return out
 
 check_eq("simple", kinds("x = 1\n"), ["name:x", "=", "int:1", "newline", "eof"])
-check_eq("no trailing newline", kinds("x"), ["name:x", "newline", "eof"])
-check_eq("ints", kinds("0x1F 0o17 0b101 0 42"), ["int:31", "int:15", "int:5", "int:0", "int:42", "newline", "eof"])
-check_eq("ops", kinds("a//=b<<c!=d"), ["name:a", "//=", "name:b", "<<", "name:c", "!=", "name:d", "newline", "eof"])
-check_eq("keywords", kinds("not x in y"), ["not", "name:x", "in", "name:y", "newline", "eof"])
+# as starlark-go: no newline token for a missing final newline, unless a
+# block is open ("dedent at eof")
+check_eq("no trailing newline", kinds("x"), ["name:x", "eof"])
+check_eq("ints", kinds("0x1F 0o17 0b101 0 42"), ["int:31", "int:15", "int:5", "int:0", "int:42", "eof"])
+check_eq("ops", kinds("a//=b<<c!=d"), ["name:a", "//=", "name:b", "<<", "name:c", "!=", "name:d", "eof"])
+check_eq("keywords", kinds("not x in y"), ["not", "name:x", "in", "name:y", "eof"])
+check_eq("reserved words are tokens", kinds("class x"), ["class", "name:x", "eof"])
+check_eq("unicode identifiers", kinds("héllo = 1\n"), ["name:héllo", "=", "int:1", "newline", "eof"])
 check_eq(
     "indent",
     kinds("if x:\n  y\n  if z:\n    w\nv\n"),
@@ -50,6 +54,11 @@ check_eq("utf8 literal", strval("'héllo'"), "héllo")
 
 toks = lex("x = 1\n  \ny = '''a\nb'''\nz\n", "t.star")
 check_eq("line numbers", [(t["line"], t["col"]) for t in toks if t["kind"] == "name"], [(1, 1), (3, 1), (5, 1)])
+
+# columns count code points, as starlark-go; each token also has its end
+toks = lex("s = 'é' + x\n", "t.star")
+check_eq("columns in code points", [(t["kind"], t["col"], t["ecol"]) for t in toks[:5]],
+         [("name", 1, 2), ("=", 3, 4), ("string", 5, 8), ("+", 9, 10), ("name", 11, 12)])
 
 if failures:
     fail(str(len(failures)) + " failure(s):\n  " + "\n  ".join(failures))
