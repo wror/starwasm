@@ -78,6 +78,7 @@ load("../lib/builtins.star", "METHODS", "add_builtins", "add_test_builtins")
 load("parser.star", "parse_file")
 load("resolve.star", "collect_bindings", "resolve_module", "target_names")
 load("spell.star", "nearest")
+load("extensions.star", "ext_direct_call", "ext_dynamic_call")
 load("../lib/prelude.star", "PRELUDE")
 
 V = EQREF
@@ -387,6 +388,9 @@ def checked(mc, get_code, kind, name, posn):
 
 def free_cell(idx):
     return as_("Cell", arr_get("Vals", get("%env"), i32(idx)))
+
+# Helpers handed to extension hooks (extensions.star).
+CG = {"lookup": lookup, "temp": temp, "free_cell": free_cell, "callat": callat}
 
 def cell_ref(mc, fc, name, posn):
     """Code for the $Cell of a captured variable, to hand to a closure."""
@@ -716,6 +720,9 @@ def gen_call(mc, fc, e):
         ]
     if fn["kind"] == "name":
         kind, w = lookup(mc, fc, fn["id"], fn["pos"])
+        code = ext_direct_call(CG, mc, fc, e, kind, w)
+        if code != None:
+            return code
         if kind == "func" and not has_star_args(e):
             fdef = mc["allfuncs"][w]
             code = gen_user_call(mc, fc, fdef, e, fdef["name"] if fdef.get("prelude", False) else "")
@@ -772,6 +779,9 @@ def gen_dynamic_call(mc, fc, callee, e):
     """Call through a function value: rt_call(f, positional, kwargs)."""
     m = mc["m"]
     args = e["args"]
+    code = ext_dynamic_call(CG, mc, fc, callee, e)
+    if code != None:
+        return code
     simple = True
     for a in args:
         if a["star"] != "" or a["name"] != None:

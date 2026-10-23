@@ -68,6 +68,8 @@ fi
 # Compiler: differential tests of compiled programs vs starlark-go.
 tests/compile.sh || fail=1
 tests/compile_errors.sh || fail=1
+# Extensions starlark-go lacks: compared against expected output files.
+tests/extensions.sh || fail=1
 
 # starlark-go's own test files (tests/upstream/README.md): fails on any
 # failure not in tests/upstream/known_failures.txt.
@@ -81,7 +83,7 @@ bin/starhost tests/selfhost/gen_frontend_test.star out/frontend.star
 bin/starhost compiler/main.star out/frontend.star out/frontend.wasm
 n=0
 # (The bootstrap below checks the whole compiler; this covers the sources.)
-for f in lib/*.star compiler/*.star tests/*.star tests/runtime/*.star tests/selfhost/*.star examples/*.star; do
+for f in lib/*.star compiler/*.star compiler/ext/*.star tests/*.star tests/runtime/*.star tests/selfhost/*.star examples/*.star; do
   # Files in tests/compile_errors fail to lex/parse: both must fail alike.
   s1=0; bin/starhost out/frontend.star "$f" > out/fe.expect 2> out/fe.experr || s1=1
   s2=0; node host/run.mjs out/frontend.wasm -- "$f" > out/fe.got 2> out/fe.goterr || s2=1
@@ -109,6 +111,7 @@ else
 fi
 COMPILER="node host/run.mjs out/stage2.wasm --" tests/compile.sh > out/selfhosted_compile.txt || { cat out/selfhosted_compile.txt; fail=1; }
 COMPILER="node host/run.mjs out/stage2.wasm --" tests/compile_errors.sh > out/selfhosted_errors.txt || { cat out/selfhosted_errors.txt; fail=1; }
+COMPILER="node host/run.mjs out/stage2.wasm --" tests/extensions.sh > out/selfhosted_extensions.txt || { cat out/selfhosted_extensions.txt; fail=1; }
 n=0
 for src in tests/compile/*.star; do
   bin/starhost compiler/main.star "$src" out/bs_interp.wasm 2> /dev/null || continue

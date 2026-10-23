@@ -25,6 +25,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     compiler/parser.star  tokens -> dict-based AST (format documented at top)
     compiler/resolve.star scope analysis: which variables closures capture (cells)
     compiler/codegen.star AST -> Wasm module (scopes, calls, loops, closures)
+    compiler/extensions.star  hook points for extensions (EXTENSIONS.md)
+    compiler/ext/         one file per extension (dir.star: zero-arg dir())
     compiler/main.star    driver: starhost compiler/main.star in.star out.wasm
     examples/demo.star    milestone 1 demo (i64 factorial)
     tests/*_test.star     Starlark unit tests (encoder bytes vs. spec)
@@ -37,6 +39,9 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     tests/errors/         programs that fail: stderr must equal starlark-go's
     tests/compile_one.sh  one differential test (compile.sh runs them in parallel)
     tests/repl/           scripted REPL session and its expected transcript
+    tests/extensions/     tests of extensions (EXTENSIONS.md): <name>.star
+                          must print <name>.out (tests/extensions.sh)
+    EXTENSIONS.md         features beyond starlark-go, one section each
     tests/compile_errors/ "# error: <text>" first line; compile must fail so;
                           when starlark-go rejects the file statically too,
                           the message must be exactly starlark-go's
@@ -551,6 +556,12 @@ Parity fixes these tests led to (milestone 18):
   matches starlark-go's 100,003-line traceback byte for byte). The REPL
   still runs on the main thread's stack.
 
+## Extensions (milestone 19)
+
+Features starlark-go lacks are kept apart from the starlark-go-compatible
+core: code in compiler/ext/ (hooked in through compiler/extensions.star),
+docs in EXTENSIONS.md, tests in tests/extensions/. See EXTENSIONS.md.
+
 ## Gotchas learned
 
 - WasmGC: a non-nullable local only counts as initialized inside the block
@@ -638,6 +649,8 @@ Parity fixes these tests led to (milestone 18):
 18. [x] Every upstream chunk that can pass does (143 pass, 9 first-error,
        3 compile-time, 26 dialect, 1 n/a); fixes listed under
        "starlark-go's own tests". Static errors identical to starlark-go's.
+19. [x] Extensions kept separate (compiler/ext/, EXTENSIONS.md,
+       tests/extensions/); the first: dir() with no arguments, as Python.
 
 Possible next steps: performance (unboxed int fast
 paths in codegen, static calls to nested defs, avoiding rt_iter snapshots);

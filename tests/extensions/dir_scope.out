@@ -1,0 +1,28 @@
+util init
+dirmod ["helper"]
+["dfn", "public"]
+[["_private", "helper"]] []
+["a", "dfn", "public"]
+["args", "kwargs", "p", "q"]
+["args", "kwargs", "p", "q", "x"]
+["args", "kwargs", "p", "q", "x"]
+["args", "kwargs", "p", "q"]
+["args", "kwargs", "p", "q", "x"]
+["args", "kwargs", "p", "q", "x", "y"]
+["a", "dfn", "f", "public"]
+["inner", "unused", "v", "w"]
+["v", "w"]
+(9, 4, ["k", "late"])
+[["i", "n"]]
+[(0, 0, ["i", "j", "n"]), (1, 0, ["i", "j", "n"])]
+{"n": ["k", "n"]}
+[["a", "comp", "dfn", "f", "outer", "public", "t"]]
+["a", "comp", "dfn", "f", "outer", "public"]
+mine
+["c", "d", "g"]
+a 8
+["append", "clear", "extend"] ["y", "z"]
+["a", "cells", "comp", "d", "dfn", "f", "outer", "public", "shadow"]
+["arg", "f", "fns", "get", "local", "s"] ["arg", "f", "fns", "get", "local", "s"] ["arg", "f", "fns", "get", "local", "s"] ["arg", "f", "fns", "get", "local", "s"]
+["append", "clear"] 2 [["arg", "f", "fns", "g", "get", "local", "s"]]
+["inner"]
