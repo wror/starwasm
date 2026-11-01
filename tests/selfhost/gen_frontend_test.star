@@ -1,7 +1,7 @@
 # Run by starhost: builds a single-file program = lexer + parser + driver,
 # with load() lines removed (the compiler does not support load yet).
 #
-#   bin/starhost tests/selfhost/gen_frontend_test.star out/frontend.star
+#   bin/starhost --recursion tests/selfhost/gen_frontend_test.star out/frontend.star
 
 def strip_loads(src):
     out = []

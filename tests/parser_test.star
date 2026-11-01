@@ -1,4 +1,4 @@
-# Unit tests for compiler/parser.star. Run: bin/starhost tests/parser_test.star
+# Unit tests for compiler/parser.star. Run: bin/starhost --recursion tests/parser_test.star
 
 load("../compiler/parser.star", "parse_file")
 
@@ -105,14 +105,12 @@ def parse_err(src):
     return src
 
 # Stress test: every .star file in the project must parse.
-for path in [
+[parse_file(read_file(path), path) for path in [
     "lib/wasm.star", "lib/dsl.star", "lib/runtime.star", "lib/builtins.star",
     "compiler/lexer.star", "compiler/parser.star", "compiler/codegen.star", "compiler/main.star",
     "examples/demo.star", "tests/runtime/build.star", "tests/runtime/expect.star",
     "tests/lexer_test.star", "tests/parser_test.star", "tests/wasm_test.star",
-]:
-    parse_file(read_file(path), path)
+]]
 
-if failures:
-    fail(str(len(failures)) + " failure(s):\n  " + "\n  ".join(failures))
+fail(str(len(failures)) + " failure(s):\n  " + "\n  ".join(failures)) if failures else None
 print("parser_test: ok")

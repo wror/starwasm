@@ -15,3 +15,5 @@ for w in ["apple", "banana", "cherry"]:
         continue
     words.append(w.endswith("y") and w + "!" or w)
 print(words)
+
+# option:globalreassign (top-level control flow or rebinding above)

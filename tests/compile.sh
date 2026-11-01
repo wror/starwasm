@@ -5,11 +5,13 @@
 # err_* and everything in tests/errors/ are expected to fail; when both fail,
 # stderr (traceback with file:line:col of every frame, and the message) must
 # be byte-identical too. Tests run in parallel (JOBS, default: CPU count);
-# each is tests/compile_one.sh.
+# each is tests/compile_one.sh. A program with a line
+# "# option:globalreassign" or "# option:recursion" runs with that option
+# on, in both.
 cd "$(dirname "$0")/.."
 # The compiler to test; default: the interpreted one. test.sh also runs
 # these with the self-compiled compiler (node host/run.mjs out/stage2.wasm --).
-COMPILER=${COMPILER:-bin/starhost compiler/main.star}
+COMPILER=${COMPILER:-bin/starhost --recursion compiler/main.star}
 export COMPILER
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 mkdir -p out

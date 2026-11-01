@@ -76,6 +76,7 @@ load(
 load("../lib/runtime.star", "S", "add_runtime", "add_unicode_tables", "vi")
 load("../lib/builtins.star", "METHODS", "add_builtins", "add_test_builtins")
 load("parser.star", "parse_file")
+load("recursion.star", "check_recursion")
 load("resolve.star", "collect_bindings", "resolve_module", "target_names")
 load("spell.star", "nearest")
 load(
@@ -588,6 +589,9 @@ def gen_name(mc, fc, e):
         return checked(mc, field("Cell", "v", get(w)), "local", name, posn)
     if kind == "free":
         return checked(mc, field("Cell", "v", free_cell(w)), "local", name, posn)
+    if e.get("preload", False) and (kind == "global" or kind == "func"):
+        # a loaded name read at top level before its load (resolve.star)
+        return checked(mc, null("eq"), "local", name, posn)
     if kind == "global":
         return checked(mc, gget(w), "global", name, posn)
     if kind == "const":
@@ -1773,12 +1777,12 @@ def declare_module(mc, mod):
     mc["file"] = mod["path"]
     stmts = mod["stmts"]
     check_loads(mc, stmts, "")
-    resolve_module(stmts, mod["path"])
+    resolve_module(stmts, mod["path"], mc["globalreassign"] or mod.get("prelude", False), mc["repl"])
     bound = {}
     collect_bindings(stmts, bound)
     # A loaded name is normally an alias for the other module's symbol. One
     # that is also assigned, or loaded twice, is a module variable instead,
-    # set by each load (bin/starhost allows reassigning it, globalreassign).
+    # set by each load (allowed with --globalreassign).
     nloads = {}
     for s in stmts:
         if s["kind"] == "load":
@@ -1994,7 +1998,9 @@ def add_prelude(mc):
     want_refs(rest, False)
     for n in ext_roots:
         want(n)
-    while work:
+    for _ in range(1 << 40):  # (no while loops: starlark-go's default dialect)
+        if not work:
+            break
         want_refs(defs[work.pop()], False)
 
     kept = []
@@ -2013,10 +2019,13 @@ def add_prelude(mc):
     mc["prelude"] = mod
     mc["order"] = [mod] + mc["order"]
 
-def compile_program(src, filename, test = False, descriptor_set = None):
+def compile_program(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False):
     mc = {
         "m": None,  # the Wasm module, created after parsing (below)
         "test": test,  # test-only builtins visible (TEST_BUILTINS)
+        "globalreassign": globalreassign,  # starlark-go's GlobalReassign option
+        "repl": repl,  # compiling a REPL session: `_` may be rebound
+        "recursion": recursion,  # starlark-go's Recursion option (else checked statically: recursion.star)
         "file": filename,
         "mods": [],  # by id
         "modpath": {},  # normalized path -> module
@@ -2057,6 +2066,9 @@ def compile_program(src, filename, test = False, descriptor_set = None):
     mc["funcinfo"].append(("rt_obj_calldyn", "hidden", "%dyn", -1))  # see rt_obj_call
     for mod in mc["order"]:
         declare_module(mc, mod)
+    if not mc["recursion"]:
+        check_recursion([mod for mod in mc["order"] if not mod.get("prelude", False)],
+                        lambda mod, name: def_key(mc, mod, name), lambda mod, posn, msg: mod_err(mc, mod, posn, msg))
     # the class and case tables, if a method that needs them is kept
     pfuncs = mc["prelude"]["funcs"]
     if pfuncs.get("_casefn") != None or pfuncs.get("_classfn") != None:
@@ -2081,6 +2093,19 @@ def compile_program(src, filename, test = False, descriptor_set = None):
     add_custom(m, "starwasm.debug", debug_section(mc))
     add_custom(m, "starwasm.pos", pos_section(mc))
     return m
+
+def def_key(mc, mod, name):
+    """The key of the top-level def `name` means in mod, or None (for the
+    recursion check)."""
+    r = lookup_module(mc, mod, name)
+    if r != None and r[0] == "func":
+        return r[1]
+    return None
+
+def mod_err(mc, mod, posn, msg):
+    mc["mod"] = mod
+    mc["file"] = mod["path"]
+    cerr(mc, posn, msg)
 
 def pos_section(mc):
     """Per marker tag: file index, line, column, builtin index + 1 (0: none),
@@ -2108,9 +2133,15 @@ def debug_section(mc):
     ])
     return list(text.elem_ords())
 
-def compile(src, filename, test = False, descriptor_set = None):
+def compile(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False):
     """Compile a Starlark program (and the modules it loads, read relative
     to filename) to Wasm bytes (a list of ints). test: make the test-only
     builtins (TEST_BUILTINS) visible. descriptor_set: the contents of a
-    binary FileDescriptorSet, the files proto.file() can find."""
-    return encode(compile_program(src, filename, test, descriptor_set))
+    binary FileDescriptorSet, the files proto.file() can find.
+    globalreassign: starlark-go's AllowGlobalReassign (off by default, as
+    there): top-level names may be bound more than once, while loops, and
+    if/for/while at top level. repl: a REPL
+    session (host/repl.mjs), whose `_` may be rebound regardless.
+    recursion: starlark-go's Recursion option (off by default, as there):
+    functions may call themselves, directly or not (recursion.star)."""
+    return encode(compile_program(src, filename, test, descriptor_set, globalreassign, repl, recursion))

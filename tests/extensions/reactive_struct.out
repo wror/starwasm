@@ -1,0 +1,7 @@
+struct(b = 123, c = 456)
+struct(label = "box 3", size = struct(height = 6, width = 3), tags = ["multi", "line"])
+18
+struct(log = [1], n = 1)
+struct(label = "box 5", size = struct(height = 10, width = 5), tags = ["multi", "line"])
+50
+struct(log = [1, 10], n = 11)

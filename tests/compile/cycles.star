@@ -33,3 +33,5 @@ for i in range(20):
 print(len(str(big)))
 big.append(big)
 print(str(big)[-12:])
+
+# option:globalreassign (top-level names are rebound above)

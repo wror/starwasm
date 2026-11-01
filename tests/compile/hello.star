@@ -35,3 +35,7 @@ while True:
         break
     print("n", n)
 print(fact(20))
+
+# option:globalreassign (top-level names are rebound above)
+
+# option:recursion (recursive functions above)

@@ -1,6 +1,12 @@
 // repl.mjs — an interactive Starlark session on top of the compiler.
 //
-//   node host/repl.mjs [compiler.wasm]      (default: out/stage2.wasm)
+//   node host/repl.mjs [--globalreassign] [--recursion] [compiler.wasm]
+//                                           (default: out/stage2.wasm)
+//
+// The session is compiled in starlark-go's default dialect, as files are:
+// no rebinding a top-level name in a later input (but `_`), no while
+// loops, no if/for at top level, no recursion; the flags turn on the
+// compiler's options of the same name.
 //
 // How it works: "replay". The session is the list of inputs accepted so far.
 // Each new input is appended, the whole session is recompiled (by the
@@ -40,11 +46,14 @@ import { createInterface } from "node:readline";
 import { MessageChannel, Worker } from "node:worker_threads";
 import { loadModule, runModule } from "./wasmhost.mjs";
 
-const compilerPath = process.argv[2] ?? "out/stage2.wasm";
+const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion"]);
+const dialectFlags = process.argv.slice(2).filter((a) => DIALECT_FLAGS.has(a));
+const otherArgs = process.argv.slice(2).filter((a) => !DIALECT_FLAGS.has(a));
+const compilerPath = otherArgs[0] ?? "out/stage2.wasm";
 if (!existsSync(compilerPath)) {
   console.error(`repl: ${compilerPath} not found. Build the self-compiled compiler first:
-  bin/starhost compiler/main.star compiler/main.star out/stage1.wasm
-  node host/run.mjs out/stage1.wasm -- compiler/main.star out/stage2.wasm
+  bin/starhost --recursion compiler/main.star --recursion compiler/main.star out/stage1.wasm
+  node host/run.mjs out/stage1.wasm -- --recursion compiler/main.star out/stage2.wasm
 (or run ./test.sh, which builds it).`);
   process.exit(2);
 }
@@ -166,7 +175,7 @@ async function run(chunks) {
   writeFileSync(sessionPath, sessionCode(chunks));
   let cerr = "";
   const status = runModule(compiler, {
-    progArgs: [sessionPath, wasmPath],
+    progArgs: ["--repl", ...dialectFlags, sessionPath, wasmPath], // --repl: `_` may be rebound
     stderr: (t) => (cerr += t),
   });
   if (status !== 0) {
@@ -303,7 +312,8 @@ function isUpdate(src, names) {
 
 // The code for an expression input: evaluate into `_`, print its repr.
 function echoCode(src) {
-  return { code: `_ = (\n${src}\n)\nif _ != None: print(repr(_))`, offset: 1 };
+  // (a conditional expression: no `if` at top level in the default dialect)
+  return { code: `_ = (\n${src}\n)\nprint(repr(_)) if _ != None else None`, offset: 1 };
 }
 
 // An expression reading reactive variables can't be saved in `_` (a plain
@@ -355,8 +365,10 @@ async function submit(src) {
     const c = candidates[i];
     result = await run([...history, c]);
     // `x = 5` with x reactive: send it to the program as standard input
+    // (only when that error is in this input: one about an earlier input
+    // means this input is wrong some other way, e.g. `a : 2` after `a = 1`)
     if (!result.ok && result.compile && i === candidates.length - 1 && !src.trim().includes("\n") &&
-        result.error.includes("cannot assign to reactive variable")) {
+        result.error.includes(`<input ${num}>:`) && result.error.includes("cannot assign to reactive variable")) {
       candidates.push({ src: src.trim(), num, update: true });
       continue;
     }

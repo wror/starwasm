@@ -4,4 +4,5 @@
 # chunk that passes now (remove it). A single-chunk file stops at its first
 # run-time error, so fixing one may expose more in the same chunk.
 
-# (none)
+function.star:1  recursion is forbidden statically (compiler/recursion.star: no run-time cost), so fib, whose recursion the chunk expects to fail only when called, is a compile error; recursion through function values (the Y combinator) is not detected at all
+resolve.star:11  a static recursion check: f and g call each other, which starlark-go's resolver allows (it only fails when run); starwasm reports the cycle before the expected "undefined: h"

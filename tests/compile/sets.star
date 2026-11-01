@@ -49,3 +49,5 @@ for c in "mississippi".elems():
         seen.add(c)
         out.append(c)
 print("".join(out), sorted(seen))
+
+# option:globalreassign (top-level names are rebound above)

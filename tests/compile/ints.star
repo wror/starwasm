@@ -27,3 +27,7 @@ def fib(n):
     return fib(n - 1) + fib(n - 2)
 print([fib(i) for i in range(15)])
 print(fib(25))
+
+# option:globalreassign (top-level names are rebound above)
+
+# option:recursion (recursive functions above)

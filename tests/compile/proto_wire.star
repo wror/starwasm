@@ -107,3 +107,5 @@ t(p3.Node, "name: 'n' left {name: 'l' kids [{name: 'k'}]} inner <x: 3 kind: LEAF
 t(p2.Legacy, "id: 1 Grp { a: 1 } nums: 1 nums: [2] child { id: 2 }")
 t(ed.Test, "string_field: 's' map_field {key: 'k' value: 'v'} repeated_field: ['a', 'b']")
 t(ft.Feat, "req: 0 delimited { s: 'x' req: 1 } closed: TWO")
+
+# option:globalreassign (top-level names are rebound above)

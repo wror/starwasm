@@ -176,3 +176,5 @@ fe = ft.Feat(implicit_i = 0, explicit_i = 0, closed = "TWO", req = 0)
 print(fe, proto.has(fe, "implicit_i"), proto.has(fe, "explicit_i"), fe.delimited, ft.Closed(1))
 fe.delimited = {"s": "d"}
 print(fe)
+
+# option:globalreassign (top-level names are rebound above)

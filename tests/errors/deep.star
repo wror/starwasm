@@ -8,3 +8,5 @@ def g(xs, k = len):
 
 print(g(["ab", "c"]))
 print(f(3))
+
+# option:recursion (recursive functions above)

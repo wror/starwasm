@@ -396,7 +396,11 @@ def transform(cg, mc):
                 if local not in bound:
                     bound[local] = s["namepos"][i]
     for n in bound:
-        if reactive.get(n) != None:
+        r = reactive.get(n)
+        if r != None:
+            if bound[n] < r["pos"]:
+                # bound first: the reactive definition is what's wrong
+                _err(main, r["pos"], "cannot define reactive variable " + n + ": " + n + " is already bound")
             _err(main, bound[n], "cannot assign to reactive variable " + n + " (only standard input changes it)")
 
     cx = {"mod": main, "reactive": reactive, "uses": []}

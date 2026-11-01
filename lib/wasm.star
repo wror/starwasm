@@ -80,7 +80,7 @@ def uleb(n):
     if n < 0:
         fail("uleb: negative value %d" % n)
     out = []
-    while True:
+    for _ in range(1000):
         b = n & 0x7f
         n = n >> 7
         if n == 0:
@@ -91,7 +91,7 @@ def uleb(n):
 def sleb(n):
     """Signed LEB128 encoding of an int, as a list of bytes."""
     out = []
-    while True:
+    for _ in range(1000):
         b = n & 0x7f
         n = n >> 7  # arithmetic shift
         if (n == 0 and b & 0x40 == 0) or (n == -1 and b & 0x40 != 0):
@@ -138,7 +138,9 @@ def flatten(body):
     """Flatten nested instruction lists into a single list of tuples."""
     out = []
     stack = [body]
-    while stack:
+    for _ in range(1 << 40):
+        if not stack:
+            break
         x = stack.pop()
         if type(x) == "list":
             for i in range(len(x) - 1, -1, -1):

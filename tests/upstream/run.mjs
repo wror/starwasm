@@ -10,9 +10,9 @@
 //   upstream   bin/upstreamhost -options=file: starlark-go with only the
 //              dialect options the chunk names, as starlark-go's tests run
 //              it. Checks the harness (assert.star etc.) itself.
-//   reference  bin/upstreamhost -options=starwasm: starlark-go with every
-//              option on and starwasm's predeclared names, i.e. what
-//              starwasm should do.
+//   reference  bin/upstreamhost -options=starwasm: starlark-go with
+//              starwasm's dialect for the options the chunk names, and
+//              starwasm's predeclared names, i.e. what starwasm should do.
 //   starwasm   compiled with `$COMPILER --test` and run by Node
 //              (syntax/testdata chunks: parsed by tests/upstream/parse_only.star)
 //
@@ -43,7 +43,7 @@ import { join, resolve, basename } from "node:path";
 
 const ROOT = resolve(new URL("../..", import.meta.url).pathname);
 const OUT = join(ROOT, "out/upstream");
-const COMPILER = (process.env.COMPILER || "bin/starhost compiler/main.star").split(/\s+/);
+const COMPILER = (process.env.COMPILER || "bin/starhost --recursion compiler/main.star").split(/\s+/);
 
 // The test files, as in starlark-go's TestExecFile / TestResolve /
 // TestParseErrors. lines: run only the first N lines (the rest needs a Go
@@ -307,7 +307,7 @@ async function runChunk(job) {
 
   let sw;
   if (file.mode === "parse") {
-    sw = await run(join(ROOT, "bin/starhost"), ["tests/upstream/parse_only.star", join(dir, name)], ROOT);
+    sw = await run(join(ROOT, "bin/starhost"), ["--recursion", "tests/upstream/parse_only.star", join(dir, name)], ROOT);
   } else {
     const wasm = join(dir, "prog.wasm");
     let src = join(dir, name);
@@ -318,7 +318,14 @@ async function runChunk(job) {
       writeFileSync(src, chunk.src.replace(file.unload, ""));
       copyFileSync(join(ROOT, "tests/upstream/assert.star"), join(dir, "sw", "assert.star"));
     }
-    sw = await run(COMPILER[0], [...COMPILER.slice(1), "--test", ...fds.map((f) => `--descriptor_set=${f}`), src, wasm], ROOT);
+    // the dialect options the chunk names, as upstreamhost -options=starwasm:
+    // --globalreassign for globalreassign, while or toplevelcontrol (one
+    // flag, as starlark-go's AllowGlobalReassign), --recursion for recursion
+    const reassign = [
+      ...(/option:(globalreassign|while|toplevelcontrol)/.test(chunk.src) ? ["--globalreassign"] : []),
+      ...(/option:recursion/.test(chunk.src) ? ["--recursion"] : []),
+    ];
+    sw = await run(COMPILER[0], [...COMPILER.slice(1), "--test", ...reassign, ...fds.map((f) => `--descriptor_set=${f}`), src, wasm], ROOT);
     if (sw.code !== 0) {
       // a compile error: keep "file:line:col: msg" (the last line of the
       // compiler's own traceback)

@@ -5,8 +5,12 @@
 //
 // Usage: upstreamhost [-options=starwasm|file] [-mode=exec|resolve|parse] [-descriptor_set=FILE] file.star
 //
-//	-options=starwasm  every dialect option on, as bin/starhost and the
-//	                   compiler (default)
+//	-options=starwasm  starwasm's dialect, as bin/starhost and the compiler
+//	                   (default): starlark-go's defaults (set on), with
+//	                   GlobalReassign, While and TopLevelControl on if the
+//	                   file names any of them (starwasm's --globalreassign)
+//	                   and Recursion if it names recursion (--recursion);
+//	                   the harness passes the same flags to the compiler
 //	-options=file      only the options named in the file ("option:set"
 //	                   etc.), as starlark-go's own tests run it
 //	-mode=exec         run it (starlark/testdata, starlarkstruct/testdata)
@@ -148,9 +152,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	opts := &syntax.FileOptions{Set: true, While: true, TopLevelControl: true, GlobalReassign: true, Recursion: true}
+	has := func(name string) bool { return strings.Contains(string(src), "option:"+name) }
+	// starwasm's flags: --globalreassign (GlobalReassign, While and
+	// TopLevelControl together, as starlark-go's AllowGlobalReassign) and
+	// --recursion; set is standard
+	legacy := has("globalreassign") || has("while") || has("toplevelcontrol")
+	opts := &syntax.FileOptions{Set: true, While: legacy, TopLevelControl: legacy, GlobalReassign: legacy, Recursion: has("recursion")}
 	if *options == "file" {
-		has := func(name string) bool { return strings.Contains(string(src), "option:"+name) }
 		opts = &syntax.FileOptions{
 			Set:               has("set"),
 			While:             has("while"),

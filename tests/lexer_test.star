@@ -1,4 +1,4 @@
-# Unit tests for compiler/lexer.star. Run: bin/starhost tests/lexer_test.star
+# Unit tests for compiler/lexer.star. Run: bin/starhost --recursion tests/lexer_test.star
 
 load("../compiler/lexer.star", "lex")
 
@@ -56,10 +56,9 @@ toks = lex("x = 1\n  \ny = '''a\nb'''\nz\n", "t.star")
 check_eq("line numbers", [(t["line"], t["col"]) for t in toks if t["kind"] == "name"], [(1, 1), (3, 1), (5, 1)])
 
 # columns count code points, as starlark-go; each token also has its end
-toks = lex("s = 'é' + x\n", "t.star")
-check_eq("columns in code points", [(t["kind"], t["col"], t["ecol"]) for t in toks[:5]],
+toks2 = lex("s = 'é' + x\n", "t.star")
+check_eq("columns in code points", [(t["kind"], t["col"], t["ecol"]) for t in toks2[:5]],
          [("name", 1, 2), ("=", 3, 4), ("string", 5, 8), ("+", 9, 10), ("name", 11, 12)])
 
-if failures:
-    fail(str(len(failures)) + " failure(s):\n  " + "\n  ".join(failures))
+fail(str(len(failures)) + " failure(s):\n  " + "\n  ".join(failures)) if failures else None
 print("lexer_test: ok")

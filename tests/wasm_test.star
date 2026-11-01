@@ -1,4 +1,4 @@
-# Unit tests for lib/wasm.star. Run: bin/starhost tests/wasm_test.star
+# Unit tests for lib/wasm.star. Run: bin/starhost --recursion tests/wasm_test.star
 
 load("../lib/wasm.star", "EQREF", "I32", "I8", "add_func", "add_type", "array_type", "encode", "flatten", "new_module", "ref", "sleb", "struct_type", "uleb")
 
@@ -59,6 +59,5 @@ check_eq("gc type section", encode(g, names = False), [
 # Encoding is deterministic: same input, same bytes.
 check_eq("determinism", encode(m), encode(m))
 
-if failures:
-    fail("%d failure(s):\n  %s" % (len(failures), "\n  ".join(failures)))
+fail("%d failure(s):\n  %s" % (len(failures), "\n  ".join(failures))) if failures else None
 print("wasm_test: ok")

@@ -60,22 +60,22 @@ print("z" in d)
 print(d[(1 << 41) // 2])
 
 # growth
-d2 = {}
-for i in range(100):
-    d2[i * 7] = str(i)
+# (no top-level loops: starlark-go's default dialect)
+d2 = {i * 7: str(i) for i in range(100)}
 print(len(d2))
 print(d2[693])
 print(d2[0])
-l = []
-for i in range(50):
-    l.append(i * i)
+l = [j * j for j in range(50)]
 print(l[49])
 print(l[-1])
 print(len(l))
-s = 0
-for k in d2:
-    s = s + k
-print(s)
+def total(d):
+    s = 0
+    for k in d:
+        s = s + k
+    return s
+
+print(total(d2))
 
 # equality and ordering
 print([1, (2, "x")] == [1, (2, "x")])

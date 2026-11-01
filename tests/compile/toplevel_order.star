@@ -1,5 +1,5 @@
 # Top-level names resolve in source order, as starlark-go with
-# GlobalReassign (bin/starhost): before its first binding, a name means the
+# GlobalReassign (the option line at the end): before its first binding, a name means the
 # builtin of that name; after, the global.
 print(len("abc"))
 len = 1
@@ -19,3 +19,5 @@ def iadd(x, y):
 
 print(iadd([1], (2, 3)), iadd([1], {4: 5}), iadd([1], range(2)), iadd([1], "ab".elems()))
 print(iadd((1,), (2,)), iadd("a", "b"), iadd(1, 2))
+
+# option:globalreassign

@@ -1,8 +1,13 @@
-// Command starhost runs a Starlark program with the extensions the
-// starwasm compiler needs: recursion and while loops enabled, plus
-// host builtins for file I/O. It is the stage-0 bootstrap interpreter.
+// Command starhost runs a Starlark program with host builtins for file
+// I/O. It is the stage-0 bootstrap interpreter, and the reference the
+// differential tests compare compiled programs with.
 //
-// Usage: starhost [--descriptor_set=FILE] <file.star> [args...]
+// Usage: starhost [--globalreassign] [--recursion] [--descriptor_set=FILE] <file.star> [args...]
+//
+// The dialect is starlark-go's default, as the compiler's: no reassigning
+// top-level names, no while loops, no if/for at top level, unless
+// --globalreassign (starlark-go's AllowGlobalReassign); no recursion unless
+// --recursion. The compiler itself needs --recursion.
 //
 // The predeclared proto module is starlark-go's lib/proto; its descriptor
 // pool holds the files of the binary FileDescriptorSet FILE (what
@@ -90,12 +95,22 @@ func writeFile(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwa
 func main() {
 	args := os.Args[1:]
 	fds := ""
-	if len(args) > 0 && strings.HasPrefix(args[0], "--descriptor_set=") {
-		fds = strings.TrimPrefix(args[0], "--descriptor_set=")
+	reassign := false  // starlark-go's AllowGlobalReassign (off by default, as there)
+	recursion := false // starlark-go's Recursion (off by default, as there)
+	for len(args) > 0 {
+		if strings.HasPrefix(args[0], "--descriptor_set=") {
+			fds = strings.TrimPrefix(args[0], "--descriptor_set=")
+		} else if args[0] == "--globalreassign" {
+			reassign = true
+		} else if args[0] == "--recursion" {
+			recursion = true
+		} else {
+			break
+		}
 		args = args[1:]
 	}
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: starhost [--descriptor_set=FILE] <file.star> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: starhost [--globalreassign] [--recursion] [--descriptor_set=FILE] <file.star> [args...]")
 		os.Exit(2)
 	}
 	pool, err := descriptorPool(fds)
@@ -117,11 +132,13 @@ func main() {
 		"proto": starlarkproto.Module,
 	}
 	opts := &syntax.FileOptions{
-		Recursion:       true, // parsers and tree walkers need it
-		While:           true,
+		// as starlark-go's defaults (cmd/starlark: -globalreassign controls
+		// the first three; set is standard), and the compiler's flags
+		GlobalReassign:  reassign,
+		While:           reassign,
+		TopLevelControl: reassign,
+		Recursion:       recursion,
 		Set:             true,
-		GlobalReassign:  true,
-		TopLevelControl: true,
 	}
 	// load("x.star", ...) resolves relative to the directory of the file
 	// doing the loading (thread.Name holds that file's path). Each module

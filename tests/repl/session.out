@@ -11,8 +11,7 @@ Error: list index 9 out of range [-3:2]
 set([1, 2, 3, 7])
 printed
 {"a": 1}
-0
-1
+<input 18>:1:1: for loop not within a function
 "doc\nstring"
 [3, 2, 1]
 # <input 1>
@@ -48,9 +47,6 @@ d = {
 }
 # <input 17>
 d
-# <input 18>
-for i in range(2):
-    print(i)
 # <input 19>
 """doc
 string"""
@@ -62,8 +58,9 @@ util init
 18
 [1, 2]
 <input 25>:1:8: got newline, want primary expression
-6
-"a-6"
+<input 27>:1:1: cannot reassign global z declared at <input 26>:1:1
+5
+"a-5"
 session cleared
 h is 5
 h = 2

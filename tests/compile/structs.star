@@ -24,3 +24,5 @@ for o in [m, "a b"]:
     print(o.split())
 print(sorted([struct(k = 2), struct(k = 1)], key = lambda s: s.k))
 print(struct(s = b"\xff", t = "q"), [struct()])
+
+# option:globalreassign (top-level control flow or rebinding above)

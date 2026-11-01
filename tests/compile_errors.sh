@@ -2,18 +2,21 @@
 # Each tests/compile_errors/*.star starts with "# error: <text>"; compiling
 # it must fail with a message containing <text>. When starlark-go
 # (bin/starhost) rejects the file statically too, the compiler's message
-# ("line:col: msg") must be exactly starlark-go's first error.
+# ("line:col: msg") must be exactly starlark-go's first error. A file with
+# a line "# option:globalreassign" or "# option:recursion" is compiled (and
+# run by starlark-go) with that option on.
 cd "$(dirname "$0")/.."
 # The compiler to test; default: the interpreted one. test.sh also runs
 # these with the self-compiled compiler (node host/run.mjs out/stage2.wasm --).
-COMPILER=${COMPILER:-bin/starhost compiler/main.star}
+COMPILER=${COMPILER:-bin/starhost --recursion compiler/main.star}
 mkdir -p out
 fail=0
 n=0
 same=0
 for src in tests/compile_errors/*.star; do
   want=$(head -1 "$src" | sed 's/^# error: //')
-  if $COMPILER "$src" out/err.wasm 2> out/err.txt; then
+  gr="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:recursion' "$src" && printf ' --recursion')"
+  if $COMPILER $gr "$src" out/err.wasm 2> out/err.txt; then
     echo "compile_errors/$(basename "$src"): compiled, but expected error: $want"; fail=1
     continue
   elif ! grep -qF -- "$want" out/err.txt; then
@@ -22,7 +25,7 @@ for src in tests/compile_errors/*.star; do
   fi
   n=$((n+1))
   # starlark-go's static error, if it has one (not a run-time traceback)
-  sg=$(bin/starhost "$src" 2>&1 > /dev/null | head -1)
+  sg=$(bin/starhost $gr "$src" 2>&1 > /dev/null | head -1)
   case "$sg" in
     "$src":*)
       got=$(tail -1 out/err.txt | sed 's/^Error in fail: fail: //; s/^Error: //')

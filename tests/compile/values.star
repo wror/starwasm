@@ -54,3 +54,5 @@ def apply(f, *args):
     return f(*args)
 print(apply(len, "abcd"), apply("x".join, ["a", "b"]), apply(max, 1, 9, 3))
 print([f("xy") for f in [len, str, repr]])
+
+# option:globalreassign (top-level control flow or rebinding above)

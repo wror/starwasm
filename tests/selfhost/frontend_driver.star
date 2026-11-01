@@ -34,16 +34,19 @@ def count_nodes(x):
         return n
     return 0
 
-toks = lex(SRC, SRC_NAME)
-kinds = {}
-for t in toks:
-    kinds[t["kind"]] = kinds.get(t["kind"], 0) + 1
-print("tokens:", len(toks))
-print("kinds:", kinds)
+def main():
+    toks = lex(SRC, SRC_NAME)
+    kinds = {}
+    for t in toks:
+        kinds[t["kind"]] = kinds.get(t["kind"], 0) + 1
+    print("tokens:", len(toks))
+    print("kinds:", kinds)
 
-stmts = parse_file(SRC, SRC_NAME)
-print("statements:", len(stmts), "nodes:", count_nodes(stmts))
-defs = [s["name"] for s in stmts if s["kind"] == "def"]
-print("defs:", len(defs), defs)
-for s in stmts:
-    print(dump(s))
+    stmts = parse_file(SRC, SRC_NAME)
+    print("statements:", len(stmts), "nodes:", count_nodes(stmts))
+    defs = [s["name"] for s in stmts if s["kind"] == "def"]
+    print("defs:", len(defs), defs)
+    for s in stmts:
+        print(dump(s))
+
+main()

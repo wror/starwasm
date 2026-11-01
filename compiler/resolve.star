@@ -59,7 +59,9 @@ def bind(sc, name, is_param):
 def resolve_ref(sc, name):
     crossed = []  # function scopes between the use and the binding
     s = sc
-    while s != None and s["kind"] != "module":
+    for _ in range(100000):
+        if s == None or s["kind"] == "module":
+            break
         b = s["bindings"].get(name)
         if b != None:
             if crossed:
@@ -73,16 +75,78 @@ def resolve_ref(sc, name):
             crossed.append(s)
         s = s["parent"]
 
-def resolve_module(stmts, filename):
+def resolve_module(stmts, filename, reassign = False, repl = False):
+    """reassign: the compiler's --globalreassign, starlark-go's
+    AllowGlobalReassign: the options GlobalReassign, While and
+    TopLevelControl. Without it (the default, as in starlark-go) a
+    top-level name may be bound only once, a top-level use of it refers to
+    the module's variable even before its binding (a run-time error if not
+    yet assigned), and there are no while loops and no if/for at top level. repl (the compiler's --repl, which
+    host/repl.mjs passes): `_`, the REPL's last value, may be rebound even
+    so."""
     sc = new_scope("module", None)
     sc["file"] = filename  # for errors (rerr)
-    # Top-level names bound so far, in source order. As starlark-go with
-    # GlobalReassign (bin/starhost's options): a top-level use (outside
-    # functions and comprehensions) of a name not bound yet refers to the
-    # builtin of that name, or is "undefined" (codegen sees e["early"]).
+    sc["reassign"] = reassign
+    sc["repl"] = repl
+    # first binding of each top-level name: (kind, pos), kind "global" or
+    # "local" (a load), for "cannot reassign" (without reassign only)
+    sc["first"] = {}
+    # names bound by load statements (without reassign: a top-level use
+    # before the load fails, see walk_expr)
+    sc["loaded"] = {}
+    for s in stmts:
+        if s["kind"] == "load":
+            for local, _ in s["names"]:
+                sc["loaded"][local] = True
+    # Top-level names bound so far, in source order. With GlobalReassign:
+    # a top-level use (outside functions and comprehensions) of a name not
+    # bound yet refers to the builtin of that name, or is "undefined"
+    # (codegen sees e["early"]).
     sc["seen"] = {}
     sc["order"] = []  # the same names, in order (for spelling hints)
     walk_stmts(stmts, sc)
+
+def bind_top(sc, name, posn, kind):
+    """A top-level binding of name at posn (kind "global", or "local" for a
+    load): without GlobalReassign, an error if it is already bound (as
+    starlark-go's resolver: bind, and bindLocal for loads)."""
+    if sc["reassign"] or (sc["repl"] and name == "_"):
+        return
+    prev = sc["first"].get(name)
+    if kind == "local":
+        if prev != None and prev[0] == "local":
+            rerr(sc, posn, "cannot reassign top-level " + name)
+        if prev == None:
+            sc["first"][name] = (kind, posn)
+        return
+    if prev != None:
+        rerr(sc, posn, "cannot reassign " + prev[0] + " " + name + " declared at " +
+             sc["file"] + ":" + str(prev[1][0]) + ":" + str(prev[1][1]))
+    sc["first"][name] = (kind, posn)
+
+def check_control(sc, s, what):
+    """starlark-go's TopLevelControl (on with --globalreassign): if, for
+    and while only in functions."""
+    if not module_of(sc)["reassign"] and runs_at_top(sc):
+        rerr(sc, s["pos"], what + " not within a function")
+
+def module_of(sc):
+    for _ in range(100000):
+        if sc["parent"] == None:
+            break
+        sc = sc["parent"]
+    return sc
+
+def runs_at_top(sc):
+    """Whether code in scope sc runs as part of the top level (the module
+    or a comprehension in it), not in a function."""
+    for _ in range(100000):
+        if sc["kind"] == "function":
+            return False
+        if sc["parent"] == None:
+            return True
+        sc = sc["parent"]
+    return True
 
 def see(sc, name):
     if not sc["seen"].get(name, False):
@@ -137,11 +201,13 @@ def walk_stmt(s, sc):
     k = s["kind"]
     if k == "def":
         if sc["kind"] == "module":
+            bind_top(sc, s["name"], s.get("namepos", s["pos"]), "global")
             see(sc, s["name"])
         walk_function(s, sc, s["params"], s["body"], False)
     elif k == "load":
         if sc["kind"] == "module":
-            for local, _ in s["names"]:
+            for i, (local, _) in enumerate(s["names"]):
+                bind_top(sc, local, s["localpos"][i], "local")
                 see(sc, local)
     elif k == "assign":
         walk_expr(s["rhs"], sc)
@@ -150,15 +216,20 @@ def walk_stmt(s, sc):
     elif k == "expr":
         walk_expr(s["x"], sc)
     elif k == "if":
+        check_control(sc, s, "if statement")
         walk_expr(s["test"], sc)
         walk_stmts(s["body"], sc)
         walk_stmts(s["else_"], sc)
     elif k == "for":
+        check_control(sc, s, "for loop")
         walk_expr(s["iter"], sc)
         check_target(sc, s["target"], False)
         walk_target(s["target"], sc)
         walk_stmts(s["body"], sc)
     elif k == "while":
+        if not module_of(sc)["reassign"]:
+            rerr(sc, s["pos"], "this Starlark dialect does not support while loops")
+        check_control(sc, s, "while loop")
         walk_expr(s["test"], sc)
         walk_stmts(s["body"], sc)
     elif k == "return":
@@ -272,6 +343,7 @@ def walk_target(t, sc):
     k = t["kind"]
     if k == "name":
         if sc["kind"] == "module":
+            bind_top(sc, t["id"], t["pos"], "global")
             see(sc, t["id"])
         resolve_ref(sc, t["id"])
     elif k == "tuple" or k == "list":
@@ -305,8 +377,14 @@ def walk_function(node, sc, params, body, is_lambda):
 def walk_expr(e, sc):
     k = e["kind"]
     if k == "name":
-        if sc["kind"] == "module" and not sc["seen"].get(e["id"], False):
+        if sc["kind"] == "module" and sc["reassign"] and not sc["seen"].get(e["id"], False):
             e["early"] = sc["order"][:]  # the names a hint may suggest
+        elif not module_of(sc)["reassign"] and runs_at_top(sc) and module_of(sc)["loaded"].get(e["id"], False) and \
+             module_of(sc)["first"].get(e["id"]) == None:
+            # a top-level use of a loaded name before its load statement: as
+            # starlark-go, "local variable x referenced before assignment"
+            # (a load binds in the file block); codegen sees e["preload"]
+            e["preload"] = True
         resolve_ref(sc, e["id"])
     elif k == "list" or k == "tuple":
         for x in e["elems"]:

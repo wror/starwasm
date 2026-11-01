@@ -4,3 +4,5 @@ def check(x):
     return x
 for i in range(5):
     print(check(i))
+
+# option:globalreassign (top-level control flow or rebinding above)

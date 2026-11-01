@@ -1,5 +1,5 @@
-# A loaded name may be reassigned and loaded again (bin/starhost runs with
-# globalreassign, as starlark-go's own tests of this do).
+# A loaded name may be reassigned and loaded again, with GlobalReassign
+# (the option line at the end), as starlark-go's own tests of this do.
 load("modules/util.star", "helper")
 
 print(helper())
@@ -14,3 +14,5 @@ def f():
     return helper()
 
 print(f())
+
+# option:globalreassign (top-level names are rebound above)

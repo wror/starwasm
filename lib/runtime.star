@@ -167,7 +167,9 @@ def vi(n):
         return new("Int", i64(n))
     x = -n if n < 0 else n
     limbs = []
-    while x > 0:
+    for _ in range(1 << 40):
+        if x == 0:
+            break
         limb = x % 4294967296
         limbs.append(i32(limb - 4294967296 if limb >= 2147483648 else limb))
         x = x // 4294967296

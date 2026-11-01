@@ -22,3 +22,5 @@ print(9007199254740993 == 9007199254740992.0, 9007199254740993 > 900719925474099
 print("%d %i %x %X %o" % (3.9, -3.9, 255.9, 255.0, 8.5), "%s|%r" % (0.1, 0.1), [0.1 + 0.2], str(1e100), repr(-1e-100))
 print(1.5 == 1.5, 1.5 != 1.5, 0.1 * 3 == 0.3, 3 * 0.1, bool(0.0), bool(-0.0), bool(float("nan")), not 0.5, 0.0 or "y", 2.0 and "z")
 print(list(range(3))[int(1.9)], [1, 2, 3][1:int(2.5)], "ab" * int(2.0), type(1.0 * 2), type(2 // 1.0), 4.0 == 4, {4: 1} == {4.0: 1})
+
+# option:globalreassign (top-level names are rebound above)

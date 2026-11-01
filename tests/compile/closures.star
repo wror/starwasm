@@ -96,3 +96,7 @@ def scaler():
 s = scaler()
 scale = 4
 print(s(5))
+
+# option:globalreassign (top-level names are rebound above)
+
+# option:recursion (recursive functions above)

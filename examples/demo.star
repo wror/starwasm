@@ -1,6 +1,6 @@
 # demo.star — milestone 1: Starlark builds a Wasm module and writes it out.
 #
-#   bin/starhost examples/demo.star out/demo.wasm
+#   bin/starhost --recursion examples/demo.star out/demo.wasm
 #   node host/run.mjs out/demo.wasm answer      # -> 42
 #   node host/run.mjs out/demo.wasm main        # -> 0! .. 20!
 

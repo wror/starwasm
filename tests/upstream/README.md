@@ -52,8 +52,11 @@ go.starlark.net/internal/chunkedfile). Every chunk runs three ways:
   dialect options the chunk names (`option:set` etc.). This checks the
   harness: these all pass except the hasfields chunk.
 - **reference**: `bin/upstreamhost -options=starwasm`, starlark-go with
-  every option on (as bin/starhost and the compiler) and starwasm's
-  predeclared names.
+  starwasm's dialect (as bin/starhost and the compiler: starlark-go's
+  defaults, set on; GlobalReassign, While and TopLevelControl together if
+  the chunk names any of them, and Recursion if it names recursion;
+  starwasm then gets `--globalreassign` / `--recursion` too) and
+  starwasm's predeclared names.
 - **starwasm**: the chunk compiled with `compiler/main.star --test` and run
   by Node; for syntax/testdata, parsed by parse_only.star.
 

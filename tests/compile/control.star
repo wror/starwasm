@@ -86,3 +86,7 @@ print(two(y = order("first"), x = order("second")), log[-2:])
 x = 0
 if x: print("no")
 elif not x: print("yes")
+
+# option:globalreassign (top-level names are rebound above)
+
+# option:recursion (recursive functions above)

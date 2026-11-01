@@ -1,7 +1,7 @@
 # Builds tests/runtime/expect.star by hand as Wasm calls into the runtime.
 # This is roughly what the milestone-3 compiler will emit.
 #
-#   bin/starhost tests/runtime/build.star out/runtime_test.wasm
+#   bin/starhost --recursion tests/runtime/build.star out/runtime_test.wasm
 #
 # Exports: main (the differential program) and err_* (each should fail).
 
@@ -206,7 +206,6 @@ errors = {
     "err_compare": lt(vi(1), s("a")),
     "err_len": length(vi(3)),
 }
-for fname, code in errors.items():
-    add_func(m, fname, [], [], [pr(code)], export = True)
+[add_func(m, fname, [], [], [pr(code)], export = True) for fname, code in errors.items()]
 
 write_file(argv[0], encode(m))

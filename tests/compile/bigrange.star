@@ -11,3 +11,5 @@ def first(it):
     for x in it:
         return x
 print(first(range(5, 1 << 62)), first(range(9223372036854775807 - 1, 9223372036854775807)))
+
+# option:globalreassign (top-level names are rebound above)

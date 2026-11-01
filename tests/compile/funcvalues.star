@@ -64,3 +64,5 @@ def later():
 def early_ref():
     return "early"
 print(later(), apply(later))
+
+# option:recursion (recursive functions above)

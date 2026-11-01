@@ -18,15 +18,18 @@
 #   lambda {params, body}
 #
 # Statements:
-#   def {name, params, body}   params: list of {name, default (or None), star,
+#   def {name, namepos, params, body}   params: list of {name, default (or None), star,
 #                              pos, eqpos (a default's "=")}
 #   if {test, body, else_}     (elif becomes a nested if in else_)
 #   for {target, iter, body}   while {test, body}
 #   return {value}  break  continue  pass
 #   assign {op, lhs, rhs}      op: "=" "+=" "-=" ...
-#   expr {x}   load {module, names}
+#   expr {x}   load {module, names, namepos, localpos}
 #   reactive {name, colon, value}   `name : value` (extension: reactive
-#                              variables, compiler/ext/reactive.star)
+#                              variables, compiler/ext/reactive.star); a
+#                              struct block (`name :` then indented
+#                              `field : value` lines) gives a value
+#                              struct(field = value, ...)
 
 # A port of starlark-go's parser (go.starlark.net/syntax/parse.go): the same
 # grammar, error messages and positions. Assignment targets and parameter
@@ -169,6 +172,15 @@ def parse_stmt(p, out):
         consume(p, ":")
         n["body"] = parse_suite(p)
         out.append(n)
+    elif k == "name" and starts_struct_block(p):
+        # `name :` + newline + indented `field : value` lines: sugar for
+        # `name : struct(field = value, ...)` (extension: reactive variables)
+        t = advance(p)
+        n = node("reactive", t)
+        n["name"] = t["val"]
+        n["colon"] = pos(peek(p))
+        n["value"] = parse_struct_block(p, t)
+        out.append(n)
     elif k == "while":
         t = advance(p)
         n = node("while", t)
@@ -179,10 +191,52 @@ def parse_stmt(p, out):
     else:
         parse_simple_stmt(p, out, True)
 
+def starts_struct_block(p):
+    """At `name : NEWLINE INDENT`?"""
+    i = p["i"]
+    toks = p["toks"]
+    return (i + 3 < len(toks) and toks[i + 1]["kind"] == ":" and
+            toks[i + 2]["kind"] == "newline" and toks[i + 3]["kind"] == "indent")
+
+def parse_struct_block(p, t):
+    """The block after `name` (t) in a struct block, from its ":": one
+    `field : value` per line (a value may itself be a struct block), up
+    to the dedent. Returns the call struct(field = value, ...)."""
+    colon = consume(p, ":")
+    consume(p, "newline")
+    consume(p, "indent")
+    args = []
+    for _ in range(len(p["toks"])):
+        if tok(p) == "dedent" or tok(p) == "eof":
+            break
+        ft = peek(p)
+        if ft["kind"] != "name":
+            error_here(p, "got " + token_name(ft["kind"]) + ", want field name")
+        if starts_struct_block(p):
+            advance(p)
+            value = parse_struct_block(p, ft)
+        else:
+            advance(p)
+            consume(p, ":")
+            value = parse_expr(p, False)
+            if tok(p) != "eof":
+                consume(p, "newline")
+        args.append({"name": ft["val"], "star": "", "value": value, "pos": pos(ft)})
+    consume(p, "dedent")
+    fn = node("name", t)
+    fn["id"] = "struct"
+    n = node("call", t)
+    n["lparen"] = pos(colon)
+    n["fn"] = fn
+    n["args"] = args
+    return n
+
 def parse_def(p):
     t = advance(p)
     n = node("def", t)
-    n["name"] = parse_ident(p)["val"]
+    nt = parse_ident(p)
+    n["name"] = nt["val"]
+    n["namepos"] = pos(nt)
     consume(p, "(")
     n["params"] = parse_params(p)
     consume(p, ")")
@@ -324,6 +378,7 @@ def parse_load(p):
     n["module"] = advance(p)["val"]
     names = []
     namepos = []  # of each original name, just inside its quote (as starlark-go)
+    localpos = []  # of each local name (the same for "name")
     for _ in range(len(p["toks"])):
         if tok(p) == ")" or tok(p) == "eof":
             break
@@ -335,8 +390,10 @@ def parse_load(p):
             st = advance(p)
             names.append((st["val"], st["val"]))
             namepos.append((st["line"], st["col"] + 1))
+            localpos.append((st["line"], st["col"] + 1))
         elif k == "name":
-            local = parse_ident(p)["val"]
+            lt = parse_ident(p)
+            local = lt["val"]
             if tok(p) != "=":
                 error_here(p, "load operand must be \"" + local + "\" or " + local + "=\"originalname\" (want '=' after " + local + ")")
             consume(p, "=")
@@ -345,6 +402,7 @@ def parse_load(p):
             st = advance(p)
             names.append((local, st["val"]))
             namepos.append((st["line"], st["col"] + 1))
+            localpos.append(pos(lt))
         else:
             error_here(p, "load operand must be \"name\" or localname=\"name\" (got " + token_name(k) + ")")
     consume(p, ")")
@@ -352,6 +410,7 @@ def parse_load(p):
         error_at(p, lparen, "load statement must import at least 1 symbol")
     n["names"] = names
     n["namepos"] = namepos
+    n["localpos"] = localpos
     return n
 
 def parse_ident(p):

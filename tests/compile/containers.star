@@ -43,3 +43,5 @@ print(len(m), m[1009], list(m.values())[-3:])
 grid = [[0] * 3 for _ in range(2)]
 grid[1][2] = 9
 print(grid, list(range(10, 0, -3)), list(range(3)))
+
+# option:globalreassign (top-level names are rebound above)

@@ -7,7 +7,7 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
 
 ## Layout
 
-    host/main.go          stage-0 host: starlark-go + recursion/while + file I/O
+    host/main.go          stage-0 host: starlark-go + file I/O (dialect flags as the compiler)
     host/wasmhost.mjs     runs compiled modules: host imports, files, argv,
                           tracebacks (used by run.mjs and repl.mjs)
     host/run.mjs          command line: run a .wasm export
@@ -116,9 +116,9 @@ Every Starlark value is an `eqref`:
 The compiler compiles itself; the bootstrap reaches a byte-identical
 fixpoint on the first generation:
 
-    bin/starhost compiler/main.star compiler/main.star out/stage1.wasm   # ~2.2s
-    node host/run.mjs out/stage1.wasm -- compiler/main.star out/stage2.wasm  # ~0.6s
-    node host/run.mjs out/stage2.wasm -- compiler/main.star out/stage3.wasm
+    bin/starhost --recursion compiler/main.star --recursion compiler/main.star out/stage1.wasm   # ~2.2s
+    node host/run.mjs out/stage1.wasm -- --recursion compiler/main.star out/stage2.wasm  # ~0.6s
+    node host/run.mjs out/stage2.wasm -- --recursion compiler/main.star out/stage3.wasm
     # stage1 == stage2 == stage3 (849 KB with debug sections)
 
 So the self-compiled compiler can replace starhost entirely:
@@ -148,7 +148,7 @@ What it took beyond milestone 3.5:
 
 ## Compiler
 
-    bin/starhost compiler/main.star prog.star out/prog.wasm
+    bin/starhost --recursion compiler/main.star [--globalreassign] [--recursion] prog.star out/prog.wasm
     node host/run.mjs out/prog.wasm [-- args...]     # runs top level
 
 - Written in plain Starlark. It started out in a subset (no %, lambdas,
@@ -162,6 +162,35 @@ What it took beyond milestone 3.5:
   packing resolved at compile time. Defaults are evaluated when the def
   executes, stored in globals `d_<f>_<param>`. With keyword args, arguments
   go through temps to keep source evaluation order.
+- Dialect: starlark-go's defaults, set aside: by default no rebinding a
+  top-level name, no while loops, no if/for/while at top level, and no
+  recursion. Two flags, on the compiler, bin/starhost and the REPL:
+  - `--globalreassign` (starlark-go's AllowGlobalReassign: its options
+    GlobalReassign, While and TopLevelControl together). Without it,
+    binding a top-level name twice (`x = 1; x = 2`, `x += 1`, a def or load
+    of a bound name) is a compile error with starlark-go's message
+    ("cannot reassign global x declared at ..."), a top-level use refers to
+    the module variable even before its assignment (a run-time "global
+    variable x referenced before assignment"; a loaded name read before its
+    load: "local variable ..."), `while` is "this Starlark dialect does not
+    support while loops" and a top-level if/for/while "... not within a
+    function". With it: rebinding allowed, top-level uses resolve in source
+    order (a use before the first binding is the builtin, or "undefined").
+    Code: bind_top, check_control and e["preload"] in resolve.star.
+  - `--recursion` (starlark-go's Recursion). Without it, recursion is
+    rejected at compile time, so compiled code pays nothing at run time
+    (starlark-go checks at run time): a cycle of statically known calls
+    (top-level and loaded defs, and nested defs bound only by their def) is
+    "function f called recursively" at the call closing the cycle.
+    Recursion through function values goes unnoticed, and a cycle is an
+    error even if never taken (compiler/recursion.star).
+  The compiler and the tools are recursive: they run as `bin/starhost
+  --recursion ...`, and the compiler is compiled with `--recursion`. Test
+  programs that need an option say so with a line `# option:globalreassign`
+  or `# option:recursion` (tests/compile_one.sh, compile_errors.sh and
+  extensions.sh pass the flag to both sides, as tests/upstream does for
+  starlark-go's own chunks). The prelude is always compiled with all
+  options on. The REPL passes `--repl`, which lets `_` be rebound.
 - Module variables: globals `g_<name>`; locals: Wasm locals; both null until
   assigned; reads check with br_on_non_null and fail with
   "local/global variable x referenced before assignment".
@@ -191,6 +220,11 @@ hermetic (read_file/write_file are replayed too). ~50 ms per input once V8
 has warmed up the compiler.
 
 - Bare expressions print their repr (unless None) and set `_`.
+- The session is one file in the default dialect, so rebinding a
+  top-level name in a later input is an error, as within a file, and so
+  are top-level for/if, while and recursion; `_` is exempt (compiler
+  --repl). `node host/repl.mjs --globalreassign --recursion` passes the
+  flags on.
 - A failing input (compile or runtime error) is dropped, so state stays as
   before it; errors and tracebacks are mapped to `<input N>:line:col`.
 - Blocks (first line ends with ":") end with an empty line; open brackets,
@@ -528,7 +562,8 @@ Parity fixes these tests led to (milestone 18):
   `load("m")` with no names is an error.
 - Resolver: call argument order (positional, named once each, *args,
   **kwargs) as starlark-go's messages; a loaded name may be rebound with
-  GlobalReassign (tests/compile/load_rebind.star). Top-level names resolve
+  GlobalReassign (tests/compile/load_rebind.star; GlobalReassign is now
+  off by default, see "Compiler"). Top-level names resolve
   in source order, as starlark-go with GlobalReassign: a use before the
   first binding means the builtin of that name, or "undefined: x"
   (tests/compile/toplevel_order.star). Spelling hints ("did you mean")
@@ -588,7 +623,7 @@ marshal_text / unmarshal_text, and the values they make. Programs that
 never name `proto` don't contain any of it.
 
     bin/starhost --descriptor_set=set.binpb prog.star
-    bin/starhost compiler/main.star --descriptor_set=set.binpb prog.star prog.wasm
+    bin/starhost --recursion compiler/main.star --descriptor_set=set.binpb prog.star prog.wasm
 
 - Descriptors: the pool is a binary FileDescriptorSet (`protoc
   --include_imports --descriptor_set_out`, `buf build`, or tools/protoc).
@@ -746,6 +781,12 @@ never name `proto` don't contain any of it.
        objects; descriptor sets embedded at compile time; wire and text
        formats; tests/compile/proto_{basic,wire}.star, 166 error programs,
        upstream proto.star.
+
+21. [x] starlark-go's default dialect: `--globalreassign` (reassignment,
+       while, top-level control) and `--recursion` (checked statically),
+       both off by default; upstream: 148 pass, 13 first-error,
+       3 compile-time, 16 dialect, 1 n/a, 2 known (the static recursion
+       check).
 
 Possible next steps: performance (unboxed int fast
 paths in codegen, static calls to nested defs, avoiding rt_iter snapshots);

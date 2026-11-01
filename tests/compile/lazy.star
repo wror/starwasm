@@ -8,3 +8,5 @@ for s in ["héllo", ""]:
 print(b"ab\xff".elems(), type(b"a".elems()), list(b"ab".elems()), "x".elems() == "x".elems(), [c for c in "ab".elems()], dir("a".elems()), bool("".elems()))
 print(sorted("cab".elems()), "a" in list("ab".elems()), zip("ab".elems(), range(2)), set(range(3)), {k: 1 for k in "ab".elems()})
 print(range(2, 9, 3)[1], range(-5), range(5, 1), r.__class__ if False else "", repr(range(-3, 3, 2)))
+
+# option:globalreassign (top-level control flow or rebinding above)

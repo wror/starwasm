@@ -11,3 +11,5 @@ for i in range(70):
     x *= 3
 print(x, x // 7, x % 1000000007, len(str(x)), sorted([a, 1, -a, 2.5]), max(a, 5), min(-a, 5), bool(a), a * 0, a - a, (a + 1) - a)
 print(1 << 64, (1 << 64) >> 64, 1 << 0, -1 >> 100, 5 // (1 << 70), -5 // (1 << 70), 5 % (1 << 70), -5 % (1 << 70))
+
+# option:globalreassign (top-level names are rebound above)

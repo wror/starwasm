@@ -124,6 +124,26 @@ standard input.
     the variable become `_r_self(%reactive, "a")`. Error messages are the
     usual ones (the host doesn't name private prelude functions, `_...`,
     as builtins in tracebacks).
+- Struct blocks: a definition whose `:` ends the line, followed by an
+  indented block of `field : value` lines, is sugar for a struct:
+
+      a:
+        b: 123
+        c: 456
+
+  is `a : struct(b = 123, c = 456)`. One field per line (newlines
+  separate fields, not commas; a value can still span lines inside
+  brackets), the dedent ends it, blank lines and comments are ignored. A
+  field whose `:` ends its line opens a nested block, giving a nested
+  struct. The parser builds exactly the `struct(...)` call, so everything
+  above applies unchanged: the same rules on where it may appear, field
+  values may read reactive variables or the variable itself
+  (self-reference), and errors are those of the call (a repeated field is
+  `keyword argument "b" is repeated`). `struct` is looked up by name like
+  any other, so a module that rebinds `struct` gets its own. A struct
+  block only defines a reactive variable: there's no `a = ` form.
+  Code: parser.star (`parse_struct_block`). Tests:
+  tests/extensions/reactive_struct.star, reactive_struct_err_*.star.
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
 - Input lines: `name = literal` (`:` also works), several separated by
@@ -192,6 +212,19 @@ standard input.
     error's traceback, cut to the frames inside f).
   - Programs without reactive variables pay nothing: the imports,
     primitives and runtime are only added when the main file has one.
+- Dialect: reactive variables work the same in starlark-go's default
+  dialect (no rebinding top-level names, no while, no top-level if/for, no
+  recursion) and with `--globalreassign` and/or `--recursion`. A reactive
+  variable is never a module variable (its definitions become
+  `%reactive["x"] = ...`), so defining one is not a top-level binding; the
+  rewrite binds each of its own top-level names once and adds no
+  top-level control flow, and the runtime (`_reactive_input` and the `_r_`
+  helpers) is in the prelude, which is always compiled with every option
+  on. The rule that nothing else binds the name holds in every mode; with a
+  plain binding first (`x = 1` then `x : 2`, or a struct block) the error
+  is "cannot define reactive variable x: x is already bound", at the
+  definition. test.sh runs tests/extensions.sh in the default dialect and
+  with `--globalreassign`.
 - Not covered: dependency cycles (impossible as written, since a variable
   must be defined before it is read); reactive variables in loaded
   modules; dir() at top level doesn't list reactive variables; a loop or

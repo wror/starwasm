@@ -1,3 +1,5 @@
 l = [1, 2]
 for x in l:
     l.extend([1])
+
+# option:globalreassign (top-level control flow or rebinding above)

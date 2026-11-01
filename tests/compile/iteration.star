@@ -39,3 +39,5 @@ print(l, min("cab".elems()), max(range(5)), max([1, 3], [2]))
 for x in range(3):
     l.append(x)
 print(l)
+
+# option:globalreassign (top-level names are rebound above)
