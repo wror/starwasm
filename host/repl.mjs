@@ -255,9 +255,9 @@ function looksLikeStatement(src) {
 }
 
 // Reactive definitions in Starlark text: `name : ...` (or `a name :` /
-// `an name :`, a relation) starting a top-level statement (a line at column
+// `an name :` / `a name when cond :`, a relation) starting a top-level statement (a line at column
 // 0, outside brackets and strings). Returns [{name, rest, relation}], rest
-// being the text of the definition after the ":".
+// being the text of the definition after its name.
 const NOT_NAMES = new Set([...STATEMENT_KEYWORDS, "lambda", "not"]);
 function reactiveDefs(text) {
   const starts = []; // where top-level statements start
@@ -279,8 +279,10 @@ function reactiveDefs(text) {
   const defs = [];
   starts.forEach((at, k) => {
     const stmt = text.slice(at, k + 1 < starts.length ? starts[k + 1] : text.length);
-    const m = /^(an?[ \t]+)?([A-Za-z_]\w*)[ \t]*:/.exec(stmt);
-    if (m && !NOT_NAMES.has(m[2])) defs.push({ name: m[2], rest: stmt.slice(m[0].length), relation: m[1] !== undefined });
+    // (`a name when cond:`: the ":" ending the first line)
+    const m = /^(an?[ \t]+)?([A-Za-z_]\w*)[ \t]*:/.exec(stmt) ??
+      /^(an?[ \t]+)([A-Za-z_]\w*)(?=[ \t]+when\b)[^\n]*:[ \t]*(?:#[^\n]*)?(?=\n|$)/.exec(stmt);
+    if (m && !NOT_NAMES.has(m[2])) defs.push({ name: m[2], rest: stmt.slice((m[1] ?? "").length + m[2].length), relation: m[1] !== undefined });
   });
   return defs;
 }

@@ -198,6 +198,42 @@ standard input.
     and read as the self-reference. E.g. with `an account:` reading
     `deposit` (`struct(id = 3, account_id = 7, amount = 4)`), the deposit
     updates account 7 (tests/extensions/reactive_relation_ref.star).
+  - Conditions: `a name when cond:` (or `an name when cond:`) + a struct
+    block defines a relation that is updated by a condition instead of by
+    matching ids:
+
+        dingbat:
+            b: "foo"
+            c: "bar"
+        a wally when dingbat.b = wally.e and not dingbat.b.startswith("a"):
+            e: "foo"
+            f: dingbat.c
+
+    On an update (a change of what the condition or the block reads),
+    cond is evaluated once per member, reading that member as the
+    self-reference (`wally` above), and each member for which it is true
+    is replaced by the block evaluated with the same self-reference; the
+    new member's implicit `id` is the replaced one's. If it is true for no
+    member, cond is evaluated once more with the self-reference reading
+    the identity (as for a new member), and if that is true the block is
+    added as a new member (implicit `id`: the largest + 1). So a condition
+    that never holds of the identity (`dingbat.b = wally.e`, as `"foo" ==
+    ""` is false) only updates existing members (e.g. members assigned on
+    standard input), and one like `stock.name = item.name or stock.name =
+    ""` adds a member for a new name and updates it afterwards. The
+    replaced and added members go at the end, in order; the relation
+    counts as changed only if some member was replaced or added. The
+    `_id` references above don't apply (the condition picks the members),
+    and an explicit field `id` is used as written, even if another member
+    has it. In the condition (only, outside call arguments), `=` means
+    `==`, at the same precedence. Standard input assigns such a relation
+    as any other (by `id`). The original form (`a name:`, no `when`) is
+    unchanged.
+    Code: parser.star (`parse_struct_def` sets `when`), reactive.star
+    (`transform` compiles cond and the block to two functions,
+    `%r.<n>.when` and `%r.<n>.value`, called by `_r_when`). Tests:
+    tests/extensions/reactive_relation_when.star,
+    reactive_relation_err_when_block.star, the end of tests/repl/session.in.
   - Read in a definition, a relation is its *current member*, the one
     last added. Read in an observer (a top-level expression statement, or
     an expression typed in the REPL), it is the list of members.

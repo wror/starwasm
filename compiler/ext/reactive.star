@@ -444,7 +444,7 @@ def transform(cg, mc):
     out = [
         _assign(_name(VALUES, first), {"kind": "dict", "entries": [], "colons": [], "pos": first}, first),
         _assign(_name(NODES, first), {"kind": "list", "elems": [], "pos": first}, first),
-        _assign(_name(STATE, first), _state_dict(relations, first), first),
+        _assign(_name(STATE, first), _state_dict(relations, [n for n in relations if reactive[n].get("when") != None], first), first),
         _assign(_name(NAMES, first), _names_table(stmts, bound, reactive, first), first),
     ]
     nthunks = 0
@@ -460,9 +460,16 @@ def transform(cg, mc):
             name = s["name"]
             posn = s["pos"]
             relation = relations.get(name, False)
+            cond = s.get("when")  # `a name when cond:`
+            cdeps = []
+            if cond != None:
+                cdeps, cond_self = _top_uses(cx, defined, cond, name)
+                if cond_self:
+                    _in_context(cond)
             deps, has_self = _top_uses(cx, defined, s["value"], name)
             if has_self:
                 _in_context(s["value"])
+            deps = cdeps + [d for d in deps if d not in cdeps]
             # the triggering change's id: for a relation, which member it
             # adds or replaces; for a lone struct read from relations, its id
             from_rel = len([d for d in deps if relations.get(d, False)]) > 0
@@ -492,7 +499,19 @@ def transform(cg, mc):
                 if required:
                     value = _if_ready(value, required, _name("%prelude._unset", posn))
                 out.append(_assign(_value_ref(name, posn), value, s["colon"]))
-            if deps or relation:
+            if cond != None:
+                # %r.<n>() = _r_when(%reactive, %rstate, name, %r.<n>.when,
+                # %r.<n>.value): the condition and the definition are
+                # evaluated per member, by _r_when
+                fname = "%r." + str(nthunks)
+                fns = []
+                for suffix, e in [(".when", cond), (".value", s["value"])]:
+                    out.append({"kind": "def", "name": fname + suffix, "params": [], "pos": posn, "display": "<toplevel>",
+                                "body": [{"kind": "return", "value": _copy(e), "pos": posn}]})
+                    fns.append(_name(fname + suffix, posn))
+                call = _prelude_call("_r_when", [_name(VALUES, posn), _name(STATE, posn), _str(name, posn)] + fns, posn)
+                thunk = ([{"kind": "return", "value": call, "pos": posn}], _str(name, posn))
+            elif deps or relation:
                 body = [{"kind": "return", "value": _copy(s["value"]), "pos": posn}]
                 if keyed:
                     body = [_tid_stmt(name, deps, relation, posn)] + body
@@ -538,14 +557,20 @@ def _if_ready(e, required, otherwise):
     test = _prelude_call("_r_ready", [_name(VALUES, posn), names], posn)
     return {"kind": "cond", "test": test, "then": e, "else_": otherwise, "pos": posn}
 
-def _state_dict(relations, posn):
-    """{"lineno": 0, "relations": {name: True, ...}, "tid": None,
-    "changed": {}}: the runtime's state (see _reactive_input)."""
-    rels = [(_str(n, (posn[0], posn[1] + i)), _name("True", (posn[0], posn[1] + i))) for i, n in enumerate(sorted(relations))]
+def _state_dict(relations, whens, posn):
+    """{"lineno": 0, "relations": {name: True, ...}, "whens": {name: True,
+    ...}, "tid": None, "wself": None, "changed": {}}: the runtime's state
+    (see _reactive_input); whens are the relations with a condition
+    (`a name when cond:`)."""
+    def table(names):
+        es = [(_str(n, (posn[0], posn[1] + i)), _name("True", (posn[0], posn[1] + i))) for i, n in enumerate(sorted(names))]
+        return {"kind": "dict", "entries": es, "colons": [e[0]["pos"] for e in es], "pos": posn}
     entries = [
         (_str("lineno", posn), {"kind": "int", "val": 0, "pos": posn}),
-        (_str("relations", posn), {"kind": "dict", "entries": rels, "colons": [e[0]["pos"] for e in rels], "pos": posn}),
+        (_str("relations", posn), table(relations)),
+        (_str("whens", posn), table(whens)),
         (_str("tid", posn), _name("None", posn)),
+        (_str("wself", posn), _name("None", posn)),
         (_str("changed", posn), {"kind": "dict", "entries": [], "colons": [], "pos": posn}),
     ]
     return {"kind": "dict", "entries": entries, "colons": [posn for _ in entries], "pos": posn}
@@ -691,6 +716,7 @@ def _reactive_input(values, nodes, state, names, before):
         ok = _try(lambda: _reactive_update(values, nodes, state, [(n, _r_eval(e, {}, names)) for n, e in assigns]))
         state["changed"] = {}
         state["tid"] = None
+        state["wself"] = None
         if not ok:
             values.clear()
             values.update(saved)
@@ -726,6 +752,10 @@ def _reactive_update(values, nodes, state, assigns):
             f()
             continue
         v = f()
+        if state["whens"].get(name, False):
+            if v:  # _r_when updated it
+                changed[name] = True
+            continue
         if rels.get(name, False):
             _r_upsert(values, name, v)
             changed[name] = True
@@ -769,6 +799,40 @@ def _r_upsert(values, name, v):
     values[name + "[]"] = out  # a new list: an update that fails restores the old one
     values[name] = v
 
+def _r_when(values, state, name, cond, value):
+    """An update of relation name defined with a condition (`a name when
+    cond:`): every member for which cond() is true is replaced by value(),
+    both reading that member as the self-reference (and value() giving it
+    the member's id as its implicit id). If there is none, cond() is
+    evaluated once more with the self-reference reading the identity (a
+    new member), and if true, value() is added as a new member (its
+    implicit id one more than the largest). The replaced and new members
+    go at the end, in order. Returns whether the relation changed."""
+    kept = []
+    new = []
+    for m in values[name + "[]"]:
+        state["wself"] = m
+        state["tid"] = m.id
+        if _r_truth(cond()):
+            new.append(value())
+        else:
+            kept.append(m)
+    if not new:
+        state["wself"] = _identity
+        state["tid"] = None
+        if _r_truth(cond()):
+            new.append(value())
+    state["wself"] = None
+    state["tid"] = None
+    if not new:
+        return False
+    for v in new:
+        if not hasattr(v, "id"):
+            fail("a member of relation " + name + " must have a field id, got " + type(v))
+    values[name + "[]"] = kept + new  # a new list: an update that fails restores the old one
+    values[name] = new[-1]
+    return True
+
 def _r_tid(values, state, name, deps, relation):
     """The id of the change that triggers evaluating name's definition,
     reading deps: that of the first dependency that changed (else the first
@@ -810,7 +874,10 @@ def _r_lone_id(values, state, name):
 
 def _r_rel_self(values, state, name):
     """A relation's self-reference: the member this evaluation replaces (the
-    one with the triggering change's id), or the identity if it adds one."""
+    one with the triggering change's id), or the identity if it adds one;
+    with a condition (`a name when cond:`), the member _r_when is at."""
+    if state["wself"] != None:
+        return state["wself"]
     tid = state["tid"]
     if tid != None:
         for m in values[name + "[]"]:

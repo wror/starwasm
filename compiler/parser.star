@@ -31,7 +31,9 @@
 #                              `field : value` lines) gives a value
 #                              struct(field = value, ...), and
 #                              implicit_id: True if no field is "id";
-#                              relation: True for `a name:` / `an name:`
+#                              relation: True for `a name:` / `an name:`;
+#                              when: the condition of `a name when cond:`
+#                              (else absent), in which `=` is `==`
 
 # A port of starlark-go's parser (go.starlark.net/syntax/parse.go): the same
 # grammar, error messages and positions. Assignment targets and parameter
@@ -176,12 +178,13 @@ def parse_stmt(p, out):
         out.append(n)
     elif k == "name" and (peek(p)["val"] == "a" or peek(p)["val"] == "an") and starts_relation(p):
         # `a name :` / `an name :` + a struct block: a relation, a reactive
-        # list of structs (extension: reactive variables)
-        if not starts_struct_block(p, 1):
+        # list of structs (extension: reactive variables); or
+        # `a name when cond :`, updating the members for which cond holds
+        if p["toks"][p["i"] + 2]["kind"] != "name" and not starts_struct_block(p, 1):
             error_here(p, "a relation (" + peek(p)["val"] + " " + p["toks"][p["i"] + 1]["val"] +
                           ") must be defined by a struct block")
-        advance(p)
-        out.append(parse_struct_def(p, True))
+        article = advance(p)["val"]
+        out.append(parse_struct_def(p, True, article))
     elif k == "name" and starts_struct_block(p):
         out.append(parse_struct_def(p, False))
     elif k == "while":
@@ -194,13 +197,21 @@ def parse_stmt(p, out):
     else:
         parse_simple_stmt(p, out, True)
 
-def parse_struct_def(p, relation):
+def parse_struct_def(p, relation, article = None):
     """`name :` + newline + indented `field : value` lines: sugar for
     `name : struct(field = value, ...)` (extension: reactive variables).
-    relation: it was preceded by `a` or `an`."""
+    relation: it was preceded by `a` or `an` (article), and may have a
+    condition: `a name when cond :`."""
     t = advance(p)
     n = node("reactive", t)
     n["name"] = t["val"]
+    if relation and tok(p) == "name" and peek(p)["val"] == "when":
+        advance(p)
+        p["when_eq"] = True  # in the condition, `=` is `==` (parse_binop_expr)
+        n["when"] = parse_test(p)
+        p["when_eq"] = False
+        if not starts_struct_block(p, -1):
+            error_here(p, "a relation (" + article + " " + n["name"] + " when ...) must be defined by a struct block")
     n["colon"] = pos(peek(p))
     n["value"] = parse_struct_block(p, t)
     # without an explicit field id, the extension adds one: the previous
@@ -212,10 +223,12 @@ def parse_struct_def(p, relation):
     return n
 
 def starts_relation(p):
-    """At `a name :` or `an name :` (the article already checked)?"""
+    """At `a name :`, `an name :`, `a name when` or `an name when` (the
+    article already checked)?"""
     i = p["i"]
     toks = p["toks"]
-    return i + 2 < len(toks) and toks[i + 1]["kind"] == "name" and toks[i + 2]["kind"] == ":"
+    return (i + 2 < len(toks) and toks[i + 1]["kind"] == "name" and
+            (toks[i + 2]["kind"] == ":" or (toks[i + 2]["kind"] == "name" and toks[i + 2]["val"] == "when")))
 
 def starts_struct_block(p, k = 0):
     """At `name : NEWLINE INDENT` (k tokens ahead)?"""
@@ -526,6 +539,8 @@ def parse_binop_expr(p, prec):
                 error_here(p, "got " + token_name(tok(p)) + ", want in")
             peek(p)["kind"] = "not in"  # the "in" is the operator "not in" now
         op = tok(p)
+        if op == "=" and p.get("when_eq", False):
+            op = "=="  # in a relation's `when` condition (parse_struct_def)
         opprec = PREC.get(op, -1)
         if opprec < prec:
             return x
@@ -599,6 +614,8 @@ def parse_slice_suffix(p, x):
     return n
 
 def parse_args(p):
+    when_eq = p.get("when_eq", False)
+    p["when_eq"] = False  # `=` in arguments is a keyword argument's
     args = []
     for _ in range(len(p["toks"])):
         if tok(p) == ")" or tok(p) == "eof":
@@ -620,6 +637,7 @@ def parse_args(p):
             args.append({"name": x["id"], "star": "", "value": parse_test(p), "pos": pos(t)})
             continue
         args.append({"name": None, "star": "", "value": x, "pos": pos(t)})
+    p["when_eq"] = when_eq
     return args
 
 def parse_primary(p):

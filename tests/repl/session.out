@@ -117,3 +117,15 @@ response = struct(id = 1, name = "foo", qty = 4)
 [struct(id = 2, product = "bar", size = 3), struct(id = 1, product = "foo", size = 4)]
 [struct(id = 2, product = "bar"), struct(id = 1, product = "foo")]
 struct(id = 1, name = "foo", qty = 4)
+order = struct(id = 3, product = "baz", size = 2)
+product_request = struct(id = 3, product = "baz")
+response = struct(id = 3, name = "baz", qty = 2)
+order = struct(id = 3, product = "baz", size = 5)
+product_request = struct(id = 3, product = "baz")
+response = struct(id = 3, name = "baz", qty = 5)
+big_order = struct(id = 1, product = "baz", times = 1)
+order = struct(id = 4, product = "baz", size = 6)
+product_request = struct(id = 4, product = "baz")
+response = struct(id = 4, name = "baz", qty = 6)
+big_order = struct(id = 1, product = "baz", times = 2)
+[struct(id = 1, product = "baz", times = 2)]
