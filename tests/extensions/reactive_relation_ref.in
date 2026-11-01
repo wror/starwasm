@@ -1,0 +1,3 @@
+deposit = struct(id = 1, account_id = 7, amount = 10)
+deposit = struct(id = 2, account_id = 8, amount = 5)
+deposit = struct(id = 3, account_id = 7, amount = 4)

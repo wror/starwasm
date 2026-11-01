@@ -365,13 +365,13 @@ def _next_id(name, posn):
     pid = _prelude_call("_r_attr", [prev, _str("id", posn)], posn)
     return _prelude_call("_r_binop", [_str("+", posn), pid, {"kind": "int", "val": 1, "pos": posn}], posn)
 
-def _tid_stmt(deps, relation, posn):
-    """%rstate["tid"] = _r_tid(%reactive, %rstate, deps, relation): the id
-    of the change that triggers the evaluation of a definition (see
-    _r_tid), set before evaluating it."""
+def _tid_stmt(name, deps, relation, posn):
+    """%rstate["tid"] = _r_tid(%reactive, %rstate, name, deps, relation):
+    the id of the change that triggers the evaluation of name's definition
+    (see _r_tid), set before evaluating it."""
     target = {"kind": "index", "x": _name(STATE, posn), "i": _str("tid", posn), "pos": posn, "gen": True}
     names = {"kind": "tuple", "pos": posn, "elems": [_str(d, posn) for d in deps]}
-    args = [_name(VALUES, posn), _name(STATE, posn), names, _name("True" if relation else "False", posn)]
+    args = [_name(VALUES, posn), _name(STATE, posn), _str(name, posn), names, _name("True" if relation else "False", posn)]
     return _assign(target, _prelude_call("_r_tid", args, posn), posn)
 
 def _prelude_call(fname, args, posn):
@@ -487,7 +487,7 @@ def transform(cg, mc):
                 out.append({"kind": "expr", "pos": posn, "x": init})
             else:
                 if keyed:
-                    out.append(_tid_stmt(deps, False, posn))
+                    out.append(_tid_stmt(name, deps, False, posn))
                 value = s["value"]
                 if required:
                     value = _if_ready(value, required, _name("%prelude._unset", posn))
@@ -495,7 +495,7 @@ def transform(cg, mc):
             if deps or relation:
                 body = [{"kind": "return", "value": _copy(s["value"]), "pos": posn}]
                 if keyed:
-                    body = [_tid_stmt(deps, relation, posn)] + body
+                    body = [_tid_stmt(name, deps, relation, posn)] + body
                 thunk = (body, _str(name, posn))
         elif k == "expr":
             deps, _ = _top_uses(cx, defined, s["x"], observer = True)
@@ -769,17 +769,22 @@ def _r_upsert(values, name, v):
     values[name + "[]"] = out  # a new list: an update that fails restores the old one
     values[name] = v
 
-def _r_tid(values, state, deps, relation):
-    """The id of the change that triggers evaluating a definition reading
-    deps: that of the first dependency that changed (else the first one)
-    and has an id; for a lone variable (not relation), only relations
-    count. None if there is none."""
+def _r_tid(values, state, name, deps, relation):
+    """The id of the change that triggers evaluating name's definition,
+    reading deps: that of the first dependency that changed (else the first
+    one) and has one; for a lone variable (not relation), only relations
+    count. A dependency's id here is its field name + "_id" if it has one
+    (a reference to a member of name, e.g. deposit.account_id for account),
+    else its field id. None if there is none."""
     changed = state["changed"]
     rels = state["relations"]
+    key = name + "_id"
     for only_changed in (True, False):
         for d in deps:
             if (relation or rels.get(d, False)) and (changed.get(d, False) or not only_changed):
                 v = values[d]
+                if hasattr(v, key):
+                    return getattr(v, key)
                 if hasattr(v, "id"):
                     return v.id
     return None

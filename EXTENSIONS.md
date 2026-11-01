@@ -192,6 +192,12 @@ standard input.
     such variable (e.g. it reads only ints), it is the largest `id` in the
     relation + 1, i.e. a new member. With an explicit field `id`, the
     member is exactly as written.
+  - References: when x is defined from y and y has a field named x +
+    `_id` (for any names x and y), that field is y's id here instead of
+    `id`, both for the implicit `id` and for which member is replaced
+    and read as the self-reference. E.g. with `an account:` reading
+    `deposit` (`struct(id = 3, account_id = 7, amount = 4)`), the deposit
+    updates account 7 (tests/extensions/reactive_relation_ref.star).
   - Read in a definition, a relation is its *current member*, the one
     last added. Read in an observer (a top-level expression statement, or
     an expression typed in the REPL), it is the list of members.
