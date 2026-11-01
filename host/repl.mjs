@@ -249,9 +249,10 @@ function looksLikeStatement(src) {
   return scan(src).assign;
 }
 
-// Reactive definitions in Starlark text: `name : ...` starting a top-level
-// statement (a line at column 0, outside brackets and strings). Returns
-// [{name, rest}], rest being the text of the definition after the ":".
+// Reactive definitions in Starlark text: `name : ...` (or `a name :` /
+// `an name :`, a relation) starting a top-level statement (a line at column
+// 0, outside brackets and strings). Returns [{name, rest, relation}], rest
+// being the text of the definition after the ":".
 const NOT_NAMES = new Set([...STATEMENT_KEYWORDS, "lambda", "not"]);
 function reactiveDefs(text) {
   const starts = []; // where top-level statements start
@@ -273,8 +274,8 @@ function reactiveDefs(text) {
   const defs = [];
   starts.forEach((at, k) => {
     const stmt = text.slice(at, k + 1 < starts.length ? starts[k + 1] : text.length);
-    const m = /^([A-Za-z_]\w*)[ \t]*:/.exec(stmt);
-    if (m && !NOT_NAMES.has(m[1])) defs.push({ name: m[1], rest: stmt.slice(m[0].length) });
+    const m = /^(an?[ \t]+)?([A-Za-z_]\w*)[ \t]*:/.exec(stmt);
+    if (m && !NOT_NAMES.has(m[2])) defs.push({ name: m[2], rest: stmt.slice(m[0].length), relation: m[1] !== undefined });
   });
   return defs;
 }
@@ -287,17 +288,24 @@ function reactiveNames(entries) {
 // variable computed from others (b : a + 10), a hidden observer prints
 // "b = <value>" whenever b is recomputed (to a new value), but not when
 // it is first defined. (Variables defined by literals change only when
-// assigned, and an assignment isn't echoed.)
+// assigned, and an assignment isn't echoed.) For a relation (an x: ...),
+// the observer reads the list of members, and prints the one just added,
+// which is last. The observer may first run after the definition (for a
+// variable computed from a relation, once the relation has a member), so
+// `seen` is set by a plain statement, which runs once, at the definition.
 function statementCode(src, num, names) {
   let code = src.replace(/\s+$/, "");
   const known = new Set(names);
-  for (const { name, rest } of reactiveDefs(code)) {
+  for (const { name, rest, relation } of reactiveDefs(code)) {
     const derived = (rest.match(/[A-Za-z_]\w*/g) ?? []).some((w) => w !== name && known.has(w));
     known.add(name);
     if (!derived) continue;
     const seen = `_shown${num}_${name}`;
-    code += `\n${seen} = []\n` +
-      `(lambda v, seen: (print(${JSON.stringify(name + " = ")} + repr(v)) if seen else None, seen.append(True)))(${name}, ${seen})`;
+    const shown = JSON.stringify(name + " = ");
+    code += `\n${seen} = []\n` + (relation
+      ? `(lambda v, seen: print(${shown} + repr(v[-1])) if seen and v else None)(${name}, ${seen})`
+      : `(lambda v, seen: print(${shown} + repr(v)) if seen else None)(${name}, ${seen})`) +
+      `\n${seen}.append(True)`;
   }
   return { code, offset: 0 };
 }
@@ -318,13 +326,15 @@ function echoCode(src) {
 
 // An expression reading reactive variables can't be saved in `_` (a plain
 // variable would go stale), and it is evaluated only once: as a top-level
-// expression statement it is an observer, so _once<N> makes its later
-// runs skip it.
+// expression statement it is an observer, so _once<N>, set by the plain
+// statement after it, makes its later runs skip it. (If it reads a variable
+// not set yet, computed from a relation with no member, it is skipped at
+// first too, so it prints nothing.)
 function onceCode(src, num) {
   const once = `_once${num}`;
   return {
     code: `${once} = []\n` +
-      `None if ${once} else (lambda v: (${once}.append(True), None if v == None else print(repr(v))))(\n${src}\n)`,
+      `None if ${once} else (lambda v: None if v == None else print(repr(v)))(\n${src}\n)\n${once}.append(True)`,
     offset: 2,
   };
 }

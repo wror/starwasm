@@ -25,7 +25,8 @@
 #     that reads reactive variables (an "observer", e.g. print(y)), also
 #     gets a function "%r.<n>" evaluating a copy of its expression
 #     (displayed as <toplevel> in tracebacks), defined right after it and appended to "%nodes" as (name or None,
-#     function, names of the reactive variables it reads), so %nodes lists
+#     function, names of the reactive variables it reads, those of them
+#     that must be set for it to run: see relations), so %nodes lists
 #     what the top level has run so far, in source order;
 #   - a last statement calls the prelude's _reactive_input(..., 0) (as
 #     "%prelude._reactive_input"), which
@@ -221,13 +222,15 @@ def _stmts(cx, stmts, bound, fn):
         elif k == "return":
             _expr(cx, s["value"], bound, fn)
 
-def _top_uses(cx, defined, e, self = None):
+def _top_uses(cx, defined, e, self = None, observer = False):
     """The reactive variables top-level expression e reads, checked to be
-    defined already; each read is rewritten to %reactive["x"]. Returns the
-    names, in order of first use, and whether e reads `self` (the variable
-    e defines): such reads become %prelude._r_self(%reactive, "self"), its
-    previous value or, the first time, the identity element (see
-    _in_context)."""
+    defined already; each read is rewritten to %reactive["x"] (for a
+    relation, its current member; in an observer, %reactive["x[]"], the
+    list of its members). Returns the names, in order of first use, and
+    whether e reads `self` (the variable e defines): such reads become
+    %prelude._r_self(%reactive, "self"), its previous value or, the first
+    time, the identity element (see _in_context); in a relation,
+    _r_rel_self(%reactive, %rstate, "self"), the member being replaced."""
     cx["uses"] = []
     _expr(cx, e, {}, None)
     deps = []
@@ -238,14 +241,17 @@ def _top_uses(cx, defined, e, self = None):
         if n == self:
             has_self = True
             u.clear()
-            u.update(_prelude_call("_r_self", [_name(VALUES, posn), _str(n, posn)], posn))
+            if cx["relations"].get(n, False):
+                u.update(_prelude_call("_r_rel_self", [_name(VALUES, posn), _name(STATE, posn), _str(n, posn)], posn))
+            else:
+                u.update(_prelude_call("_r_self", [_name(VALUES, posn), _str(n, posn)], posn))
             continue
         if not defined.get(n, False):
             _err(cx["mod"], u["pos"], "reactive variable " + n + " used before its definition")
         if n not in deps:
             deps.append(n)
         u.clear()
-        u.update(_value_ref(n, posn))
+        u.update(_value_ref(n + "[]" if observer and cx["relations"].get(n, False) else n, posn))
     return deps, has_self
 
 # ---------------------------------------------------------------- self-reference
@@ -359,6 +365,15 @@ def _next_id(name, posn):
     pid = _prelude_call("_r_attr", [prev, _str("id", posn)], posn)
     return _prelude_call("_r_binop", [_str("+", posn), pid, {"kind": "int", "val": 1, "pos": posn}], posn)
 
+def _tid_stmt(deps, relation, posn):
+    """%rstate["tid"] = _r_tid(%reactive, %rstate, deps, relation): the id
+    of the change that triggers the evaluation of a definition (see
+    _r_tid), set before evaluating it."""
+    target = {"kind": "index", "x": _name(STATE, posn), "i": _str("tid", posn), "pos": posn, "gen": True}
+    names = {"kind": "tuple", "pos": posn, "elems": [_str(d, posn) for d in deps]}
+    args = [_name(VALUES, posn), _name(STATE, posn), names, _name("True" if relation else "False", posn)]
+    return _assign(target, _prelude_call("_r_tid", args, posn), posn)
+
 def _prelude_call(fname, args, posn):
     """%prelude.<fname>(args...): a call of a prelude function."""
     c = _call(_name("%prelude." + fname, posn), args, posn)
@@ -395,11 +410,14 @@ def transform(cg, mc):
                 _err(mod, r["pos"], "reactive variable " + r["name"] + " must be defined at top level")
     stmts = main["stmts"]
     reactive = {}  # name -> its definition
+    relations = {}  # name -> True, for relations (`a name:`)
     for s in stmts:
         if s["kind"] == "reactive":
             if reactive.get(s["name"]) != None:
                 _err(main, s["pos"], "reactive variable " + s["name"] + " defined twice")
             reactive[s["name"]] = s
+            if s.get("relation", False):
+                relations[s["name"]] = True
     if not reactive:
         return
     mc["ext"]["reactive"] = True
@@ -420,34 +438,73 @@ def transform(cg, mc):
                 _err(main, r["pos"], "cannot define reactive variable " + n + ": " + n + " is already bound")
             _err(main, bound[n], "cannot assign to reactive variable " + n + " (only standard input changes it)")
 
-    cx = {"mod": main, "reactive": reactive, "uses": []}
+    cx = {"mod": main, "reactive": reactive, "relations": relations, "uses": []}
     defined = {}
     first = stmts[0]["pos"]
     out = [
         _assign(_name(VALUES, first), {"kind": "dict", "entries": [], "colons": [], "pos": first}, first),
         _assign(_name(NODES, first), {"kind": "list", "elems": [], "pos": first}, first),
-        _assign(_name(STATE, first), {"kind": "dict", "entries": [(_str("lineno", first), {"kind": "int", "val": 0, "pos": first})], "colons": [first], "pos": first}, first),
+        _assign(_name(STATE, first), _state_dict(relations, first), first),
         _assign(_name(NAMES, first), _names_table(stmts, bound, reactive, first), first),
     ]
     nthunks = 0
+    # what may be unset (relations' current members, and lone variables
+    # computed from them, until a relation has a member)
+    unset = dict(relations)
     for s in stmts:
         k = s["kind"]
         if defined:
             out.append(_input_call(s["pos"][0], s["pos"]))  # a sync point
         thunk = None
         if k == "reactive":
-            deps, has_self = _top_uses(cx, defined, s["value"], s["name"])
+            name = s["name"]
+            posn = s["pos"]
+            relation = relations.get(name, False)
+            deps, has_self = _top_uses(cx, defined, s["value"], name)
             if has_self:
                 _in_context(s["value"])
-            if s.get("implicit_id", False):
-                s["value"]["args"].append({"name": "id", "star": "", "value": _next_id(s["name"], s["pos"]), "pos": s["pos"]})
-            defined[s["name"]] = True
-            out.append(_assign(_value_ref(s["name"], s["pos"]), s["value"], s["colon"]))
-            if deps:
-                thunk = ([{"kind": "return", "value": _copy(s["value"]), "pos": s["pos"]}], _str(s["name"], s["pos"]))
+            # the triggering change's id: for a relation, which member it
+            # adds or replaces; for a lone struct read from relations, its id
+            from_rel = len([d for d in deps if relations.get(d, False)]) > 0
+            implicit = s.get("implicit_id", False)
+            keyed = relation or (from_rel and implicit)
+            if implicit:
+                if relation:
+                    idv = _prelude_call("_r_rel_id", [_name(VALUES, posn), _name(STATE, posn), _str(name, posn)], posn)
+                elif from_rel:
+                    idv = _prelude_call("_r_lone_id", [_name(VALUES, posn), _name(STATE, posn), _str(name, posn)], posn)
+                else:
+                    idv = _next_id(name, posn)
+                s["value"]["args"].append({"name": "id", "star": "", "value": idv, "pos": posn})
+            defined[name] = True
+            # computed only once what it reads is set
+            required = [d for d in deps if unset.get(d, False)]
+            if required:
+                unset[name] = True
+            if relation:
+                # it starts empty (its definition is evaluated only on updates)
+                init = _prelude_call("_r_relation", [_name(VALUES, posn), _str(name, posn)], s["colon"])
+                out.append({"kind": "expr", "pos": posn, "x": init})
+            else:
+                if keyed:
+                    out.append(_tid_stmt(deps, False, posn))
+                value = s["value"]
+                if required:
+                    value = _if_ready(value, required, _name("%prelude._unset", posn))
+                out.append(_assign(_value_ref(name, posn), value, s["colon"]))
+            if deps or relation:
+                body = [{"kind": "return", "value": _copy(s["value"]), "pos": posn}]
+                if keyed:
+                    body = [_tid_stmt(deps, relation, posn)] + body
+                thunk = (body, _str(name, posn))
         elif k == "expr":
-            deps, _ = _top_uses(cx, defined, s["x"])
-            out.append(s)
+            deps, _ = _top_uses(cx, defined, s["x"], observer = True)
+            # observers read relations' lists, which are always set
+            required = [d for d in deps if unset.get(d, False) and not relations.get(d, False)]
+            if required:
+                out.append({"kind": "expr", "pos": s["pos"], "x": _if_ready(s["x"], required, _name("None", s["pos"]))})
+            else:
+                out.append(s)
             if deps:
                 thunk = ([{"kind": "expr", "x": _copy(s["x"]), "pos": s["pos"]}], _name("None", s["pos"]))
         else:
@@ -468,10 +525,30 @@ def transform(cg, mc):
                 label,
                 _name(fname, p),
                 {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in deps]},
+                {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in required]},
             ]}
             out.append({"kind": "expr", "pos": p, "x": _call({"kind": "dot", "x": _name(NODES, p), "name": "append", "pos": p}, [entry], p)})
     out.append(_input_call(0, stmts[-1]["pos"]))
     main["stmts"] = out
+
+def _if_ready(e, required, otherwise):
+    """`e if %prelude._r_ready(%reactive, required) else otherwise`."""
+    posn = e["pos"]
+    names = {"kind": "tuple", "pos": posn, "elems": [_str(d, posn) for d in required]}
+    test = _prelude_call("_r_ready", [_name(VALUES, posn), names], posn)
+    return {"kind": "cond", "test": test, "then": e, "else_": otherwise, "pos": posn}
+
+def _state_dict(relations, posn):
+    """{"lineno": 0, "relations": {name: True, ...}, "tid": None,
+    "changed": {}}: the runtime's state (see _reactive_input)."""
+    rels = [(_str(n, (posn[0], posn[1] + i)), _name("True", (posn[0], posn[1] + i))) for i, n in enumerate(sorted(relations))]
+    entries = [
+        (_str("lineno", posn), {"kind": "int", "val": 0, "pos": posn}),
+        (_str("relations", posn), {"kind": "dict", "entries": rels, "colons": [e[0]["pos"] for e in rels], "pos": posn}),
+        (_str("tid", posn), _name("None", posn)),
+        (_str("changed", posn), {"kind": "dict", "entries": [], "colons": [], "pos": posn}),
+    ]
+    return {"kind": "dict", "entries": entries, "colons": [posn for _ in entries], "pos": posn}
 
 def _mentions(x, name):
     """Does AST x have a name node for name?"""
@@ -611,34 +688,130 @@ def _reactive_input(values, nodes, state, names, before):
         if not assigns:
             continue
         saved = dict(values)
-        if not _try(lambda: _reactive_update(values, nodes, [(n, _r_eval(e, {}, names)) for n, e in assigns])):
+        ok = _try(lambda: _reactive_update(values, nodes, state, [(n, _r_eval(e, {}, names)) for n, e in assigns]))
+        state["changed"] = {}
+        state["tid"] = None
+        if not ok:
             values.clear()
             values.update(saved)
 
-def _reactive_update(values, nodes, assigns):
+def _reactive_update(values, nodes, state, assigns):
     """Set the assigned variables, then go through nodes (source order is
     a topological order) recomputing each variable that reads a changed
     one, and re-running each observer that does. A recomputed variable
-    counts as changed only if its new value differs (!=) from the old."""
+    counts as changed only if its new value differs (!=) from the old. A
+    relation's new value is a member, added to its list or replacing the
+    one with the same id (_r_upsert); it always counts as changed: an
+    update removes a member and adds one. A node that reads a variable not
+    set yet (a relation with no member, or a lone variable computed from
+    one) is skipped."""
+    rels = state["relations"]
     changed = {}
+    state["changed"] = changed  # for _r_tid
     for name, v in assigns:
-        values[name] = v
+        if rels.get(name, False):
+            _r_upsert(values, name, v)
+        else:
+            values[name] = v
         changed[name] = True
-    for name, f, deps in nodes[:]:  # a copy: an error would leave nodes marked as iterated
+    for name, f, deps, required in nodes[:]:  # a copy: an error would leave nodes marked as iterated
         hit = False
         for d in deps:
             if changed.get(d, False):
                 hit = True
                 break
-        if not hit:
+        if not hit or not _r_ready(values, required):
             continue
         if name == None:
             f()
             continue
         v = f()
+        if rels.get(name, False):
+            _r_upsert(values, name, v)
+            changed[name] = True
+            continue
         if v != values[name]:
             changed[name] = True
         values[name] = v
+
+# ---- relations (`a name:` / `an name:` + a struct block): a reactive list
+# of structs, values[name + "[]"], which starts empty; values[name] is its
+# current member, the one last added (or _unset while it has none), which is
+# what definitions read (observers read the list).
+
+def _unset():
+    """The value of a variable not computed yet (a relation with no member,
+    or a lone variable computed from one)."""
+    pass
+
+def _is_unset(x):
+    return type(x) == "builtin_function_or_method" and x == _unset
+
+def _r_ready(values, names):
+    """Are the variables names all set?"""
+    for n in names:
+        if _is_unset(values[n]):
+            return False
+    return True
+
+def _r_relation(values, name):
+    """Relation name, empty."""
+    values[name + "[]"] = []
+    values[name] = _unset
+
+def _r_upsert(values, name, v):
+    """Add member v to relation name, first removing the member with v's id
+    if there is one; v becomes the current member."""
+    if not hasattr(v, "id"):
+        fail("a member of relation " + name + " must have a field id, got " + type(v))
+    out = [m for m in values[name + "[]"] if m.id != v.id]
+    out.append(v)
+    values[name + "[]"] = out  # a new list: an update that fails restores the old one
+    values[name] = v
+
+def _r_tid(values, state, deps, relation):
+    """The id of the change that triggers evaluating a definition reading
+    deps: that of the first dependency that changed (else the first one)
+    and has an id; for a lone variable (not relation), only relations
+    count. None if there is none."""
+    changed = state["changed"]
+    rels = state["relations"]
+    for only_changed in (True, False):
+        for d in deps:
+            if (relation or rels.get(d, False)) and (changed.get(d, False) or not only_changed):
+                v = values[d]
+                if hasattr(v, "id"):
+                    return v.id
+    return None
+
+def _r_rel_id(values, state, name):
+    """The implicit id of a relation's member: the triggering change's, or,
+    without one, one more than the largest id in the relation (1 if it is
+    empty), so a new member."""
+    if state["tid"] != None:
+        return state["tid"]
+    top = 0
+    for m in values[name + "[]"]:
+        if type(m.id) == "int" and m.id > top:
+            top = m.id
+    return top + 1
+
+def _r_lone_id(values, state, name):
+    """The implicit id of a lone struct read from relations: the member's
+    that triggered it (else as without relations: previous id + 1)."""
+    if state["tid"] != None:
+        return state["tid"]
+    return _r_binop("+", _r_attr(_r_self(values, name), "id"), 1)
+
+def _r_rel_self(values, state, name):
+    """A relation's self-reference: the member this evaluation replaces (the
+    one with the triggering change's id), or the identity if it adds one."""
+    tid = state["tid"]
+    if tid != None:
+        for m in values[name + "[]"]:
+            if hasattr(m, "id") and m.id == tid:
+                return m
+    return _identity
 
 # ---- self-reference (see _in_context): `a : f(a)` reads a's previous
 # value, or the first time, _identity: the identity element of whatever it
@@ -670,7 +843,7 @@ def _r_unit(op, other):
     return 1  # * / // %
 
 def _r_self(values, name):
-    return values[name] if name in values else _identity
+    return values[name] if name in values and not _is_unset(values[name]) else _identity
 
 def _r_binop(op, x, y):
     xi = _is_id(x)

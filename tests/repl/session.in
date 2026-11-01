@@ -70,3 +70,27 @@ def sq(n):
 
 a = sq(3) + 1
 a = b
+:reset
+request:
+    name: "foo"
+    qty: 1
+
+an order:
+    product: request.name
+    size: request.qty
+
+a product_request:
+    product: order.product
+
+response:
+    name: order.product
+    qty: order.size
+
+order
+response
+request = struct(id = 1, name = "foo", qty = 2)
+request = struct(id = 2, name = "bar", qty = 3)
+request = struct(id = 1, name = "foo", qty = 4)
+order
+product_request
+response

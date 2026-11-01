@@ -1,0 +1,17 @@
+accounts []
+ledger []
+ticks []
+richest struct(balance = 10, id = 1, owner = "ann")
+accounts [struct(balance = 10, id = 1, owner = "ann")]
+ledger [100]
+richest struct(balance = 5, id = 2, owner = "bob")
+accounts [struct(balance = 10, id = 1, owner = "ann"), struct(balance = 5, id = 2, owner = "bob")]
+ledger [100, 200]
+richest struct(balance = 17, id = 1, owner = "ann")
+accounts [struct(balance = 5, id = 2, owner = "bob"), struct(balance = 17, id = 1, owner = "ann")]
+ledger [200, 100]
+ticks [struct(at = 3, id = 1)]
+ticks [struct(at = 3, id = 1), struct(at = 4, id = 2)]
+richest struct(balance = 1, id = 9, owner = "cy")
+accounts [struct(balance = 5, id = 2, owner = "bob"), struct(balance = 17, id = 1, owner = "ann"), struct(balance = 1, id = 9, owner = "cy")]
+ledger [200, 100, 900]

@@ -156,6 +156,77 @@ standard input.
   reactive.star (`_next_id` adds the field). Tests:
   tests/extensions/reactive_struct.star, reactive_struct_id.star,
   reactive_struct_err_*.star.
+- Relations: a struct block preceded by `a` or `an` (and whitespace)
+  defines a *relation*, a reactive list of structs; the other reactive
+  variables are *lone* ones.
+
+      request:
+        name: "foo"
+        qty: 1
+      an order:
+        product: request.name
+        size: request.qty
+      a product_request:
+        product: order.product
+      response:
+        name: order.product
+        qty: order.size
+
+  After `request = struct(id = 1, name = "foo", qty = 2)`, then the same
+  with `id = 2, name = "bar", qty = 3` and with `id = 1, name = "foo",
+  qty = 4`, `order` is `[struct(id = 2, product = "bar", size = 3),
+  struct(id = 1, product = "foo", size = 4)]`, `product_request` is
+  `[struct(id = 2, product = "bar"), struct(id = 1, product = "foo")]`
+  and `response` is `struct(id = 1, name = "foo", qty = 4)`.
+  - A relation starts empty, and its definition isn't evaluated on the
+    first run: only an update (a change of what it reads) evaluates it.
+    Each evaluation gives a member: if a member already has its `id`, that
+    member is removed and the new one is added (at the end of the list),
+    else the new one is just added. Either way the relation counts as
+    changed (even if the member is the same as before), so what reads it is
+    recomputed.
+  - The member's implicit `id` is the triggering change's: the `id` of the
+    first variable it reads that changed in this update and has a field
+    `id`, else of the first one it reads that has one; lone variables and
+    relations alike, so this carries through chains of relations. With no
+    such variable (e.g. it reads only ints), it is the largest `id` in the
+    relation + 1, i.e. a new member. With an explicit field `id`, the
+    member is exactly as written.
+  - Read in a definition, a relation is its *current member*, the one
+    last added. Read in an observer (a top-level expression statement, or
+    an expression typed in the REPL), it is the list of members.
+  - A lone struct block that reads a relation is always "updated" by the
+    relation's member: its implicit `id` is the current member's id of the
+    first relation it reads that changed (else of the first one it reads),
+    whatever its id was before.
+  - Unset: while a relation has no member, a definition that reads it
+    isn't evaluated, so a lone variable computed from it (directly or
+    through other variables) is unset, and so is everything computed from
+    that. Definitions and observers that read an unset variable are
+    skipped (on the first run and in updates) until it is set. (Observers
+    reading only the relation itself run: its list is always set.)
+  - Self-reference in a relation reads the member being replaced: the one
+    with the triggering change's `id`, or the identity if there is none
+    (the member is new). So `balance: account.balance + deposit.amount`
+    keeps a balance per id.
+  - Standard input can assign a relation (`order = struct(id = 3, ...)`):
+    the value is added as a member like an evaluated one, and must have a
+    field `id`.
+  - Only struct blocks can be relations: `an x : expr` is an error, "a
+    relation (an x) must be defined by a struct block".
+  - In the REPL, the echo of a relation computed from others prints the
+    member just added (`order = struct(id = 1, ...)`), on every update that
+    adds one. Typing a variable that is unset prints nothing.
+  - Code: parser.star (`starts_relation`, `parse_struct_def`; it sets
+    `relation`), reactive.star (`transform`; at run time `_r_relation`,
+    `_r_upsert`, `_r_tid`, `_r_rel_id`, `_r_lone_id`, `_r_rel_self`,
+    `_r_ready`). Values: `%reactive["x"]` is the current member (the
+    prelude's `_unset` while there is none, as for unset lone variables),
+    `%reactive["x[]"]` the list; each update builds a new list, so a failed
+    update restores the old one. Each node in `%nodes` also lists the
+    variables it reads that may be unset, and runs only when they are set.
+    Tests: tests/extensions/reactive_relation*.star, the end of
+    tests/repl/session.in.
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
 - Input lines: `name = expression` (`:` also works), several separated

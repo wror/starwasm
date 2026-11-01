@@ -30,7 +30,8 @@
 #                              struct block (`name :` then indented
 #                              `field : value` lines) gives a value
 #                              struct(field = value, ...), and
-#                              implicit_id: True if no field is "id"
+#                              implicit_id: True if no field is "id";
+#                              relation: True for `a name:` / `an name:`
 
 # A port of starlark-go's parser (go.starlark.net/syntax/parse.go): the same
 # grammar, error messages and positions. Assignment targets and parameter
@@ -173,18 +174,16 @@ def parse_stmt(p, out):
         consume(p, ":")
         n["body"] = parse_suite(p)
         out.append(n)
+    elif k == "name" and (peek(p)["val"] == "a" or peek(p)["val"] == "an") and starts_relation(p):
+        # `a name :` / `an name :` + a struct block: a relation, a reactive
+        # list of structs (extension: reactive variables)
+        if not starts_struct_block(p, 1):
+            error_here(p, "a relation (" + peek(p)["val"] + " " + p["toks"][p["i"] + 1]["val"] +
+                          ") must be defined by a struct block")
+        advance(p)
+        out.append(parse_struct_def(p, True))
     elif k == "name" and starts_struct_block(p):
-        # `name :` + newline + indented `field : value` lines: sugar for
-        # `name : struct(field = value, ...)` (extension: reactive variables)
-        t = advance(p)
-        n = node("reactive", t)
-        n["name"] = t["val"]
-        n["colon"] = pos(peek(p))
-        n["value"] = parse_struct_block(p, t)
-        # without an explicit field id, the extension adds one: the
-        # previous value's id + 1 (compiler/ext/reactive.star)
-        n["implicit_id"] = len([a for a in n["value"]["args"] if a["name"] == "id"]) == 0
-        out.append(n)
+        out.append(parse_struct_def(p, False))
     elif k == "while":
         t = advance(p)
         n = node("while", t)
@@ -195,9 +194,32 @@ def parse_stmt(p, out):
     else:
         parse_simple_stmt(p, out, True)
 
-def starts_struct_block(p):
-    """At `name : NEWLINE INDENT`?"""
+def parse_struct_def(p, relation):
+    """`name :` + newline + indented `field : value` lines: sugar for
+    `name : struct(field = value, ...)` (extension: reactive variables).
+    relation: it was preceded by `a` or `an`."""
+    t = advance(p)
+    n = node("reactive", t)
+    n["name"] = t["val"]
+    n["colon"] = pos(peek(p))
+    n["value"] = parse_struct_block(p, t)
+    # without an explicit field id, the extension adds one: the previous
+    # value's id + 1, or for relations the triggering change's id
+    # (compiler/ext/reactive.star)
+    n["implicit_id"] = len([a for a in n["value"]["args"] if a["name"] == "id"]) == 0
+    if relation:
+        n["relation"] = True
+    return n
+
+def starts_relation(p):
+    """At `a name :` or `an name :` (the article already checked)?"""
     i = p["i"]
+    toks = p["toks"]
+    return i + 2 < len(toks) and toks[i + 1]["kind"] == "name" and toks[i + 2]["kind"] == ":"
+
+def starts_struct_block(p, k = 0):
+    """At `name : NEWLINE INDENT` (k tokens ahead)?"""
+    i = p["i"] + k
     toks = p["toks"]
     return (i + 3 < len(toks) and toks[i + 1]["kind"] == ":" and
             toks[i + 2]["kind"] == "newline" and toks[i + 3]["kind"] == "indent")
