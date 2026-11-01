@@ -1,0 +1,8 @@
+deposit = struct(id = 1, account = "ann", amount = 10)
+deposit = struct(id = 2, account = "bob", amount = 5)
+deposit = struct(id = 1, account = "ann", amount = 7)
+tick = 3
+tick = 4
+# a relation can be assigned: the struct is added (or replaces its id)
+account = struct(id = 9, owner = "cy", balance = 1)
+account = 5

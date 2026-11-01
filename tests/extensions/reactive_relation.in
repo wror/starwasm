@@ -1,0 +1,3 @@
+request = struct(id = 1, name = "foo", qty = 2)
+request = struct(id = 2, name = "bar", qty = 3)
+request = struct(id = 1, name = "foo", qty = 4)

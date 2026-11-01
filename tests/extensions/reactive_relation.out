@@ -1,0 +1,11 @@
+orders []
+product requests []
+response struct(id = 1, name = "foo", qty = 2)
+orders [struct(id = 1, product = "foo", size = 2)]
+product requests [struct(id = 1, product = "foo")]
+response struct(id = 2, name = "bar", qty = 3)
+orders [struct(id = 1, product = "foo", size = 2), struct(id = 2, product = "bar", size = 3)]
+product requests [struct(id = 1, product = "foo"), struct(id = 2, product = "bar")]
+response struct(id = 1, name = "foo", qty = 4)
+orders [struct(id = 2, product = "bar", size = 3), struct(id = 1, product = "foo", size = 4)]
+product requests [struct(id = 2, product = "bar"), struct(id = 1, product = "foo")]

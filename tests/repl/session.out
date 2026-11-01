@@ -103,3 +103,17 @@ b = 13
 b = 14
 b = 20
 <input 54>:1:5: b is a reactive variable: a new value can't refer to one
+session cleared
+[]
+order = struct(id = 1, product = "foo", size = 2)
+product_request = struct(id = 1, product = "foo")
+response = struct(id = 1, name = "foo", qty = 2)
+order = struct(id = 2, product = "bar", size = 3)
+product_request = struct(id = 2, product = "bar")
+response = struct(id = 2, name = "bar", qty = 3)
+order = struct(id = 1, product = "foo", size = 4)
+product_request = struct(id = 1, product = "foo")
+response = struct(id = 1, name = "foo", qty = 4)
+[struct(id = 2, product = "bar", size = 3), struct(id = 1, product = "foo", size = 4)]
+[struct(id = 2, product = "bar"), struct(id = 1, product = "foo")]
+struct(id = 1, name = "foo", qty = 4)
