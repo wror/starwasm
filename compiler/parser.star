@@ -25,6 +25,8 @@
 #   return {value}  break  continue  pass
 #   assign {op, lhs, rhs}      op: "=" "+=" "-=" ...
 #   expr {x}   load {module, names}
+#   reactive {name, colon, value}   `name : value` (extension: reactive
+#                              variables, compiler/ext/reactive.star)
 
 # A port of starlark-go's parser (go.starlark.net/syntax/parse.go): the same
 # grammar, error messages and positions. Assignment targets and parameter
@@ -299,6 +301,15 @@ def parse_small_stmt(p):
         n["oppos"] = pos(optok)
         n["lhs"] = x
         n["rhs"] = parse_expr(p, False)
+        return n
+    if op == ":" and x["kind"] == "name":
+        # `name : expr` defines a reactive variable (an extension; see
+        # compiler/ext/reactive.star, which also checks where it may appear)
+        colon = advance(p)
+        n = node("reactive", t)
+        n["name"] = x["id"]
+        n["colon"] = pos(colon)
+        n["value"] = parse_expr(p, False)
         return n
     n = node("expr", t)
     n["x"] = x

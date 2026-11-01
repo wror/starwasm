@@ -10,9 +10,48 @@
 // The module runs in a worker thread with a 256 MB stack: starlark-go
 // allows 100,000 nested calls (then "Starlark stack overflow", which the
 // compiled code checks itself), far more than the main thread's stack holds.
-import { readFileSync, writeSync } from "node:fs";
+//
+// Programs with reactive variables read standard input line by line
+// (synchronously, from the worker: the module runs to completion in one call).
+import { readFileSync, readSync, writeSync } from "node:fs";
 import { Worker, isMainThread, parentPort } from "node:worker_threads";
 import { loadModule, runModule } from "./wasmhost.mjs";
+
+// A reader of standard input's lines (without "\n" or "\r\n"); null at the
+// end. Input applies after the program's top level: none at sync points
+// (before != 0; see compiler/ext/reactive.star).
+function stdinLines() {
+  const buf = Buffer.alloc(65536);
+  let pending = Buffer.alloc(0);
+  let eof = false;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  return (before) => {
+    if (before !== 0) return null;
+    for (;;) {
+      const nl = pending.indexOf(10);
+      if (nl >= 0 || (eof && pending.length > 0)) {
+        let line = pending.subarray(0, nl >= 0 ? nl : pending.length);
+        pending = pending.subarray(nl >= 0 ? nl + 1 : pending.length);
+        if (line.length > 0 && line[line.length - 1] === 13) line = line.subarray(0, line.length - 1);
+        return Buffer.from(line);
+      }
+      if (eof) return null;
+      let n;
+      try {
+        n = readSync(0, buf, 0, buf.length, null);
+      } catch (e) {
+        if (e.code === "EAGAIN") { // non-blocking stdin with nothing yet
+          Atomics.wait(pause, 0, 0, 20);
+          continue;
+        }
+        if (e.code === "EOF") n = 0;
+        else throw e;
+      }
+      if (n === 0) eof = true;
+      else pending = Buffer.concat([pending, buf.subarray(0, n)]);
+    }
+  };
+}
 
 function main() {
   const cli = process.argv.slice(2);
@@ -36,6 +75,7 @@ function main() {
     progArgs,
     stdout: (bytes) => writeSync(1, bytes),
     stderr: (text) => writeSync(2, text),
+    readLine: stdinLines(),
   });
 }
 

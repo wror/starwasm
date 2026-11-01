@@ -38,3 +38,30 @@ z = 5
 z += 1
 z
 "%s-%d" % ("a", z)
+:reset
+def half(n):
+    return 10 // n
+
+r : 2
+h : half(r)
+print("h is", h)
+r = 5
+h
+r = 0
+r = nope
+r = 1; h = 99
+g = r
+print("g", h * 2)
+r = 10
+:history
+:reset
+a:1
+b:a+10
+b
+a=2
+a=3
+a
+b
+a+4
+a=4
+a=4

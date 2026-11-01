@@ -19,11 +19,67 @@
 #       is the name's lookup result.
 #   dynamic_call(cg, mc, fc, callee, e)
 #       a call through a value; callee is the code computing the function.
+#
+# Whole-program hook points, in the order compile_program calls them (every
+# extension's hook is called; mc["ext"] is a dict for their state):
+#   transform(cg, mc)
+#       after parsing (mc["mods"]: every module's statements), before
+#       anything is declared: may check and rewrite the ASTs.
+#   imports(mc, m)
+#       the new Wasm module m, before the runtime: declare host imports.
+#   runtime(mc, m)
+#       after the runtime and builtins: add Wasm functions.
+#   prelude(mc) -> (statements, roots)
+#       parsed Starlark to add to the prelude module, and the names of
+#       prelude functions to keep even if no program text mentions them.
+#
+# Generated code may call any prelude function, private ones included, by
+# the name "%prelude.<name>" (codegen's lookup; "%" can't be written).
+#
+# EXT_INTRINSICS: primitives the prelude may call (names start with "_"),
+# as name -> (Wasm runtime function, min args, max args). An extension adds
+# the runtime function in its runtime hook, so it must only keep prelude
+# code calling one in programs that use the extension.
 
 load("ext/dir.star", dir_direct_call = "direct_call", dir_dynamic_call = "dynamic_call")
+load(
+    "ext/reactive.star",
+    REACTIVE_INTRINSICS = "INTRINSICS",
+    reactive_imports = "imports",
+    reactive_prelude = "prelude",
+    reactive_runtime = "runtime",
+    reactive_transform = "transform",
+)
 
 DIRECT_CALL = [dir_direct_call]
 DYNAMIC_CALL = [dir_dynamic_call]
+TRANSFORM = [reactive_transform]
+IMPORTS = [reactive_imports]
+RUNTIME = [reactive_runtime]
+PRELUDE = [reactive_prelude]
+
+EXT_INTRINSICS = dict(REACTIVE_INTRINSICS)
+
+def ext_transform(cg, mc):
+    for hook in TRANSFORM:
+        hook(cg, mc)
+
+def ext_imports(mc, m):
+    for hook in IMPORTS:
+        hook(mc, m)
+
+def ext_runtime(mc, m):
+    for hook in RUNTIME:
+        hook(mc, m)
+
+def ext_prelude(mc):
+    stmts = []
+    roots = []
+    for hook in PRELUDE:
+        s, r = hook(mc)
+        stmts += s
+        roots += r
+    return stmts, roots
 
 def ext_direct_call(cg, mc, fc, e, kind, w):
     for hook in DIRECT_CALL:

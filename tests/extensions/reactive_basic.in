@@ -1,0 +1,28 @@
+width = 10
+# comments and blank lines are ignored
+
+width = 10 # same value: only what reads width directly re-runs
+height = 2; width = 6
+prices = [1, 2, 3]; tax = 0
+tax = -50
+label = "say \"hi\"\té\x41"
+label = 'single'
+label = r'raw\n'
+label = b"\x00\xffA"
+label = (1, "two", 3.5)
+prices = [0x10, 0o10, 0b10, 1e2]
+label = None
+label = True
+label = {"k": [1, (2,)], -3: False}  # fails (unhashable key of tagged): rolled back
+nope = 1
+width = foo
+width = 1 +
+width = [1, 2
+width = 012
+label = "\q"
+label = {[1]: 2}
+width = 1; height = 2 3
+size = 1000  # a derived variable can be set too
+height = 5
+tax = "oops"
+tax = 1

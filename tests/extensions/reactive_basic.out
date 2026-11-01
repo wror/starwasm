@@ -1,0 +1,34 @@
+size: 12
+big: False
+total: 33
+tagged {"item": 33}
+comp [0, 1] 3
+doubled 6
+calls so far 1
+size: 40
+big: True
+comp [0, 1] 10
+doubled 20
+comp [0, 1] 10
+size: 12
+big: False
+comp [0, 1] 6
+doubled 12
+total: 6
+tagged {"item": 6}
+total: 3
+tagged {"item": 3}
+tagged {"say \"hi\"\téA": 3}
+tagged {"single": 3}
+tagged {"raw\\n": 3}
+tagged {b"\x00\xffA": 3}
+tagged {(1, "two", 3.5): 3}
+total: 63.0
+tagged {(1, "two", 3.5): 63.0}
+tagged {None: 63.0}
+tagged {True: 63.0}
+size: 1000
+big: True
+size: 30
+total: 127.0
+tagged {True: 127.0}

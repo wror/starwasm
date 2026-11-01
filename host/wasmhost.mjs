@@ -17,6 +17,16 @@
 //   float_parse(ptr, len)      parse a float; f64 at memory 0; 0/1/2 status
 //   float_mod(x, y)            fmod
 //   print_i32 / print_i64      (milestone 1 demo)
+// and, for programs with reactive variables (compiler/ext/reactive.star):
+//   read_line(before)          next line of standard input (opts.readLine;
+//                              without one, there is none): its length,
+//                              fetched with file_chunk; -1 if there is none
+//                              (before 0: at the end of the program's top
+//                              level; else at a sync point before source
+//                              line `before`, see compiler/ext/reactive.star)
+//   try_call(f)                call f() via the reactive_call0 export; on a
+//                              Starlark error print its traceback (only the
+//                              frames inside f) and return 1
 // and, for programs compiled with --test (tests/upstream/):
 //   catch(f)                   call f() via the test_call0 export; -1, or
 //                              the length of its error message (at 0)
@@ -298,6 +308,9 @@ export function loadModule(bytes) {
  *   opts.rawArgs     values passed to the export (Number, or BigInt)
  *   opts.progArgs    what the program sees as argv (strings)
  *   opts.stdout(bytes: Uint8Array), opts.stderr(text: string)
+ *   opts.readLine(before) -> Uint8Array (a line of standard input, without
+ *                    its line end) or null if none is due (see read_line
+ *                    below); default: no input
  * Returns the exit status: 0 ok, 1 Starlark error or exit(1), 3 internal
  * error (a Wasm trap), 2 no such export.
  */
@@ -305,6 +318,7 @@ export function runModule(module, opts = {}) {
   const { exportName = "main", rawArgs = [], progArgs = [] } = opts;
   const stdout = opts.stdout ?? (() => {});
   const stderr = opts.stderr ?? (() => {});
+  const readLine = opts.readLine ?? (() => null);
   const utf8 = new TextDecoder();
   const encodedArgs = progArgs.map((a) => new TextEncoder().encode(a));
   let instance;
@@ -374,6 +388,27 @@ export function runModule(module, opts = {}) {
           const b = Buffer.from(e.message).subarray(0, 65536);
           mem(0, b.length).set(b);
           return b.length;
+        }
+      },
+      read_line(before) {
+        const line = readLine(before);
+        if (line === null) return -1;
+        loaded = line; // read with file_chunk, like a file
+        return line.length;
+      },
+      try_call(f) {
+        const outer = new Error().stack.split("\n").length; // header, try_call, its callers
+        try {
+          instance.exports.reactive_call0(f);
+          return 0;
+        } catch (e) {
+          if (!(e instanceof StarlarkError)) throw e;
+          // drop the frames of try_call's callers (the program's top level
+          // at a sync point): the traceback starts in f
+          const lines = e.trace.split("\n");
+          const inner = lines.slice(0, Math.max(1, lines.length - (outer - 2))).join("\n");
+          stderr(formatError(module, e.message, inner, e.plain));
+          return 1;
         }
       },
       test_error(ptr, len) {
