@@ -68,12 +68,16 @@ else
 fi
 
 # Compiler: differential tests of compiled programs vs starlark-go.
+# .star programs are run by node host/run.mjs, which compiles them when
+# needed (see host/wasmcache.mjs), with the compiler built from
+# compiler/main.star (by bin/starhost, whenever compiler/ or lib/ changes).
+# (The interpreted compiler is checked against the self-compiled one below.)
 tests/compile.sh || fail=1
 tests/compile_errors.sh || fail=1
 # Extensions starlark-go lacks: compared against expected output files,
 # with GlobalReassign off (the default) and on.
 tests/extensions.sh || fail=1
-COMPILER="bin/starhost --recursion compiler/main.star --globalreassign" tests/extensions.sh > out/extensions_reassign.txt || { cat out/extensions_reassign.txt; fail=1; }
+RUNFLAGS=--globalreassign tests/extensions.sh > out/extensions_reassign.txt || { cat out/extensions_reassign.txt; fail=1; }
 echo "extensions with --globalreassign: $(grep -c ': ok' out/extensions_reassign.txt) ok"
 
 # starlark-go's own test files (tests/upstream/README.md): fails on any
@@ -85,13 +89,12 @@ grep '^upstream: [0-9]' out/upstream.txt
 # parser), run it on every source file in the project, and compare its
 # token/AST dump with the interpreted front end's.
 bin/starhost --recursion tests/selfhost/gen_frontend_test.star out/frontend.star
-bin/starhost --recursion compiler/main.star --recursion out/frontend.star out/frontend.wasm
 n=0
 # (The bootstrap below checks the whole compiler; this covers the sources.)
 for f in lib/*.star compiler/*.star compiler/ext/*.star tests/*.star tests/runtime/*.star tests/selfhost/*.star examples/*.star; do
   # Files in tests/compile_errors fail to lex/parse: both must fail alike.
   s1=0; bin/starhost --recursion out/frontend.star "$f" > out/fe.expect 2> out/fe.experr || s1=1
-  s2=0; node host/run.mjs out/frontend.wasm -- "$f" > out/fe.got 2> out/fe.goterr || s2=1
+  s2=0; node host/run.mjs --recursion out/frontend.star -- "$f" > out/fe.got 2> out/fe.goterr || s2=1
   if cmp -s out/fe.expect out/fe.got && [ $s1 = $s2 ]; then
     n=$((n+1))
   else
@@ -104,8 +107,9 @@ echo "frontend self-test: $n files parsed identically by interpreted and compile
 #   stage1 = interpreted compiler (starlark-go) compiling the compiler
 #   stage2 = stage1 compiling the compiler;  stage3 = stage2 compiling it
 # All three must be byte-identical (a fixpoint), and the self-compiled
-# compiler must pass the same tests and emit the same bytes for every
-# test program as the interpreted one.
+# compiler must emit the same bytes (or the same compile error) for every
+# test program as the interpreted one. (So the tests above, run with the
+# compiler host/run.mjs builds, i.e. stage1, hold for both compilers.)
 # (the compiler is recursive: it is compiled with --recursion)
 bin/starhost --recursion compiler/main.star --recursion compiler/main.star out/stage1.wasm
 node host/run.mjs out/stage1.wasm -- --recursion compiler/main.star out/stage2.wasm
@@ -115,22 +119,21 @@ if cmp -s out/stage1.wasm out/stage2.wasm && cmp -s out/stage2.wasm out/stage3.w
 else
   echo "bootstrap: MISMATCH between stages"; ls -l out/stage*.wasm; fail=1
 fi
-COMPILER="node host/run.mjs out/stage2.wasm --" tests/compile.sh > out/selfhosted_compile.txt || { cat out/selfhosted_compile.txt; fail=1; }
-COMPILER="node host/run.mjs out/stage2.wasm --" tests/compile_errors.sh > out/selfhosted_errors.txt || { cat out/selfhosted_errors.txt; fail=1; }
-COMPILER="node host/run.mjs out/stage2.wasm --" tests/extensions.sh > out/selfhosted_extensions.txt || { cat out/selfhosted_extensions.txt; fail=1; }
-COMPILER="node host/run.mjs out/stage2.wasm -- --globalreassign" tests/extensions.sh > out/selfhosted_extensions_reassign.txt || { cat out/selfhosted_extensions_reassign.txt; fail=1; }
 n=0
-for src in tests/compile/*.star; do
+nerr=0
+for src in tests/compile/*.star tests/compile_errors/*.star tests/extensions/*.star; do
   gr="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign' || true)$(grep -q '^# option:recursion' "$src" && printf ' --recursion' || true)"
-  bin/starhost --recursion compiler/main.star $gr "$src" out/bs_interp.wasm 2> /dev/null || continue
-  node host/run.mjs out/stage2.wasm -- $gr "$src" out/bs_self.wasm
-  if cmp -s out/bs_interp.wasm out/bs_self.wasm; then
+  s1=0; bin/starhost --recursion compiler/main.star $gr "$src" out/bs_interp.wasm 2> out/bs_interp.err || s1=1
+  s2=0; node host/run.mjs out/stage2.wasm -- $gr "$src" out/bs_self.wasm 2> out/bs_self.err || s2=1
+  if [ $s1 = 0 ] && [ $s2 = 0 ] && cmp -s out/bs_interp.wasm out/bs_self.wasm; then
     n=$((n+1))
+  elif [ $s1 = 1 ] && [ $s2 = 1 ] && [ "$(tail -1 out/bs_interp.err)" = "$(tail -1 out/bs_self.err)" ]; then
+    nerr=$((nerr+1))
   else
-    echo "bootstrap: self-compiled compiler emits different bytes for $src"; fail=1
+    echo "bootstrap: self-compiled compiler differs from the interpreted one on $src"; fail=1
   fi
 done
-echo "bootstrap: self-compiled compiler passes all compile tests; identical output on $n programs"
+echo "bootstrap: self-compiled compiler: identical output on $n programs, identical compile errors on $nerr"
 
 # REPL (host/repl.mjs, on the self-compiled compiler): a scripted session
 # against its expected transcript.
@@ -143,7 +146,7 @@ fi
 
 # Independent validation, if wasm-tools is installed.
 if command -v wasm-tools > /dev/null; then
-  for f in out/*.wasm; do
+  for f in out/*.wasm $(find . -path '*/__wasmcache__/*.wasm'); do
     wasm-tools validate --features all "$f" || { echo "wasm-tools: $f invalid"; fail=1; }
   done
   echo "wasm-tools validate: done"

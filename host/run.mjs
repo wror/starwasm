@@ -1,6 +1,18 @@
 // run.mjs — run an export of a compiled module from the command line.
 //
 //   node host/run.mjs <file.wasm> [export [int args...]] [-- program args...]
+//   node host/run.mjs [options] <file.star> [export [int args...]] [-- program args...]
+//
+// A .star program is compiled first, but only if needed, the way Python
+// reuses __pycache__/*.pyc: see wasmcache.mjs (the Wasm is cached in
+// __wasmcache__/ next to the source). A compile error is printed as
+// "file:line:col: msg", with exit status 1. Options, before the file:
+//   --globalreassign, --recursion, --test, --descriptor_set=FILE
+//                   the compiler's (compiler/main.star)
+//   --compiler=FILE.wasm
+//                   compile with this compiler (e.g. out/stage2.wasm);
+//                   default: compiler/main.star, itself compiled when needed
+//   --compile       only compile (if needed), don't run: as python -m py_compile
 //
 // The export defaults to "main". Int args are passed to the export (as
 // Number, or BigInt for i64 params). Arguments after "--" are what the
@@ -16,6 +28,7 @@
 import { readFileSync, readSync, writeSync } from "node:fs";
 import { Worker, isMainThread, parentPort } from "node:worker_threads";
 import { loadModule, runModule } from "./wasmhost.mjs";
+import { CompileError, compileStar } from "./wasmcache.mjs";
 
 // A reader of standard input's lines (without "\n" or "\r\n"); null at the
 // end. Input applies after the program's top level: none at sync points
@@ -53,20 +66,45 @@ function stdinLines() {
   };
 }
 
+const USAGE = `usage: node host/run.mjs <file.wasm> [export [args...]] [-- program args...]
+       node host/run.mjs [--globalreassign] [--recursion] [--test] [--descriptor_set=FILE]
+                         [--compiler=FILE.wasm] [--compile] <file.star> [export [args...]] [-- program args...]
+`;
+
 function main() {
   const cli = process.argv.slice(2);
   const dash = cli.indexOf("--");
   const progArgs = dash >= 0 ? cli.slice(dash + 1) : [];
-  const [file, exportName = "main", ...rawArgs] = dash >= 0 ? cli.slice(0, dash) : cli;
-  if (!file) {
-    writeSync(2, "usage: node host/run.mjs <file.wasm> [export [args...]] [-- program args...]\n");
+  const before = dash >= 0 ? cli.slice(0, dash) : cli;
+  const flags = []; // the compiler's options
+  let compiler = null;
+  let compileOnly = false;
+  let i = 0;
+  for (; i < before.length && before[i].startsWith("--"); i++) {
+    const a = before[i];
+    if (a === "--globalreassign" || a === "--recursion" || a === "--test" || a.startsWith("--descriptor_set=")) {
+      if (!flags.includes(a)) flags.push(a);
+    }
+    else if (a.startsWith("--compiler=")) compiler = a.slice("--compiler=".length);
+    else if (a === "--compile") compileOnly = true;
+    else {
+      writeSync(2, `run.mjs: unknown option ${a}\n${USAGE}`);
+      return 2;
+    }
+  }
+  const [file, exportName = "main", ...rawArgs] = before.slice(i);
+  const star = file?.endsWith(".star");
+  if (!file || (!star && (flags.length || compiler || compileOnly))) {
+    writeSync(2, file ? `run.mjs: options are for .star files\n${USAGE}` : USAGE);
     return 2;
   }
   let module;
   try {
-    module = loadModule(readFileSync(file));
+    const bytes = star ? compileStar(file, flags, compiler && readFileSync(compiler)) : readFileSync(file);
+    if (compileOnly) return 0;
+    module = loadModule(bytes);
   } catch (e) {
-    writeSync(2, e.message + "\n");
+    writeSync(2, (e instanceof CompileError ? e.message : `run.mjs: ${e.message}`) + "\n");
     return 1;
   }
   return runModule(module, {

@@ -2,3 +2,4 @@ bin/
 out/
 scratch/
 .starwasm-repl-*
+__wasmcache__/

@@ -1,6 +1,8 @@
 #!/bin/sh
 # One differential compile test (see tests/compile.sh): writes
 # out/c_<name>.result = first line "ok" or "FAIL", then the report text.
+# The program is compiled (if needed) and run by node host/run.mjs, with
+# RUNFLAGS (e.g. --compiler=out/stage2.wasm) as its options.
 src=$1
 name=$(basename "$src" .star)
 case "$src" in tests/errors/*) name="errors_$name" ;; esac
@@ -12,10 +14,10 @@ ds=--descriptor_set=tests/proto/test.binpb
 ds="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:recursion' "$src" && printf ' --recursion') $ds"
 {
   exp=0; bin/starhost $ds "$src" > "out/c_$name.expect" 2> "out/c_$name.experr" || exp=$?
-  if ! $COMPILER $ds "$src" "out/c_$name.wasm" 2> "out/c_$name.cerr"; then
+  if ! node host/run.mjs --compile $RUNFLAGS $ds "$src" 2> "out/c_$name.cerr"; then
     echo FAIL; echo "compile/$name: COMPILE FAILED"; sed 's/^/    /' "out/c_$name.cerr"; exit 0
   fi
-  got=0; node host/run.mjs "out/c_$name.wasm" > "out/c_$name.got" 2> "out/c_$name.goterr" || got=$?
+  got=0; node host/run.mjs $RUNFLAGS $ds "$src" > "out/c_$name.got" 2> "out/c_$name.goterr" || got=$?
   if ! cmp -s "out/c_$name.expect" "out/c_$name.got"; then
     echo FAIL; echo "compile/$name: OUTPUT MISMATCH (starlark-go vs wasm)"
     diff "out/c_$name.expect" "out/c_$name.got" | head -20 | sed 's/^/    /'

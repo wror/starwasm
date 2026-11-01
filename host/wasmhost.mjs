@@ -353,6 +353,9 @@ export function loadModule(bytes) {
  *   opts.readLine(before) -> Uint8Array (a line of standard input, without
  *                    its line end) or null if none is due (see read_line
  *                    below); default: no input
+ *   opts.readFile(path) -> Buffer, opts.writeFile(path, bytes): the
+ *                    program's file access (read_file and the compiler's
+ *                    output); default: node:fs, relative to the cwd
  * Returns the exit status: 0 ok, 1 Starlark error or exit(1), 3 internal
  * error (a Wasm trap), 2 no such export.
  */
@@ -361,6 +364,8 @@ export function runModule(module, opts = {}) {
   const stdout = opts.stdout ?? (() => {});
   const stderr = opts.stderr ?? (() => {});
   const readLine = opts.readLine ?? (() => null);
+  const readFile = opts.readFile ?? readFileSync;
+  const writeFile = opts.writeFile ?? writeFileSync;
   const utf8 = new TextDecoder();
   const encodedArgs = progArgs.map((a) => new TextEncoder().encode(a));
   let instance;
@@ -397,7 +402,7 @@ export function runModule(module, opts = {}) {
       },
       file_size(ptr, len) {
         try {
-          loaded = readFileSync(utf8.decode(mem(ptr, len)));
+          loaded = readFile(utf8.decode(mem(ptr, len)));
           return loaded.length;
         } catch {
           return -1;
@@ -411,7 +416,7 @@ export function runModule(module, opts = {}) {
         outChunks = [];
       },
       out_end() {
-        writeFileSync(outPath, Buffer.concat(outChunks));
+        writeFile(outPath, Buffer.concat(outChunks));
         outChunks = [];
       },
       arg_count: () => encodedArgs.length,

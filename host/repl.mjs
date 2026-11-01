@@ -1,7 +1,8 @@
 // repl.mjs — an interactive Starlark session on top of the compiler.
 //
 //   node host/repl.mjs [--globalreassign] [--recursion] [compiler.wasm]
-//                                           (default: out/stage2.wasm)
+//                       (default: compiler/main.star, compiled when needed
+//                        by host/wasmcache.mjs, as host/run.mjs does)
 //
 // The session is compiled in starlark-go's default dialect, as files are:
 // no rebinding a top-level name in a later input (but `_`), no while
@@ -45,19 +46,23 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { MessageChannel, Worker } from "node:worker_threads";
 import { loadModule, runModule } from "./wasmhost.mjs";
+import { defaultCompiler } from "./wasmcache.mjs";
 
 const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion"]);
 const dialectFlags = process.argv.slice(2).filter((a) => DIALECT_FLAGS.has(a));
 const otherArgs = process.argv.slice(2).filter((a) => !DIALECT_FLAGS.has(a));
-const compilerPath = otherArgs[0] ?? "out/stage2.wasm";
-if (!existsSync(compilerPath)) {
-  console.error(`repl: ${compilerPath} not found. Build the self-compiled compiler first:
-  bin/starhost --recursion compiler/main.star --recursion compiler/main.star out/stage1.wasm
-  node host/run.mjs out/stage1.wasm -- --recursion compiler/main.star out/stage2.wasm
-(or run ./test.sh, which builds it).`);
+const compilerPath = otherArgs[0] ?? "compiler/main.star";
+if (otherArgs[0] !== undefined && !existsSync(compilerPath)) {
+  console.error(`repl: ${compilerPath} not found`);
   process.exit(2);
 }
-const compiler = loadModule(readFileSync(compilerPath));
+let compiler;
+try {
+  compiler = loadModule(otherArgs[0] !== undefined ? readFileSync(compilerPath) : defaultCompiler());
+} catch (e) {
+  console.error(`repl: ${e.message}`);
+  process.exit(2);
+}
 // The session file lives in the current directory, so load("x.star", ...)
 // resolves the way you'd expect; it is removed on exit.
 const dir = mkdtempSync(join(tmpdir(), "starwasm-repl-"));
