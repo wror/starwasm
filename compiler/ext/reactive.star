@@ -342,6 +342,16 @@ def _value_ref(n, posn):
     """%reactive["n"]"""
     return {"kind": "index", "x": _name(VALUES, posn), "i": _str(n, posn), "pos": posn, "gen": True}
 
+def _next_id(name, posn):
+    """The implicit field of a struct block `name:` without a field id: the
+    previous value's id + 1, read as in a self-reference (the first time,
+    the identity, so 1), i.e. _r_binop("+", _r_attr(_r_self(%reactive,
+    "name"), "id"), 1). Only this field is in the self-reference context:
+    the block's own fields are compiled as they would be without it."""
+    prev = _prelude_call("_r_self", [_name(VALUES, posn), _str(name, posn)], posn)
+    pid = _prelude_call("_r_attr", [prev, _str("id", posn)], posn)
+    return _prelude_call("_r_binop", [_str("+", posn), pid, {"kind": "int", "val": 1, "pos": posn}], posn)
+
 def _prelude_call(fname, args, posn):
     """%prelude.<fname>(args...): a call of a prelude function."""
     c = _call(_name("%prelude." + fname, posn), args, posn)
@@ -421,6 +431,8 @@ def transform(cg, mc):
             deps, has_self = _top_uses(cx, defined, s["value"], s["name"])
             if has_self:
                 _in_context(s["value"])
+            if s.get("implicit_id", False):
+                s["value"]["args"].append({"name": "id", "star": "", "value": _next_id(s["name"], s["pos"]), "pos": s["pos"]})
             defined[s["name"]] = True
             out.append(_assign(_value_ref(s["name"], s["pos"]), s["value"], s["colon"]))
             if deps:

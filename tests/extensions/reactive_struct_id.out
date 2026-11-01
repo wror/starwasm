@@ -1,0 +1,15 @@
+box 1 4
+acc struct(id = 1, total = 2)
+fixed struct(id = 7, w = 2)
+counted struct(id = 10, w = 2)
+outer struct(id = 1, inner = struct(w = 2))
+box 2 9
+acc struct(id = 2, total = 5)
+fixed struct(id = 7, w = 3)
+counted struct(id = 20, w = 3)
+outer struct(id = 2, inner = struct(w = 3))
+box 3 16
+acc struct(id = 3, total = 9)
+fixed struct(id = 7, w = 4)
+counted struct(id = 30, w = 4)
+outer struct(id = 3, inner = struct(w = 4))

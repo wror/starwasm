@@ -131,19 +131,31 @@ standard input.
         b: 123
         c: 456
 
-  is `a : struct(b = 123, c = 456)`. One field per line (newlines
+  is `a : struct(b = 123, c = 456, id = <previous a.id + 1>)` (the
+  implicit `id` is described below). One field per line (newlines
   separate fields, not commas; a value can still span lines inside
   brackets), the dedent ends it, blank lines and comments are ignored. A
   field whose `:` ends its line opens a nested block, giving a nested
-  struct. The parser builds exactly the `struct(...)` call, so everything
+  struct. The parser builds the `struct(...)` call, so everything
   above applies unchanged: the same rules on where it may appear, field
   values may read reactive variables or the variable itself
   (self-reference), and errors are those of the call (a repeated field is
   `keyword argument "b" is repeated`). `struct` is looked up by name like
   any other, so a module that rebinds `struct` gets its own. A struct
   block only defines a reactive variable: there's no `a = ` form.
-  Code: parser.star (`parse_struct_block`). Tests:
-  tests/extensions/reactive_struct.star, reactive_struct_err_*.star.
+  Implicit `id`: a struct block with no field `id` gets one, the previous
+  value's `id` + 1, read as in a self-reference (so 1 the first time); it
+  counts how many times the struct has been computed (and, as it differs
+  each time, a recomputed struct always counts as changed). Only that
+  field is compiled as a self-reference: the block's own fields are
+  compiled exactly as without it. With an explicit field `id` (constant or
+  not, e.g. `id: a.id + 10`) nothing is added and the struct is exactly
+  as written. Nested blocks get no `id`, nor does a plain
+  `a : struct(...)`.
+  Code: parser.star (`parse_struct_block`; it sets `implicit_id`) and
+  reactive.star (`_next_id` adds the field). Tests:
+  tests/extensions/reactive_struct.star, reactive_struct_id.star,
+  reactive_struct_err_*.star.
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
 - Input lines: `name = literal` (`:` also works), several separated by

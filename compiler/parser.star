@@ -29,7 +29,8 @@
 #                              variables, compiler/ext/reactive.star); a
 #                              struct block (`name :` then indented
 #                              `field : value` lines) gives a value
-#                              struct(field = value, ...)
+#                              struct(field = value, ...), and
+#                              implicit_id: True if no field is "id"
 
 # A port of starlark-go's parser (go.starlark.net/syntax/parse.go): the same
 # grammar, error messages and positions. Assignment targets and parameter
@@ -180,6 +181,9 @@ def parse_stmt(p, out):
         n["name"] = t["val"]
         n["colon"] = pos(peek(p))
         n["value"] = parse_struct_block(p, t)
+        # without an explicit field id, the extension adds one: the
+        # previous value's id + 1 (compiler/ext/reactive.star)
+        n["implicit_id"] = len([a for a in n["value"]["args"] if a["name"] == "id"]) == 0
         out.append(n)
     elif k == "while":
         t = advance(p)
