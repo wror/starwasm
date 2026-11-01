@@ -36,7 +36,8 @@
 #     host/run.mjs has none (standard input applies after the top level);
 #     the REPL (host/repl.mjs) replays a session's updates this way, each
 #     right after the input it followed.
-# A reactive variable may only be read after its definition, so source
+# A reactive variable may only be read after its definition (or in it, as
+# its previous value: see "self-reference" below), so source
 # order is a topological order of the dependencies, and an update is one
 # pass over %nodes.
 
@@ -213,23 +214,121 @@ def _stmts(cx, stmts, bound, fn):
         elif k == "return":
             _expr(cx, s["value"], bound, fn)
 
-def _top_uses(cx, defined, e):
+def _top_uses(cx, defined, e, self = None):
     """The reactive variables top-level expression e reads, checked to be
     defined already; each read is rewritten to %reactive["x"]. Returns the
-    names, in order of first use."""
+    names, in order of first use, and whether e reads `self` (the variable
+    e defines): such reads become %prelude._r_self(%reactive, "self"), its
+    previous value or, the first time, the identity element (see
+    _in_context)."""
     cx["uses"] = []
     _expr(cx, e, {}, None)
     deps = []
+    has_self = False
     for u in cx["uses"]:
         n = u["id"]
+        posn = u["pos"]
+        if n == self:
+            has_self = True
+            u.clear()
+            u.update(_prelude_call("_r_self", [_name(VALUES, posn), _str(n, posn)], posn))
+            continue
         if not defined.get(n, False):
             _err(cx["mod"], u["pos"], "reactive variable " + n + " used before its definition")
         if n not in deps:
             deps.append(n)
-        posn = u["pos"]
         u.clear()
         u.update(_value_ref(n, posn))
-    return deps
+    return deps, has_self
+
+# ---------------------------------------------------------------- self-reference
+#
+# In `a : struct(x = a.x + 1, ...)`, a is its value from when it was last
+# computed; the first time it has none, and reads as the prelude's
+# _identity: a value that acts as the identity element of whatever it is
+# combined with (0 in a.x + 1, 1 in a.x * 10, "" in a.y + "foo", and so
+# on). That is done without touching the core: in such a definition every
+# operation is rewritten to a call of a prelude function (_r_binop,
+# _r_attr, ...) that handles _identity and otherwise does the operation.
+
+# conversions of one argument that give the identity of their type
+CONVERSIONS = {"str": True, "int": True, "float": True, "bool": True, "len": True, "list": True, "tuple": True, "dict": True, "repr": True}
+
+def _in_context(e):
+    """e, with its operations rewritten as calls of the prelude's _r_*
+    functions (nodes are replaced in place)."""
+    if e == None:
+        return e
+    k = e["kind"]
+    posn = e["pos"]
+    new = None
+    if e.get("gen", False):
+        return e
+    if k == "binop" and e["op"] != "and" and e["op"] != "or":
+        new = _prelude_call("_r_binop", [_str(e["op"], posn), _in_context(e["x"]), _in_context(e["y"])], posn)
+    elif k == "binop":
+        _in_context(e["x"])
+        _in_context(e["y"])
+    elif k == "unop":
+        new = _prelude_call("_r_not" if e["op"] == "not" else "_r_unop", ([] if e["op"] == "not" else [_str(e["op"], posn)]) + [_in_context(e["x"])], posn)
+    elif k == "dot":
+        new = _prelude_call("_r_attr", [_in_context(e["x"]), _str(e["name"], posn)], posn)
+    elif k == "index":
+        new = _prelude_call("_r_index", [_in_context(e["x"]), _in_context(e["i"])], posn)
+    elif k == "slice":
+        parts = [_in_context(e[p]) if e[p] != None else _name("None", posn) for p in ["lo", "hi", "step"]]
+        new = _prelude_call("_r_slice", [_in_context(e["x"])] + parts, posn)
+    elif k == "cond":
+        e["test"] = _prelude_call("_r_truth", [_in_context(e["test"])], e["test"]["pos"])
+        _in_context(e["then"])
+        _in_context(e["else_"])
+    elif k == "call":
+        fn = e["fn"]
+        plain = len([a for a in e["args"] if a["name"] != None or a["star"] != ""]) == 0
+        if fn["kind"] == "dot":
+            # x.m(args), evaluating x once: [_identity if _is_id(%m) else
+            # %m.m(args) for %m in [x]][0] (a method value from _attr would
+            # need the method in main's method table)
+            for a in e["args"]:
+                _in_context(a["value"])
+            recv = _in_context(fn["x"])
+            fn["x"] = _name("%m", fn["pos"])
+            call = dict(e)
+            test = _prelude_call("_is_id", [_name("%m", posn)], posn)
+            body = {"kind": "cond", "test": test, "then": _name("%prelude._identity", posn), "else_": call, "pos": posn}
+            clause = {"kind": "for", "target": _name("%m", posn), "iter": {"kind": "list", "elems": [recv], "pos": posn}, "pos": posn}
+            comp = {"kind": "comp", "comp": "list", "body": body, "clauses": [clause], "pos": posn}
+            new = {"kind": "index", "x": comp, "i": {"kind": "int", "val": 0, "pos": posn}, "pos": posn, "gen": True}
+        elif fn["kind"] == "name" and CONVERSIONS.get(fn["id"], False) and plain and len(e["args"]) == 1:
+            new = _prelude_call("_r_conv", [_str(fn["id"], posn), _in_context(e["args"][0]["value"])], e["lparen"])
+        else:
+            if fn["kind"] != "name":
+                _in_context(fn)
+            for a in e["args"]:
+                _in_context(a["value"])
+    elif k == "list" or k == "tuple":
+        for x in e["elems"]:
+            _in_context(x)
+    elif k == "dict":
+        for key, val in e["entries"]:
+            _in_context(key)
+            _in_context(val)
+    elif k == "comp":
+        for c in e["clauses"]:
+            if c["kind"] == "for":
+                c["iter"] = _prelude_call("_r_iter", [_in_context(c["iter"])], c["iter"]["pos"])
+            else:
+                c["test"] = _prelude_call("_r_truth", [_in_context(c["test"])], c["test"]["pos"])
+        if e["comp"] == "dict":
+            _in_context(e["body"][0])
+            _in_context(e["body"][1])
+        else:
+            _in_context(e["body"])
+    # names, literals, lambdas (which can't read reactive variables): as is
+    if new != None:
+        e.clear()
+        e.update(new)
+    return e
 
 # ---------------------------------------------------------------- AST builders
 
@@ -241,7 +340,13 @@ def _str(s, posn):
 
 def _value_ref(n, posn):
     """%reactive["n"]"""
-    return {"kind": "index", "x": _name(VALUES, posn), "i": _str(n, posn), "pos": posn}
+    return {"kind": "index", "x": _name(VALUES, posn), "i": _str(n, posn), "pos": posn, "gen": True}
+
+def _prelude_call(fname, args, posn):
+    """%prelude.<fname>(args...): a call of a prelude function."""
+    c = _call(_name("%prelude." + fname, posn), args, posn)
+    c["gen"] = True
+    return c
 
 def _assign(lhs, rhs, posn):
     return {"kind": "assign", "op": "=", "lhs": lhs, "rhs": rhs, "pos": posn, "oppos": posn}
@@ -309,13 +414,15 @@ def transform(cg, mc):
             out.append(_input_call(s["pos"][0], s["pos"]))  # a sync point
         thunk = None
         if k == "reactive":
-            deps = _top_uses(cx, defined, s["value"])
+            deps, has_self = _top_uses(cx, defined, s["value"], s["name"])
+            if has_self:
+                _in_context(s["value"])
             defined[s["name"]] = True
             out.append(_assign(_value_ref(s["name"], s["pos"]), s["value"], s["colon"]))
             if deps:
                 thunk = ([{"kind": "return", "value": _copy(s["value"]), "pos": s["pos"]}], _str(s["name"], s["pos"]))
         elif k == "expr":
-            deps = _top_uses(cx, defined, s["x"])
+            deps, _ = _top_uses(cx, defined, s["x"])
             out.append(s)
             if deps:
                 thunk = ([{"kind": "expr", "x": _copy(s["x"]), "pos": s["pos"]}], _name("None", s["pos"]))
@@ -476,6 +583,145 @@ def _reactive_update(values, nodes, assigns):
         if v != values[name]:
             changed[name] = True
         values[name] = v
+
+# ---- self-reference (see _in_context): `a : f(a)` reads a's previous
+# value, or the first time, _identity: the identity element of whatever it
+# is combined with.
+
+def _identity():
+    """The identity element of any context (a unique value)."""
+    pass
+
+def _is_id(x):
+    return type(x) == "builtin_function_or_method" and x == _identity
+
+# the identity of an operator for values of each type
+_R_ZERO = {"int": 0, "float": 0.0, "string": "", "bytes": b"", "list": [], "tuple": (), "dict": {}}
+_R_ADDITIVE = {"+": True, "-": True, "|": True, "^": True, "<<": True, ">>": True,
+               "==": True, "!=": True, "<": True, "<=": True, ">": True, ">=": True}
+
+def _r_unit(op, other):
+    """The identity element of op, combined with other."""
+    t = type(other)
+    if _R_ADDITIVE.get(op, False):
+        if t == "set":
+            return set()
+        if t == "list":
+            return []  # a fresh one (a + [] doesn't alias, but be safe)
+        return _R_ZERO.get(t, 0)
+    if op == "&":
+        return other if t == "set" else -1
+    return 1  # * / // %
+
+def _r_self(values, name):
+    return values[name] if name in values else _identity
+
+def _r_binop(op, x, y):
+    xi = _is_id(x)
+    yi = _is_id(y)
+    if xi and yi:
+        return _identity
+    if op == "in" or op == "not in":
+        if xi or yi:
+            return op == "not in"
+    elif xi:
+        x = _r_unit(op, y)
+    elif yi:
+        y = _r_unit(op, x)
+    if op == "+":
+        return x + y
+    if op == "-":
+        return x - y
+    if op == "*":
+        return x * y
+    if op == "/":
+        return x / y
+    if op == "//":
+        return x // y
+    if op == "%":
+        return x % y
+    if op == "|":
+        return x | y
+    if op == "&":
+        return x & y
+    if op == "^":
+        return x ^ y
+    if op == "<<":
+        return x << y
+    if op == ">>":
+        return x >> y
+    if op == "==":
+        return x == y
+    if op == "!=":
+        return x != y
+    if op == "<":
+        return x < y
+    if op == "<=":
+        return x <= y
+    if op == ">":
+        return x > y
+    if op == ">=":
+        return x >= y
+    if op == "in":
+        return x in y
+    return x not in y
+
+def _r_unop(op, x):
+    if _is_id(x):
+        return _identity
+    if op == "-":
+        return -x
+    if op == "+":
+        return +x
+    return ~x
+
+def _r_truth(x):
+    return False if _is_id(x) else bool(x)
+
+def _r_not(x):
+    return not _r_truth(x)
+
+def _r_attr(x, name):
+    return _identity if _is_id(x) else _attr(x, name)
+
+def _r_index(x, i):
+    return _identity if _is_id(x) else x[i]
+
+def _r_slice(x, lo, hi, step):
+    return _identity if _is_id(x) else x[lo:hi:step]
+
+def _r_iter(x):
+    return [] if _is_id(x) else x
+
+_R_CONV_ID = {"str": "", "repr": "", "int": 0, "float": 0.0, "bool": False, "len": 0}
+
+def _r_conv(f, x):
+    """str(x), int(x), ... of x, or of the identity: that type's."""
+    if _is_id(x):
+        if f == "list":
+            return []
+        if f == "tuple":
+            return ()
+        if f == "dict":
+            return {}
+        return _R_CONV_ID[f]
+    if f == "str":
+        return str(x)
+    if f == "repr":
+        return repr(x)
+    if f == "int":
+        return int(x)
+    if f == "float":
+        return float(x)
+    if f == "bool":
+        return bool(x)
+    if f == "len":
+        return len(x)
+    if f == "list":
+        return list(x)
+    if f == "tuple":
+        return tuple(x)
+    return dict(x)
 
 # ---- parsing a line: p = {"s": line, "i": position, "err": message or None}
 

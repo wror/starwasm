@@ -255,7 +255,10 @@ function starlarkFrames(dbg, stack, plain, callnames = []) {
     const fn = dbg.funcs.get(f);
     if (!fn) continue;
     if (fn.kind === "hidden") { // prelude code and wrappers act like builtins
-      hidden = fn.name === "%dyn" ? callnames[dyn++] ?? "?" : fn.name;
+      // (private prelude functions, "_..." , only called by generated code
+      // such as compiler/ext/reactive.star's, are not named as builtins)
+      const name = fn.name === "%dyn" ? callnames[dyn++] ?? "?" : fn.name;
+      if (!name.startsWith("_")) hidden = name;
       continue;
     }
     let tag;
@@ -274,7 +277,7 @@ function starlarkFrames(dbg, stack, plain, callnames = []) {
     frames.push({
       where: `${dbg.info.files[file]}:${ln}:${col}`,
       name: fn.name,
-      builtin: bi >= 0 ? dbg.info.builtins[bi] : hidden,
+      builtin: bi >= 0 && !dbg.info.builtins[bi].startsWith("_") ? dbg.info.builtins[bi] : hidden,
     });
     hidden = null;
   }

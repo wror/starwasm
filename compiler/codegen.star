@@ -1941,7 +1941,9 @@ def add_prelude(mc):
         refs = new_refs()
         collect_refs(node, refs)
         for n in refs["names"]:
-            if not (user and n.startswith("_")):
+            if n.startswith("%prelude."):
+                want(n[len("%prelude."):])  # generated code (see lookup)
+            elif not (user and n.startswith("_")):
                 want(n)
         for meth in refs["methods"]:
             want("_m_" + meth)

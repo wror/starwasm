@@ -95,8 +95,35 @@ standard input.
   - At top level, a reactive variable may be read only in a reactive
     definition or in an expression statement (not in `w = x + 1`, a
     default value, an `if` or a loop: those would run once and silently go
-    stale), and only after its definition. So there are no cycles, and
-    source order is a valid order for recomputing.
+    stale), and only after its definition (or in it: see self-reference
+    below). So there are no cycles, and source order is a valid order for
+    recomputing.
+- Self-reference: a definition may read the variable it defines, e.g.
+  `total : total + n` or, with `b : "foo"`,
+  `a : struct(x = (a.x + 1) + (a.x * 10), y = str(a.y + b))`. It reads the
+  value from when the variable was last computed (it is not a dependency
+  of itself). The first time there is none, and it reads as the
+  *identity*: a value that becomes the identity element of whatever it is
+  combined with: 0 for `+ - | ^ << >>` and comparisons with numbers (`""`,
+  `b""`, `[]`, `()`, `{}`, `set()` with strings, bytes, lists, tuples,
+  dicts, sets), 1 for `* / // %`, -1 for `&` (or the set itself); its
+  attributes, elements, slices and method results are the identity too;
+  it is false (`not`, `if`, conditional expressions); iterating over it
+  gives nothing; `str`, `repr`, `int`, `float`, `bool`, `len`, `list`,
+  `tuple`, `dict` of it give that type's empty value; two identities
+  combine to the identity. So the example's `a` starts as
+  `struct(x = 11, y = "foo")`, and becomes `struct(x = 122, y = "foobar")`
+  after `b = "bar"`. A value can still end up holding the identity itself
+  (`a : [a]`); it prints as `<built-in function _identity>`.
+  - Compiled with no change to the core: in a self-referencing definition
+    (only), every operation becomes a call of a prelude function
+    (`_r_binop`, `_r_attr`, `_r_index`, `_r_truth`, ...: Starlark, in
+    RUNTIME) that handles the identity and otherwise does the operation;
+    a method call `x.m(...)` becomes
+    `[_identity if _is_id(%m) else %m.m(...) for %m in [x]][0]`. Reads of
+    the variable become `_r_self(%reactive, "a")`. Error messages are the
+    usual ones (the host doesn't name private prelude functions, `_...`,
+    as builtins in tracebacks).
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
 - Input lines: `name = literal` (`:` also works), several separated by
@@ -172,7 +199,8 @@ standard input.
   dict marked as being iterated (as test_catch does), so later mutations
   of it fail.
 - Tests: tests/extensions/reactive_basic.star (with .in input and .err
-  expected stderr; modules/reactive_mod.star), reactive_eof.star, and
+  expected stderr; modules/reactive_mod.star), reactive_self.star
+  (self-reference), reactive_eof.star, and
   reactive_err_*.star (compile errors). tests/extensions.sh now feeds
   `<name>.in` as standard input, compares stderr with `<name>.err`, and
   treats a test starting with `# error: <text>` as a compile-error test.
