@@ -1,0 +1,1 @@
+proto.has(1)

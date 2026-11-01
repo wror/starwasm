@@ -1,0 +1,49 @@
+// proto2 test schema (tests/compile/proto_*.star).
+syntax = "proto2";
+
+package sw.p2;
+
+enum Size {
+  SMALL = 1;
+  MEDIUM = 2;
+  LARGE = 3;
+  BIG = 3 [deprecated = true];
+  option allow_alias = true;
+}
+
+message Legacy {
+  required int32 id = 1;
+  optional string name = 2 [default = "anon"];
+  optional int32 count = 3 [default = -7];
+  optional double ratio = 4 [default = 2.5];
+  optional float tiny = 5 [default = -inf];
+  optional bool flag = 6 [default = true];
+  optional bytes raw = 7 [default = "a\001\377z"];
+  optional Size size = 8 [default = MEDIUM];
+  optional uint64 big = 9 [default = 18446744073709551615];
+  repeated int32 nums = 10;
+  repeated int32 packed_nums = 11 [packed = true];
+  optional group Grp = 12 {
+    optional int32 a = 13;
+    optional string b = 14;
+  }
+  optional Legacy child = 15;
+  optional double nan = 16 [default = nan];
+  optional string esc = 17 [default = "tab\there \"q\" \\ \x41\101"];
+  optional sint32 neg = 18 [default = -1];
+  extensions 100 to 199;
+}
+
+message Holder {
+  optional Legacy legacy = 1;
+  extend Legacy {
+    optional string nested_ext = 101;
+  }
+}
+
+extend Legacy {
+  optional int32 ext_i = 100;
+  repeated string ext_ss = 102;
+  optional Size ext_size = 103;
+  optional Holder ext_msg = 104;
+}

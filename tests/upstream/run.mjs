@@ -68,6 +68,9 @@ const FILES = [
   EXEC("tuple"),
   EXEC("recursion"),
   EXEC("while"),
+  // the proto module, with the descriptor pool starlark-go's test gives it;
+  // starwasm has proto predeclared (load("proto.star") is the Go test's)
+  EXEC("proto", { fds: "starlark/testdata/proto/test.fds", unload: 'load("proto.star", "proto")' }),
   { path: "starlarkstruct/testdata/struct.star", mode: "exec", lines: 19 },  // line 20 on needs gensym
   { path: "resolve/testdata/resolve.star", mode: "resolve" },
   { path: "syntax/testdata/errors.star", mode: "parse" },
@@ -77,7 +80,6 @@ export const SKIPPED = {
   "starlark/testdata/json.star": "json module (Go library)",
   "starlark/testdata/math.star": "math module (Go library)",
   "starlark/testdata/time.star": "time module (Go library)",
-  "starlark/testdata/proto.star": "proto module (Go library)",
   "starlark/testdata/module.star": "tests starlarkstruct's module type, which the assert shim replaces with struct",
   "starlark/testdata/function_param.star": "not a test script (used by a Go test of parameter names)",
   "starlark/testdata/benchmark.star": "benchmarks",
@@ -294,7 +296,9 @@ async function runChunk(job) {
   writeFileSync(join(dir, name), chunk.src);
   copyFileSync(join(ROOT, "tests/upstream/assert.star"), join(dir, "assert.star"));
   if (file.mode === "resolve") writeStubs(dir, chunk.src);
-  const oracle = (options) => run(join(ROOT, "bin/upstreamhost"), [`-options=${options}`, `-mode=${file.mode}`, "./" + name], dir);
+  const fds = file.fds ? [join(upstreamDir(), file.fds)] : [];
+  const oracle = (options) => run(join(ROOT, "bin/upstreamhost"),
+    [`-options=${options}`, `-mode=${file.mode}`, ...fds.map((f) => `-descriptor_set=${f}`), "./" + name], dir);
   const check = (r, firstOnly) => (file.mode === "exec" ? checkExec(r, chunk, name) : checkStatic(r, chunk, name, firstOnly));
 
   const up = check(await oracle("file"), false);
@@ -306,7 +310,15 @@ async function runChunk(job) {
     sw = await run(join(ROOT, "bin/starhost"), ["tests/upstream/parse_only.star", join(dir, name)], ROOT);
   } else {
     const wasm = join(dir, "prog.wasm");
-    sw = await run(COMPILER[0], [...COMPILER.slice(1), "--test", join(dir, name), wasm], ROOT);
+    let src = join(dir, name);
+    if (file.unload) {
+      // starwasm's copy, without the Go test's load() (same name, line numbers)
+      mkdirSync(join(dir, "sw"), { recursive: true });
+      src = join(dir, "sw", name);
+      writeFileSync(src, chunk.src.replace(file.unload, ""));
+      copyFileSync(join(ROOT, "tests/upstream/assert.star"), join(dir, "sw", "assert.star"));
+    }
+    sw = await run(COMPILER[0], [...COMPILER.slice(1), "--test", ...fds.map((f) => `--descriptor_set=${f}`), src, wasm], ROOT);
     if (sw.code !== 0) {
       // a compile error: keep "file:line:col: msg" (the last line of the
       // compiler's own traceback)

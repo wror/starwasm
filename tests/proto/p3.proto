@@ -1,0 +1,87 @@
+// proto3 test schema (tests/compile/proto_*.star).
+syntax = "proto3";
+
+package sw.p3;
+
+import "p2.proto";
+
+enum Color {
+  COLOR_UNSPECIFIED = 0;
+  RED = 1;
+  GREEN = 2;
+  BLUE = -3;
+  // an alias needs allow_alias
+}
+
+message Scalars {
+  double d = 1;
+  float f = 2;
+  int32 i32 = 3;
+  int64 i64 = 4;
+  uint32 u32 = 5;
+  uint64 u64 = 6;
+  sint32 s32 = 7;
+  sint64 s64 = 8;
+  fixed32 fx32 = 9;
+  fixed64 fx64 = 10;
+  sfixed32 sfx32 = 11;
+  sfixed64 sfx64 = 12;
+  bool b = 13;
+  string s = 14;
+  bytes by = 15;
+  Color color = 16;
+  optional int32 opt_i32 = 17;
+  optional string opt_s = 18;
+}
+
+message Repeats {
+  repeated int32 i32s = 1;
+  repeated uint64 u64s = 2;
+  repeated sint32 s32s = 3;
+  repeated double ds = 4;
+  repeated float fs = 5;
+  repeated bool bs = 6;
+  repeated string ss = 7;
+  repeated bytes bys = 8;
+  repeated Color colors = 9;
+  repeated Scalars msgs = 10;
+  repeated int64 unpacked = 11 [packed = false];
+  repeated fixed32 fx32s = 12;
+  repeated uint32 u32s = 13;
+}
+
+message Maps {
+  map<string, int32> s2i = 1;
+  map<int32, string> i2s = 2;
+  map<int64, Scalars> i2m = 3;
+  map<bool, Color> b2c = 4;
+  map<uint32, bytes> u2b = 5;
+  map<sint64, double> s2d = 6;
+  map<string, string> s2s = 7;
+}
+
+message Node {
+  string name = 1;
+  Node left = 2;
+  Node right = 3;
+  repeated Node kids = 4;
+
+  message Inner {
+    int32 x = 1;
+    enum Kind {
+      KIND_UNSPECIFIED = 0;
+      LEAF = 1;
+    }
+    Kind kind = 2;
+  }
+  Inner inner = 5;
+
+  oneof choice {
+    int32 num = 6;
+    string text = 7;
+    Inner sub = 8;
+  }
+  sw.p2.Legacy legacy = 9;
+}
+
+message Empty {}

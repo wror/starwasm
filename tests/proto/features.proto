@@ -1,0 +1,23 @@
+// Editions features (tests/compile/proto_*.star).
+edition = "2023";
+
+package sw.ed;
+
+option features.field_presence = IMPLICIT;
+
+enum Closed {
+  option features.enum_type = CLOSED;
+  ONE = 1;
+  TWO = 2;
+}
+
+message Feat {
+  int32 implicit_i = 1;
+  int32 explicit_i = 2 [features.field_presence = EXPLICIT];
+  repeated int32 packed = 3;
+  repeated int32 expanded = 4 [features.repeated_field_encoding = EXPANDED];
+  Closed closed = 5 [features.field_presence = EXPLICIT];
+  Feat delimited = 6 [features.message_encoding = DELIMITED];
+  string s = 7;
+  int32 req = 8 [features.field_presence = LEGACY_REQUIRED];
+}

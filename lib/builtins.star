@@ -47,6 +47,11 @@ load(
 )
 load(
     "runtime.star",
+    "OBJ_CALL",
+    "OBJ_CALLNAME",
+    "OBJ_FREEZE",
+    "OBJ_ITRACK",
+    "OBJ_UNHASHABLE",
     "check_mutable",
     "LAZY_BYTES_ELEMS",
     "LAZY_CODEPOINTS",
@@ -56,6 +61,7 @@ load(
     "S",
     "bstr",
     "fail_",
+    "obj_op",
     "str_bytes",
     "type_err1",
 )
@@ -67,6 +73,10 @@ DICT = ref("Dict")
 BUF = ref("Buf")
 VALS = ref("Vals")
 U8A = ref("U8")
+
+def iter_obj(v):
+    """i32: v is an iterable library object (its kind has bit 256: _OBJ_ITERABLE in lib/prelude.star)."""
+    return and_(is_("Obj", v), op("i32.and", field("Obj", "kind", as_("Obj", v)), i32(256)))
 
 def _absent(v):
     """i32: optional argument omitted (null) or None."""
@@ -151,7 +161,7 @@ def _misc(m):
         ], if_(is_("Tuple", get("x")), [
             set("items", _items(as_("Tuple", get("x")))),
             set("k", arr_len(get("items"))),
-        ], if_(or_(or_(is_("Range", get("x")), is_("Lazy", get("x"))), or_(is_("Dict", get("x")), is_("Set", get("x")))), [
+        ], if_(or_(or_(or_(is_("Range", get("x")), is_("Lazy", get("x"))), or_(is_("Dict", get("x")), is_("Set", get("x")))), iter_obj(get("x"))), [
             set("items", _items(call("rt_iter", get("x")))),
             set("k", arr_len(get("items"))),
         ], type_err1(m, "got ", get("x"), " in sequence assignment")))),
@@ -380,7 +390,7 @@ def _conversions(m):
 
     # "list: for parameter 1: got int, want iterable" unless x is iterable
     add_func(m, "rt_want_iterable", [("x", V), ("name", STR)], [], locals = [("b", BUF)], body = [
-        if_(or_(or_(or_(is_("List", x), is_("Tuple", x)), or_(is_("Dict", x), is_("Set", x))), or_(is_("Range", x), is_("Lazy", x))), "return"),
+        if_(or_(or_(or_(is_("List", x), is_("Tuple", x)), or_(is_("Dict", x), is_("Set", x))), or_(or_(is_("Range", x), is_("Lazy", x)), iter_obj(x))), "return"),
         set("b", call("rt_buf_new")),
         call("rt_buf_str", get("b"), get("name")),
         call("rt_buf_str", get("b"), S(m, ": for parameter 1: got ")),
@@ -617,6 +627,7 @@ def _functions(m):
             set("args", get("a")),
             set("f", field("Bound", "fn", as_("Bound", get("f")))),
         ]),
+        if_(is_("Obj", get("f")), ret(call("rt_obj_call", get("f"), get("args"), get("kw")))),
         if_(eqz(is_("Func", get("f"))), type_err1(m, "invalid call of non-function (", get("f"), ")")),
         as_("Func", get("f")),
         get("args"),
@@ -855,7 +866,7 @@ def _functions(m):
 
     # f(*x): append x's elements to the call's positional list l.
     add_func(m, "rt_star_args", [("l", LIST), ("x", V)], [], [
-        if_(eqz(or_(or_(or_(is_("List", get("x")), is_("Tuple", get("x"))), or_(is_("Dict", get("x")), is_("Set", get("x")))), or_(is_("Range", get("x")), is_("Lazy", get("x"))))),
+        if_(eqz(or_(or_(or_(is_("List", get("x")), is_("Tuple", get("x"))), or_(is_("Dict", get("x")), is_("Set", get("x")))), or_(or_(is_("Range", get("x")), is_("Lazy", get("x"))), iter_obj(get("x"))))),
             type_err1(m, "argument after * must be iterable, not ", get("x"), "")),
         call("rt_list_extend", get("l"), get("x")),
     ])
@@ -1104,7 +1115,7 @@ def _sorting(m):
         ("o", I32),
     ], body = [
         # as starlark-go's UnpackArgs: key omitted (null or Absent), or a callable
-        if_(eqz(or_(or_(or_(is_("List", get("x")), is_("Tuple", get("x"))), or_(is_("Dict", get("x")), is_("Set", get("x")))), or_(is_("Range", get("x")), is_("Lazy", get("x"))))),
+        if_(eqz(or_(or_(or_(is_("List", get("x")), is_("Tuple", get("x"))), or_(is_("Dict", get("x")), is_("Set", get("x")))), or_(or_(is_("Range", get("x")), is_("Lazy", get("x"))), iter_obj(get("x"))))),
             type_err1(m, "sorted: for parameter iterable: got ", get("x"), ", want iterable")),
         if_(ref_eq(get("key"), gget("Absent")), set("key", null("eq"))),
         if_(eqz(or_(is_null(get("key")), or_(is_("Func", get("key")), is_("Bound", get("key"))))),
@@ -1196,6 +1207,10 @@ def _freezing(m):
         ], if_(is_("Bound", v), [
             call("rt_freeze", field("Bound", "recv", as_("Bound", v))),
             "return",
+        ], if_(is_("Obj", v), [
+            # (the prelude's own objects, made before its dispatcher exists, are not frozen)
+            if_(eqz(is_null(gget("obj_ops"))), drop(obj_op(OBJ_FREEZE, v))),
+            "return",
         ], if_(is_("Func", v), [
             set("f", as_("Func", v)),
             if_(field("Func", "frozen", get("f")), "return"),
@@ -1210,7 +1225,7 @@ def _freezing(m):
                         call("rt_freeze", field("Cell", "v", as_("Cell", arr_get("Vals", get("items"), get("i")))))),
             ]),
             "return",
-        ], "return"))))))),
+        ], "return")))))))),
         for_i32("i", i32(0), get("n"), call("rt_freeze", arr_get("Vals", get("items"), get("i")))),
     ])
 
@@ -1277,6 +1292,7 @@ def _intrinsics(m):
         if_(is_("Set", get("x")), set("x", field("Set", "d", as_("Set", get("x"))))),
         if_(is_("Dict", get("x")),
             setfield("Dict", "frozen", as_("Dict", get("x")), op("i32.add", field("Dict", "frozen", as_("Dict", get("x"))), get("delta")))),
+        if_(is_("Obj", get("x")), drop(obj_op(OBJ_ITRACK, get("x"), op("ref.i31", get("delta"))))),
     ])
 
     # _case(s, mode) / _classify(s, mode): see rt_str_case / rt_str_class
@@ -1314,6 +1330,7 @@ def _intrinsics(m):
             ret(gget("None")),
         ]),
         if_(or_(is_("List", get("x")), or_(is_("Dict", get("x")), is_("Set", get("x")))), ret(call("rt_type", get("x")))),
+        if_(is_("Obj", get("x")), ret(obj_op(OBJ_UNHASHABLE, get("x")))),
         gget("None"),
     ])
 
@@ -1592,6 +1609,243 @@ METHODS = {
     "codepoint_ords": (0, 0),
 }
 
+def _objects(m):
+    """Library objects: values of types defined in Starlark ((ref $Obj) =
+    {kind, data, id}; the proto module's messages and descriptors). The
+    runtime knows nothing about them: each operation on one (type, str,
+    len, x[i], x(...), ...) calls the prelude's dispatcher
+    _obj_dispatch(op, x, a, b), whose $Func main stores in global obj_ops
+    (OBJ_* in runtime.star number the operations). Prelude primitives:
+      _obj_new(kind, data)   a new object (kind: an int the prelude picks)
+      _obj_kind(x)           its kind (> 0), or 0 if x is no library object
+      _obj_data(x)           its data (any value; never frozen by freezing x)
+      _obj_id(x)             a unique int (identity hashes)
+      _obj_op(op, x, a, b)   run the dispatcher (from core prelude code)
+      _identical(a, b)       a and b are the same reference"""
+    add_global(m, "obj_ops", ref("Func", True), True, [null("Func")])
+    add_func(m, "rt_obj_op", [("n", I32), ("x", V), ("a", V), ("b", V)], [V], [
+        if_(is_null(gget("obj_ops")), fail_(m, "internal error: no library object dispatcher")),
+        call("rt_call", non_null(gget("obj_ops")), arr_fixed("Vals", op("ref.i31", get("n")), get("x"),
+             select_(is_null(get("a")), gget("None"), get("a"), V), select_(is_null(get("b")), gget("None"), get("b"), V)), null("eq")),
+    ])
+    add_func(m, "rt_obj_new", [("kind", V), ("data", V)], [V], [
+        new("Obj", op("i32.wrap_i64", call("rt_i64", get("kind"))), get("data"), call("rt_next_id")),
+    ])
+    add_func(m, "rt_obj_kind", [("x", V)], [V], [
+        if_(is_("Obj", get("x")), ret(op("ref.i31", field("Obj", "kind", as_("Obj", get("x")))))),
+        op("ref.i31", i32(0)),
+    ])
+    add_func(m, "rt_obj_data", [("x", V)], [V], [field("Obj", "data", as_("Obj", get("x")))])
+    add_func(m, "rt_obj_id", [("x", V)], [V], [op("ref.i31", field("Obj", "id", as_("Obj", get("x"))))])
+    add_func(m, "rt_obj_op_v", [("n", V), ("x", V), ("a", V), ("b", V)], [V], [
+        call("rt_obj_op", op("i32.wrap_i64", call("rt_i64", get("n"))), get("x"), get("a"), get("b")),
+    ])
+    add_func(m, "rt_identical", [("a", V), ("b", V)], [V], [call("rt_bool", ref_eq(get("a"), get("b")))])
+
+    # Calling a library object. Its name as a callable (a message type is
+    # called as its name: "Error in Test: ...") goes on a stack the host
+    # reads when an error happens (exports callname_count / callname_get):
+    # rt_obj_calldyn is a hidden frame named "%dyn" in starwasm.debug, the
+    # k-th such frame from the innermost being the k-th name from the top.
+    add_global(m, "callnames", ref("Vals", True), True, [null("Vals")])
+    add_global(m, "callname_depth", I32, True, [i32(0)])
+    add_func(m, "rt_obj_call", [("f", V), ("args", VALS), ("kw", V)], [V], locals = [("name", V), ("na", VALS), ("r", V)], body = [
+        set("name", obj_op(OBJ_CALLNAME, get("f"))),
+        if_(ref_eq(get("name"), gget("None")), type_err1(m, "invalid call of non-function (", get("f"), ")")),
+        if_(is_null(gget("callnames")), gset("callnames", arr_new_default("Vals", i32(8)))),
+        if_(op("i32.eq", gget("callname_depth"), arr_len(non_null(gget("callnames")))), [
+            set("na", arr_new_default("Vals", op("i32.shl", gget("callname_depth"), i32(1)))),
+            arr_copy("Vals", get("na"), i32(0), non_null(gget("callnames")), i32(0), gget("callname_depth")),
+            gset("callnames", get("na")),
+        ]),
+        arr_set("Vals", non_null(gget("callnames")), gget("callname_depth"), get("name")),
+        gset("callname_depth", op("i32.add", gget("callname_depth"), i32(1))),
+        set("r", call("rt_obj_calldyn", get("f"), get("args"), get("kw"))),
+        gset("callname_depth", op("i32.sub", gget("callname_depth"), i32(1))),
+        get("r"),
+    ])
+    add_func(m, "rt_obj_calldyn", [("f", V), ("args", VALS), ("kw", V)], [V], [
+        obj_op(OBJ_CALL, get("f"), new("Tuple", get("args")), get("kw")),
+    ])
+    add_func(m, "rt_callname_count", [], [I32], [gget("callname_depth")], export = "callname_count")
+    # the k-th name from the top, staged at memory 0; returns its length
+    add_func(m, "rt_callname_get", [("k", I32)], [I32], locals = [("b", U8A), ("n", I32)], body = [
+        set("b", field("Str", "b", as_("Str", arr_get("Vals", non_null(gget("callnames")),
+            op("i32.sub", op("i32.sub", gget("callname_depth"), i32(1)), get("k")))))),
+        set("n", arr_len(get("b"))),
+        if_(op("i32.gt_s", get("n"), i32(4096)), set("n", i32(4096))),
+        call("rt_mem_put", get("b"), i32(0), get("n")),
+        get("n"),
+    ], export = "callname_get")
+
+def _wire(m):
+    """Protocol buffer wire-format primitives for the prelude's proto
+    module (lib/proto.star): the byte-level work of encoding and decoding.
+      _pb_buf()                    a new output buffer (opaque)
+      _pb_put_varint(b, x, zz)     x as a varint: an int in int64 or uint64
+                                   range (negative: 10 bytes, two's
+                                   complement); zz: zigzag-encode it first
+      _pb_put_fixed32(b, x) / _pb_put_fixed64(b, x)   little-endian
+      _pb_put_float(b, f) / _pb_put_double(b, f)      f: int or float
+      _pb_put_bytes(b, s)          the bytes of a string or bytes
+      _pb_put_buf(b, c)            buffer c's bytes
+      _pb_buf_len(b) / _pb_buf_bytes(b)
+      _pb_varint(data, i)          (value, next i) of the varint at data[i]
+                                   (uint64 range), or (-1, -1) if invalid
+      _pb_fixed32(data, i) / _pb_fixed64(data, i)   (unsigned value, i + 4/8),
+                                   or (-1, -1) past the end
+      _pb_float(data, i) / _pb_double(data, i)      (float, i + 4/8)
+      _pb_int(u, kind)             reinterpret a uint64 u: 0 int64, 1 int32,
+                                   2 uint32, 3 zigzag (sint32/sint64)
+      _pb_bytes_str(x) / _pb_str_bytes(x)   the same bytes as string / bytes
+      _pb_utf8_ok(s)               s is valid UTF-8
+      _f32(x)                      x rounded to the nearest float32 (a float)
+      _float_text(x, bits)         x as the text format writes it (Go's
+                                   FormatFloat(x, 'g', -1, bits))"""
+    BYTEZ = lambda a, i: arr_get_u("U8", a, i)
+
+    def u8a(v):
+        return select_(is_("Str", v), field("Str", "b", as_("Str", v)), field("Bytes", "b", as_("Bytes", v)), U8A)
+
+    # the uint64 (or int64) bit pattern of an int
+    add_func(m, "rt_u64_bits", [("v", V)], [I64], locals = [("mag", ref("I32A")), ("lo", I64), ("hi", I64)], body = [
+        if_(is_("Big", get("v")), [
+            set("mag", field("Big", "mag", as_("Big", get("v")))),
+            set("lo", op("i64.extend_i32_u", arr_get("I32A", get("mag"), i32(0)))),
+            set("hi", select_(op("i32.gt_u", arr_len(get("mag")), i32(1)), op("i64.extend_i32_u", arr_get("I32A", get("mag"), i32(1))), i64(0), I64)),
+            set("lo", op("i64.or", get("lo"), op("i64.shl", get("hi"), i64(32)))),
+            ret(select_(field("Big", "neg", as_("Big", get("v"))), op("i64.sub", i64(0), get("lo")), get("lo"), I64)),
+        ]),
+        call("rt_i64", get("v")),
+    ])
+    # an int with the value of uint64 bit pattern x
+    add_func(m, "rt_int_u64", [("x", I64)], [V], [
+        if_(op("i64.ge_s", get("x"), i64(0)), ret(call("rt_int", get("x")))),
+        call("rt_big_make", i32(0), call("rt_mag_of_u64", get("x"))),
+    ])
+    add_func(m, "rt_pb_buf", [], [V], [call("rt_buf_new")])
+    add_func(m, "rt_buf_varint", [("b", BUF), ("x", I64)], [], [
+        while_(op("i64.ge_u", get("x"), i64(0x80)), [
+            call("rt_buf_byte", get("b"), op("i32.or", op("i32.and", op("i32.wrap_i64", get("x")), i32(0x7f)), i32(0x80))),
+            set("x", op("i64.shr_u", get("x"), i64(7))),
+        ]),
+        call("rt_buf_byte", get("b"), op("i32.wrap_i64", get("x"))),
+    ])
+    add_func(m, "rt_pb_put_varint", [("b", V), ("x", V), ("zz", V)], [V], locals = [("u", I64)], body = [
+        set("u", call("rt_u64_bits", get("x"))),
+        if_(call("rt_truth", get("zz")), set("u", op("i64.xor", op("i64.shl", get("u"), i64(1)), op("i64.shr_s", get("u"), i64(63))))),
+        call("rt_buf_varint", as_("Buf", get("b")), get("u")),
+        gget("None"),
+    ])
+
+    def put_le(nbytes, x):
+        out = []
+        for k in range(nbytes):
+            out.append(call("rt_buf_byte", as_("Buf", get("b")), op("i32.wrap_i64", op("i64.shr_u", x, i64(8 * k)))))
+        return out
+
+    add_func(m, "rt_pb_put_fixed32", [("b", V), ("x", V)], [V], locals = [("u", I64)], body = [
+        set("u", call("rt_u64_bits", get("x"))), put_le(4, get("u")), gget("None"),
+    ])
+    add_func(m, "rt_pb_put_fixed64", [("b", V), ("x", V)], [V], locals = [("u", I64)], body = [
+        set("u", call("rt_u64_bits", get("x"))), put_le(8, get("u")), gget("None"),
+    ])
+    add_func(m, "rt_pb_put_double", [("b", V), ("x", V)], [V], locals = [("u", I64)], body = [
+        set("u", op("i64.reinterpret_f64", call("rt_f64", get("x")))), put_le(8, get("u")), gget("None"),
+    ])
+    add_func(m, "rt_pb_put_float", [("b", V), ("x", V)], [V], locals = [("u", I64)], body = [
+        set("u", op("i64.extend_i32_u", op("i32.reinterpret_f32", op("f32.demote_f64", call("rt_f64", get("x")))))),
+        put_le(4, get("u")),
+        gget("None"),
+    ])
+    add_func(m, "rt_pb_put_bytes", [("b", V), ("s", V)], [V], locals = [("a", U8A)], body = [
+        set("a", u8a(get("s"))),
+        call("rt_buf_bytes", as_("Buf", get("b")), get("a"), i32(0), arr_len(get("a"))),
+        gget("None"),
+    ])
+    add_func(m, "rt_pb_put_buf", [("b", V), ("c", V)], [V], [
+        call("rt_buf_bytes", as_("Buf", get("b")), field("Buf", "b", as_("Buf", get("c"))), i32(0), field("Buf", "len", as_("Buf", get("c")))),
+        gget("None"),
+    ])
+    add_func(m, "rt_pb_buf_len", [("b", V)], [V], [op("ref.i31", field("Buf", "len", as_("Buf", get("b"))))])
+    add_func(m, "rt_pb_buf_bytes", [("b", V)], [V], locals = [("a", U8A)], body = [
+        set("a", arr_new_default("U8", field("Buf", "len", as_("Buf", get("b"))))),
+        arr_copy("U8", get("a"), i32(0), field("Buf", "b", as_("Buf", get("b"))), i32(0), arr_len(get("a"))),
+        new("Bytes", i32(0), get("a")),
+    ])
+
+    BAD = new("Tuple", arr_fixed("Vals", op("ref.i31", i32(-1)), op("ref.i31", i32(-1))))
+    PAIR = lambda v, i: new("Tuple", arr_fixed("Vals", v, op("ref.i31", i)))
+    add_func(m, "rt_pb_varint", [("d", V), ("i", V)], [V], locals = [("a", U8A), ("k", I32), ("n", I32), ("x", I64), ("c", I32), ("s", I64)], body = [
+        set("a", u8a(get("d"))),
+        set("k", op("i32.wrap_i64", call("rt_i64", get("i")))),
+        set("n", arr_len(get("a"))),
+        forever_loop([
+            if_(op("i32.ge_u", get("k"), get("n")), ret(BAD)),
+            if_(op("i64.ge_u", get("s"), i64(64)), ret(BAD)),
+            set("c", BYTEZ(get("a"), get("k"))),
+            inc("k"),
+            # the 10th byte may only hold the top bit
+            if_(and_(op("i64.eq", get("s"), i64(63)), op("i32.gt_u", get("c"), i32(1))), ret(BAD)),
+            set("x", op("i64.or", get("x"), op("i64.shl", op("i64.extend_i32_u", op("i32.and", get("c"), i32(0x7f))), get("s")))),
+            set("s", op("i64.add", get("s"), i64(7))),
+            if_(eqz(op("i32.and", get("c"), i32(0x80))), ret(PAIR(call("rt_int_u64", get("x")), get("k")))),
+        ]),
+    ])
+
+    def get_le(nbytes):
+        out = [set("x", i64(0))]
+        for k in range(nbytes):
+            out.append(set("x", op("i64.or", get("x"), op("i64.shl", op("i64.extend_i32_u", BYTEZ(get("a"), op("i32.add", get("k"), i32(k)))), i64(8 * k)))))
+        return out
+
+    for name, nbytes, conv in [
+        ("rt_pb_fixed32", 4, lambda: call("rt_int_u64", get("x"))),
+        ("rt_pb_fixed64", 8, lambda: call("rt_int_u64", get("x"))),
+        ("rt_pb_float", 4, lambda: call("rt_float", op("f64.promote_f32", op("f32.reinterpret_i32", op("i32.wrap_i64", get("x")))))),
+        ("rt_pb_double", 8, lambda: call("rt_float", op("f64.reinterpret_i64", get("x")))),
+    ]:
+        add_func(m, name, [("d", V), ("i", V)], [V], locals = [("a", U8A), ("k", I32), ("x", I64)], body = [
+            set("a", u8a(get("d"))),
+            set("k", op("i32.wrap_i64", call("rt_i64", get("i")))),
+            if_(op("i32.gt_u", op("i32.add", get("k"), i32(nbytes)), arr_len(get("a"))), ret(BAD)),
+            get_le(nbytes),
+            PAIR(conv(), op("i32.add", get("k"), i32(nbytes))),
+        ])
+
+    add_func(m, "rt_pb_int", [("u", V), ("kind", V)], [V], locals = [("x", I64), ("k", I32)], body = [
+        set("x", call("rt_u64_bits", get("u"))),
+        set("k", op("i32.wrap_i64", call("rt_i64", get("kind")))),
+        if_(op("i32.eq", get("k"), i32(0)), ret(call("rt_int", get("x")))),
+        if_(op("i32.eq", get("k"), i32(1)), ret(call("rt_int", op("i64.extend_i32_s", op("i32.wrap_i64", get("x")))))),
+        if_(op("i32.eq", get("k"), i32(2)), ret(call("rt_int", op("i64.extend_i32_u", op("i32.wrap_i64", get("x")))))),
+        call("rt_int", op("i64.xor", op("i64.shr_u", get("x"), i64(1)), op("i64.sub", i64(0), op("i64.and", get("x"), i64(1))))),
+    ])
+    add_func(m, "rt_pb_bytes_str", [("x", V)], [V], [new("Str", i32(0), u8a(get("x")))])
+    add_func(m, "rt_pb_str_bytes", [("x", V)], [V], [new("Bytes", i32(0), u8a(get("x")))])
+    add_func(m, "rt_pb_utf8_ok", [("s", V)], [V], locals = [("a", U8A), ("i", I32), ("k", I32)], body = [
+        set("a", u8a(get("s"))),
+        while_(op("i32.lt_s", get("i"), arr_len(get("a"))), [
+            set("k", call("rt_utf8_seq", get("a"), get("i"), arr_len(get("a")))),
+            if_(op("i32.le_s", get("k"), i32(0)), ret(gget("False"))),
+            set("i", op("i32.add", get("i"), get("k"))),
+        ]),
+        gget("True"),
+    ])
+    add_func(m, "rt_f32", [("x", V)], [V], [
+        call("rt_float", op("f64.promote_f32", op("f32.demote_f64", call("rt_f64", get("x"))))),
+    ])
+    add_func(m, "rt_float_text", [("x", V), ("bits", V)], [V], locals = [("b", BUF)], body = [
+        set("b", call("rt_buf_new")),
+        # 't': shortest float64 digits, 'u': shortest float32 digits
+        call("rt_buf_float", get("b"), call("rt_f64", get("x")),
+             select_(op("i64.eq", call("rt_i64", get("bits")), i64(32)), i32(117), i32(116), I32)),
+        call("rt_buf_to_str", get("b")),
+    ])
+
+def forever_loop(body):
+    return [("loop", None, "forever"), body, ("br", "forever"), "end", "unreachable"]
+
 def add_builtins(m):
     _misc(m)
     _slicing(m)
@@ -1605,6 +1859,8 @@ def add_builtins(m):
     _hashing(m)
     _structs(m)
     _methods(m)
+    _objects(m)
+    _wire(m)
 
 def add_test_builtins(m):
     """Builtins for running starlark-go's own test files (tests/upstream/),
@@ -1623,11 +1879,13 @@ def add_test_builtins(m):
         call("rt_call", get("f"), arr_new_default("Vals", i32(0)), null("eq")),
         "drop",
     ], export = "test_call0")
-    add_func(m, "rt_test_catch", [("f", V)], [V], locals = [("n", I32), ("depth", I32)], body = [
+    add_func(m, "rt_test_catch", [("f", V)], [V], locals = [("n", I32), ("depth", I32), ("names", I32)], body = [
         # an error skips the uncounting of the calls it unwinds
         set("depth", gget("call_depth")),
+        set("names", gget("callname_depth")),
         set("n", call("host_catch", get("f"))),
         gset("call_depth", get("depth")),
+        gset("callname_depth", get("names")),
         if_(op("i32.lt_s", get("n"), i32(0)), ret(gget("None"))),
         new("Str", i32(0), call("rt_mem_take", get("n"))),
     ])

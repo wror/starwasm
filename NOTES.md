@@ -20,7 +20,12 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     lib/prelude.star      builtins and methods written in Starlark (min, max,
                           zip, string methods, format, list/dict extras...)
     lib/unicode_tables.star  Unicode properties (generated from Go)
+    lib/proto.star        the proto module (starlark-go's lib/proto) in
+                          Starlark: descriptors, messages, wire and text format
     tools/gen_unicode.go  generates lib/unicode_tables.star
+    tools/protoc/         .proto -> binary FileDescriptorSet, in pure Go (its
+                          own module; regenerates tests/proto/test.binpb)
+    tests/proto/          the proto tests' schemas and descriptor set
     compiler/lexer.star   source -> tokens (indent/dedent, escapes, literals)
     compiler/parser.star  tokens -> dict-based AST (format documented at top)
     compiler/resolve.star scope analysis: which variables closures capture (cells)
@@ -53,7 +58,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     test.sh               runs everything; uses wasm-tools validate if present
 
 Setup: `cd host && go get go.starlark.net@latest && go mod tidy`, then
-`./test.sh`. Requires Go and Node ≥ 22 (WasmGC on by default).
+`./test.sh`. (host/ needs google.golang.org/protobuf too, for the proto
+module: `go mod tidy` adds its go.sum lines.) Requires Go and Node ≥ 22 (WasmGC on by default).
 
 ## Encoder conventions (lib/wasm.star)
 
@@ -573,6 +579,91 @@ docs in EXTENSIONS.md, tests in tests/extensions/. See EXTENSIONS.md.
   (e.g. the lexer checks literal range BEFORE multiplying; MAX_INT is
   written out because 1 << 63 overflows when compiled).
 
+## The proto module (milestone 20)
+
+`proto` is predeclared, as starlark-go's go.starlark.net/lib/proto (which
+bin/starhost and bin/upstreamhost now predeclare, with a descriptor pool):
+proto.file / has / get_field / set_field / marshal / unmarshal /
+marshal_text / unmarshal_text, and the values they make. Programs that
+never name `proto` don't contain any of it.
+
+    bin/starhost --descriptor_set=set.binpb prog.star
+    bin/starhost compiler/main.star --descriptor_set=set.binpb prog.star prog.wasm
+
+- Descriptors: the pool is a binary FileDescriptorSet (`protoc
+  --include_imports --descriptor_set_out`, `buf build`, or tools/protoc).
+  The compiler embeds its bytes (a string constant; _pb_descriptor_set())
+  and lib/proto.star decodes it on the first proto.file(): files,
+  messages, fields, oneofs, enums, extensions as dicts, with proto2,
+  proto3 and editions semantics resolved per field (presence, packed,
+  delimited encoding, UTF-8 checks, required) the way protobuf-go does,
+  and default values parsed (C-escaped bytes defaults, inf/nan, float32
+  rounding). No .proto parser: a descriptor set is the interchange format.
+- Values are *library objects*, a generic runtime mechanism: `$Obj {kind,
+  data, id}`. The runtime knows nothing about protos; every operation on
+  an $Obj (type, str/repr, truth, len, x[i], x[i] = v, `in`, iteration
+  and iteration tracking, hash, ==, calls, freezing, x.f, x.f = v, dir,
+  hasattr/getattr) calls one prelude function, `_obj_dispatch(op, x, a,
+  b)`, whose $Func main stores in global obj_ops. Kind bits 256/512 tell
+  the core prelude an object is iterable / a mapping (list(), dict(),
+  sorted(), zip(), ... accept them). Calling one pushes its name (a
+  message type's) on a stack the host reads through the callname_*
+  exports, so tracebacks say "Error in Test: ..." as starlark-go does:
+  rt_obj_calldyn is a hidden frame named "%dyn" in starwasm.debug.
+- New in codegen: assignment to attributes, `x.f = v` and `x.f += v`
+  (prelude _setattr; anything but a message fails as starlark-go: "can't
+  assign to .f field of struct"); `proto.<member>(...)` compiles to a
+  static call of the prelude's `_mod_proto__<member>` (shown as
+  proto.member); method-call syntax on a value that may be a library object
+  checks for one first (like structs).
+- State: a msg is [descriptor, {number: stored value}, unknown bytes,
+  {number: extension descriptor}]; a Message value wraps a msg and a
+  frozen cell shared by everything read through it, as starlark-go's
+  wrappers share a `*bool`. So aliasing works like starlark-go's: message
+  values assigned to fields are shared, Message(msg) is a shallow copy,
+  unset fields read as fresh frozen defaults (so `m.r.append(x)` on an
+  empty repeated field fails, as there), freezing a loaded module freezes
+  its messages. The prelude's own globals are frozen after it runs, so
+  its mutable state (the pool) lives inside a library object.
+- Wire format: varints, zigzag, fixed32/64, floats, buffers and UTF-8
+  checks are generated Wasm (_wire in lib/builtins.star); the encode and
+  decode loops are Starlark in lib/proto.star. Decoding follows
+  protobuf-go's slow path: wire-type mismatches and unknown numbers become
+  unknown fields (kept and written back), packed and unpacked repeated
+  input both accepted, messages merged, map entries with missing key or
+  value, groups, required-field and invalid-UTF-8 errors, all with
+  protobuf-go's messages.
+- Text format: marshal_text is prototext with two-space indentation
+  (fields by declaration, extensions by name, maps by key, Go's float
+  formatting incl. float32 shortest digits via a new float_fmt conversion
+  'u', escaping as appendString); unmarshal_text ports protobuf-go's
+  tokenizer and decoder, error messages and positions included.
+- Tests: tests/compile/proto_basic.star and proto_wire.star (600 lines
+  of output) plus 166 error programs (tests/errors/proto_*.star) match
+  starlark-go byte for byte; starlark-go's own starlark/testdata/proto.star
+  passes in tests/upstream. tests/compile_one.sh passes
+  `--descriptor_set=tests/proto/test.binpb` to both sides.
+- Where starlark-go can't be matched or compared:
+  - proto.marshal: protobuf-go writes a dynamic message's fields in Go
+    map order (random) and maps in random order; starwasm writes fields
+    by number and map entries by key (deterministic). Tests compare bytes
+    only for single-field messages and round-trip the rest.
+  - protobuf-go's errors start "proto: " or "proto:\u00a0" depending on a
+    hash of the binary; bin/starhost normalizes its final error message to
+    the plain space starwasm uses.
+  - Extensions: proto.unmarshal / unmarshal_text don't know the pool's
+    extensions (starlark-go resolves them with protobuf-go's global
+    registry, which only has extensions compiled into the Go binary), so
+    they become unknown fields in both. Repeated extensions and clearing
+    an extension crash starlark-go (a Go panic); starwasm just works.
+    google.protobuf.Any is not expanded in the text format.
+  - starlark-go also panics printing an open enum's unknown number and
+    assigning bytes to a string field; starwasm prints `Color.5` and
+    converts the bytes.
+  - A for loop over a repeated field iterates a snapshot (as for dicts);
+    starlark-go reads it live, so appending through *another* wrapper of
+    the same field inside the loop runs more iterations there.
+
 ## Known deviations / not yet done
 
 - Lists, tuples and materialized ranges hold at most 134,217,724
@@ -651,6 +742,10 @@ docs in EXTENSIONS.md, tests in tests/extensions/. See EXTENSIONS.md.
        "starlark-go's own tests". Static errors identical to starlark-go's.
 19. [x] Extensions kept separate (compiler/ext/, EXTENSIONS.md,
        tests/extensions/); the first: dir() with no arguments, as Python.
+20. [x] The proto module (starlark-go's lib/proto) on generic library
+       objects; descriptor sets embedded at compile time; wire and text
+       formats; tests/compile/proto_{basic,wire}.star, 166 error programs,
+       upstream proto.star.
 
 Possible next steps: performance (unboxed int fast
 paths in codegen, static calls to nested defs, avoiding rt_iter snapshots);

@@ -3,7 +3,7 @@
 // programs compiled with `compiler/main.star --test` get (see
 // add_test_builtins in lib/builtins.star), printing the same reports.
 //
-// Usage: upstreamhost [-options=starwasm|file] [-mode=exec|resolve|parse] file.star
+// Usage: upstreamhost [-options=starwasm|file] [-mode=exec|resolve|parse] [-descriptor_set=FILE] file.star
 //
 //	-options=starwasm  every dialect option on, as bin/starhost and the
 //	                   compiler (default)
@@ -12,6 +12,11 @@
 //	-mode=exec         run it (starlark/testdata, starlarkstruct/testdata)
 //	-mode=resolve      parse and resolve only (resolve/testdata)
 //	-mode=parse        parse only (syntax/testdata)
+//	-descriptor_set    the proto module's descriptor pool (a binary
+//	                   FileDescriptorSet), as starlark-go's TestExecFile
+//	                   sets for proto.star; load("proto.star") is the
+//	                   module, and with -options=starwasm proto is also
+//	                   predeclared, as in bin/starhost
 //
 // Output: the program's prints on stdout; on stderr, one
 // "@@test_error {json}" line per test_error() call, and a final error as a
@@ -29,10 +34,15 @@ import (
 	"regexp"
 	"strings"
 
+	starlarkproto "go.starlark.net/lib/proto"
 	"go.starlark.net/resolve"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 func testCatch(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -109,7 +119,25 @@ func testFloateq(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 func main() {
 	options := flag.String("options", "starwasm", "starwasm or file")
 	mode := flag.String("mode", "exec", "exec, resolve or parse")
+	fds := flag.String("descriptor_set", "", "binary FileDescriptorSet for the proto module")
 	flag.Parse()
+	pool := new(protoregistry.Files)
+	if *fds != "" {
+		data, err := os.ReadFile(*fds)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		set := new(descriptorpb.FileDescriptorSet)
+		if err := proto.Unmarshal(data, set); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if pool, err = protodesc.NewFiles(set); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+	}
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: upstreamhost [-options=starwasm|file] [-mode=exec|resolve|parse] file.star")
 		os.Exit(2)
@@ -143,6 +171,9 @@ func main() {
 		"test_matches": starlark.NewBuiltin("test_matches", testMatches),
 		"test_freeze":  starlark.NewBuiltin("test_freeze", testFreeze),
 		"test_floateq": starlark.NewBuiltin("test_floateq", testFloateq),
+	}
+	if *options == "starwasm" {
+		predeclared["proto"] = starlarkproto.Module
 	}
 
 	staticErrors := func(err error) {
@@ -190,6 +221,9 @@ func main() {
 	var load func(*starlark.Thread, string) (starlark.StringDict, error)
 	print := func(_ *starlark.Thread, msg string) { fmt.Println(msg) }
 	load = func(from *starlark.Thread, module string) (starlark.StringDict, error) {
+		if module == "proto.star" { // as starlark-go's eval_test
+			return starlark.StringDict{"proto": starlarkproto.Module}, nil
+		}
 		path := filepath.Clean(filepath.Join(filepath.Dir(from.Name), module))
 		e, ok := cache[path]
 		if e == nil {
@@ -198,6 +232,7 @@ func main() {
 			}
 			cache[path] = nil
 			t := &starlark.Thread{Name: path, Load: load, Print: print}
+			starlarkproto.SetPool(t, pool)
 			g, err := starlark.ExecFileOptions(opts, t, path, nil, predeclared)
 			e = &entry{g, err}
 			cache[path] = e
@@ -205,6 +240,7 @@ func main() {
 		return e.globals, e.err
 	}
 	thread := &starlark.Thread{Name: filename, Load: load, Print: print}
+	starlarkproto.SetPool(thread, pool)
 	if _, err := starlark.ExecFileOptions(opts, thread, filename, src, predeclared); err != nil {
 		if evalErr, ok := err.(*starlark.EvalError); ok {
 			fmt.Fprintln(os.Stderr, evalErr.Backtrace())

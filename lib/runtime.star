@@ -44,6 +44,10 @@
 #   lazy string sequences: (ref $Lazy) = {kind, s: $Str}, what s.elems(),
 #              s.elem_ords(), s.codepoints(), s.codepoint_ords() and
 #              b.elems() return (kinds LAZY_*; for bytes, s shares b's array)
+#   library object  (ref $Obj) = {kind, data, id}: a value of a type
+#              defined in Starlark (the proto module's messages and
+#              descriptors): every operation on it calls the prelude's
+#              dispatcher (_objects in builtins.star)
 #   null       "no value": unbound variable / missing dict entry. Never a
 #              Starlark value.
 #
@@ -84,6 +88,7 @@ load(
     "br",
     "br_if",
     "call",
+    "drop",
     "eqz",
     "field",
     "for_i32",
@@ -200,6 +205,29 @@ def forever(label, body):
 def both(T, a, b):
     return and_(is_(T, a), is_(T, b))
 
+# Operations on library objects ($Obj), as numbered for the prelude's
+# dispatcher _obj_dispatch(op, x, a, b) (see _objects in builtins.star).
+OBJ_TYPE = 0  # type name
+OBJ_STR = 1  # str() / repr()
+OBJ_TRUTH = 2  # bool
+OBJ_LEN = 3  # int, or None: no len
+OBJ_INDEX = 4  # x[a]
+OBJ_SETINDEX = 5  # x[a] = b
+OBJ_IN = 6  # a in x
+OBJ_ITER = 7  # a tuple of the elements, or None: not iterable
+OBJ_ITRACK = 8  # a loop over x starts (a = 2) or ends (a = -2)
+OBJ_HASH = 9  # int
+OBJ_EQ = 10  # x == a
+OBJ_CALL = 11  # x(*a, **b); b: a dict or None
+OBJ_CALLNAME = 12  # the name of x as a callable (for "Error in <name>"), or None: not callable
+OBJ_FREEZE = 13
+OBJ_UNHASHABLE = 14  # None, or the type name that makes x unhashable
+OBJ_ITEMS = 15  # a mapping's items, a list of pairs
+
+def obj_op(n, x, a = None, b = None):
+    """Code calling the prelude's dispatcher for operation n on $Obj x."""
+    return call("rt_obj_op", i32(n), x, null("eq") if a == None else a, null("eq") if b == None else b)
+
 def _mix32(h):
     """h = murmur3-style finalizer of h (i32 local)."""
     return [
@@ -242,6 +270,9 @@ def _declare(m, test = False):
     add_type(m, "Struct", struct_type([("d", DICT, False)]))
     add_type(m, "Range", struct_type([("start", I64, False), ("stop", I64, False), ("step", I64, False)]))
     add_type(m, "Lazy", struct_type([("kind", I32, False), ("s", STR, False)]))
+    # A library object (see _objects in builtins.star): a value whose type
+    # and operations are defined in Starlark, by the prelude's dispatcher.
+    add_type(m, "Obj", struct_type([("kind", I32, False), ("data", V, False), ("id", I32, False)]))
 
     # Functions as values. A captured variable lives in a Cell shared by the
     # defining function and its closures. A Func pairs a dynamic entry point
@@ -484,6 +515,7 @@ def _basics(m):
             if_(op("i32.le_u", get("k"), i32(LAZY_CODEPOINT_ORDS)), ret(S(m, "string.codepoints"))),
             ret(S(m, "bytes.elems")),
         ]),
+        if_(is_("Obj", get("v")), ret(as_("Str", obj_op(OBJ_TYPE, get("v"))))),
         if_(is_null(get("v")), ret(S(m, "<unbound>"))),
         S(m, "<unknown>"),
     ])
@@ -502,6 +534,7 @@ def _basics(m):
         if_(is_("Bytes", get("v")), ret(op("i32.ne", arr_len(field("Bytes", "b", as_("Bytes", get("v")))), i32(0)))),
         if_(is_("Float", get("v")), ret(op("f64.ne", field("Float", "v", as_("Float", get("v"))), op("f64.convert_i64_s", i64(0))))),
         if_(is_("Range", get("v")), ret(op("i64.ne", call("rt_range_len", as_("Range", get("v"))), i64(0)))),
+        if_(is_("Obj", get("v")), ret(call("rt_truth", obj_op(OBJ_TRUTH, get("v"))))),
         i32(1),  # boxed ints are never zero
     ])
 
@@ -1889,6 +1922,7 @@ def _compare(m):
             op("i32.eq", field("Lazy", "kind", as_("Lazy", a)), field("Lazy", "kind", as_("Lazy", b))),
             call("rt_str_eq", field("Lazy", "s", as_("Lazy", a)), field("Lazy", "s", as_("Lazy", b))),
         ))),
+        if_(both("Obj", a, b), ret(call("rt_truth", obj_op(OBJ_EQ, a, b)))),
         i32(0),
     ])
 
@@ -1955,6 +1989,7 @@ def _compare(m):
         if_(is_("Float", get("v")), ret(call("rt_float_hash", field("Float", "v", as_("Float", get("v")))))),
         if_(or_(is_("Range", get("v")), is_("Lazy", get("v"))), type_err1(m, "unhashable: ", get("v"), "")),
         if_(is_("Bound", get("v")), ret(op("i32.xor", call("rt_str_hash", field("Bound", "name", as_("Bound", get("v")))), i32(5521)))),
+        if_(is_("Obj", get("v")), ret(op("i32.wrap_i64", call("rt_i64", obj_op(OBJ_HASH, get("v")))))),
         if_(is_("Struct", get("v")), [
             set("d", field("Struct", "d", as_("Struct", get("v")))),
             set("h", i32(0x1d4c6f)),
@@ -2543,7 +2578,7 @@ def _generic(m):
         type_err2(m, "unknown binary op: ", a, " * ", b, ""),
     ])
 
-    add_func(m, "rt_len_i32", [("x", V)], [I32], locals = [("n", I64)], body = [
+    add_func(m, "rt_len_i32", [("x", V)], [I32], locals = [("n", I64), ("v", V)], body = [
         if_(is_("Str", x), ret(arr_len(SB(x)))),
         if_(is_("Bytes", x), ret(arr_len(BB(x)))),
         if_(is_("List", x), ret(L("len", x))),
@@ -2556,6 +2591,10 @@ def _generic(m):
         ]),
         if_(and_(is_("Lazy", x), op("i32.le_u", field("Lazy", "kind", as_("Lazy", x)), i32(LAZY_ELEM_ORDS))),
             ret(arr_len(field("Str", "b", field("Lazy", "s", as_("Lazy", x)))))),
+        if_(is_("Obj", x), [
+            set("v", obj_op(OBJ_LEN, x)),
+            if_(eqz(ref_eq(get("v"), gget("None"))), ret(op("i32.wrap_i64", call("rt_i64", get("v"))))),
+        ]),
         type_err1(m, "len: value of type ", x, " has no len"),
     ])
 
@@ -2595,6 +2634,7 @@ def _generic(m):
             ]),
             ret(get("v")),
         ]),
+        if_(is_("Obj", x), ret(obj_op(OBJ_INDEX, x, get("i")))),
         type_err2(m, "unhandled index operation ", x, "[", get("i"), "]"),
     ])
 
@@ -2608,6 +2648,7 @@ def _generic(m):
             call("rt_dict_set", as_("Dict", x), get("i"), get("v")),
             "return",
         ]),
+        if_(is_("Obj", x), [drop(obj_op(OBJ_SETINDEX, x, get("i"), get("v"))), "return"]),
         type_err1(m, "", x, " value does not support item assignment"),
     ])
 
@@ -2654,11 +2695,12 @@ def _generic(m):
             ]),
             type_err1(m, "'in bytes' requires bytes or int as left operand, not ", x, ""),
         ]),
+        if_(is_("Obj", get("c")), ret(call("rt_truth", obj_op(OBJ_IN, get("c"), x)))),
         type_err2(m, "unknown binary op: ", x, " in ", get("c"), ""),
     ])
 
     # Snapshot of the elements a for-loop visits, as a tuple.
-    add_func(m, "rt_iter", [("x", V)], [TUPLE], [
+    add_func(m, "rt_iter", [("x", V)], [TUPLE], locals = [("v", V)], body = [
         if_(is_("Tuple", x), ret(as_("Tuple", x))),
         if_(is_("List", x), ret(new(
             "Tuple",
@@ -2668,6 +2710,10 @@ def _generic(m):
         if_(is_("Set", x), ret(call("rt_dict_keys", field("Set", "d", as_("Set", x))))),
         if_(is_("Range", x), ret(call("rt_range_items", as_("Range", x)))),
         if_(is_("Lazy", x), ret(call("rt_lazy_items", as_("Lazy", x)))),
+        if_(is_("Obj", x), [
+            set("v", obj_op(OBJ_ITER, x)),
+            if_(eqz(ref_eq(get("v"), gget("None"))), ret(as_("Tuple", get("v")))),
+        ]),
         type_err1(m, "", x, " value is not iterable"),
     ])
 
@@ -2724,6 +2770,7 @@ def _printing(m):
         ]),
         if_(is_("Big", v), [call("rt_buf_bigradix", b, v, i32(10), i32(0)), "return"]),
         if_(call("rt_is_int", v), [call("rt_buf_i64", b, call("rt_i64", v)), "return"]),
+        if_(is_("Obj", v), [call("rt_buf_str", b, as_("Str", obj_op(OBJ_STR, v))), "return"]),
         if_(is_("Float", v), [call("rt_buf_float", b, field("Float", "v", as_("Float", v)), i32(103)), "return"]),  # 'g' 
         if_(is_("Str", v), [
             if_(get("quote"), call("rt_buf_repr_str", b, as_("Str", v)), call("rt_buf_str", b, as_("Str", v))),

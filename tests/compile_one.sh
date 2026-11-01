@@ -5,9 +5,11 @@ src=$1
 name=$(basename "$src" .star)
 case "$src" in tests/errors/*) name="errors_$name" ;; esac
 res="out/c_$name.result"
+# the proto module's descriptor pool (tests/proto/README.md), for both
+ds=--descriptor_set=tests/proto/test.binpb
 {
-  exp=0; bin/starhost "$src" > "out/c_$name.expect" 2> "out/c_$name.experr" || exp=$?
-  if ! $COMPILER "$src" "out/c_$name.wasm" 2> "out/c_$name.cerr"; then
+  exp=0; bin/starhost $ds "$src" > "out/c_$name.expect" 2> "out/c_$name.experr" || exp=$?
+  if ! $COMPILER $ds "$src" "out/c_$name.wasm" 2> "out/c_$name.cerr"; then
     echo FAIL; echo "compile/$name: COMPILE FAILED"; sed 's/^/    /' "out/c_$name.cerr"; exit 0
   fi
   got=0; node host/run.mjs "out/c_$name.wasm" > "out/c_$name.got" 2> "out/c_$name.goterr" || got=$?

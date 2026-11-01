@@ -23,13 +23,18 @@ As starlark-go's TestExecFile, TestResolve and TestParseErrors:
 - starlark/testdata: assign, bool, builtins, bytes, control, dict, float,
   function, int, list, misc, set, string, tuple, recursion, while: compiled
   with `--test` and run.
+- starlark/testdata/proto.star, with the descriptor pool starlark-go's test
+  gives it (starlark/testdata/proto/test.fds: `-descriptor_set` for
+  bin/upstreamhost, `--descriptor_set` for the compiler); starwasm compiles
+  a copy without the Go test's `load("proto.star", "proto")` (proto is
+  predeclared).
 - starlarkstruct/testdata/struct.star: its first 19 lines (the rest needs
   the Go test's `gensym`).
 - resolve/testdata/resolve.star: compiled only; static errors.
 - syntax/testdata/errors.star and scan.star: parsed only
   (tests/upstream/parse_only.star, on starwasm's front end).
 
-Not run: json, math, time, proto (Go library modules), module.star (tests
+Not run: json, math, time (Go library modules), module.star (tests
 starlarkstruct's module type, which assert.star replaces with struct),
 benchmark, bazel, paths, function_param (not test scripts).
 

@@ -1,0 +1,17 @@
+// starlark-go's own starlark/testdata/proto/test.proto (for proto.star).
+edition = "2023";
+
+package go.starlark.net.testdata;
+
+message Test {
+    string string_field = 1;
+    int32 int32_field = 2;
+    repeated string repeated_field = 3;
+    map<string, string> map_field = 4;
+
+    extensions 100 to 100;
+}
+
+extend Test {
+  string ext_string_field = 100;
+}

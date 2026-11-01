@@ -71,7 +71,43 @@ function cmpPow10(a, d) {
   return l < r ? -1 : l > r ? 1 : 0;
 }
 
+// Go's strconv.FormatFloat(x, 'g', -1, 64 or 32) as the protobuf text
+// format writes floats: shortest digits (of x as a float32 for 'u'), no
+// ".0", and nan / inf / -inf.
+function formatShortest(x, conv) {
+  if (Number.isNaN(x)) return "nan";
+  if (x === Infinity) return "inf";
+  if (x === -Infinity) return "-inf";
+  const neg = x < 0 || Object.is(x, -0) ? "-" : "";
+  const a = Math.abs(x);
+  let m, e;
+  if (conv === "u" && a !== 0) {
+    // the fewest digits that read back as the same float32
+    for (let p = 1; p <= 9; p++) {
+      [m, e] = a.toExponential(p - 1).split("e");
+      if (Math.fround(Number(a.toExponential(p - 1))) === a) break;
+    }
+  } else {
+    [m, e] = a.toExponential().split("e");
+  }
+  const digits = m.replace(".", "");
+  const exp = a === 0 ? 0 : Number(e);
+  const expo = (k) => (k < 0 ? "-" : "+") + String(Math.abs(k)).padStart(2, "0");
+  let s;
+  if (exp < -4 || exp >= 6) {  // Go: %e when exp < -4 || exp >= 6 (shortest)
+    s = digits[0] + (digits.length > 1 ? "." + digits.slice(1) : "") + "e" + expo(exp);
+  } else if (exp < 0) {
+    s = "0." + "0".repeat(-exp - 1) + digits;
+  } else if (digits.length > exp + 1) {
+    s = digits.slice(0, exp + 1) + "." + digits.slice(exp + 1);
+  } else {
+    s = digits + "0".repeat(exp + 1 - digits.length);
+  }
+  return neg + s;
+}
+
 export function formatFloat(x, conv) {
+  if (conv === "t" || conv === "u") return formatShortest(x, conv);
   if (Number.isNaN(x)) return "nan";
   if (x === Infinity) return "+inf";
   if (x === -Infinity) return "-inf";
@@ -206,8 +242,11 @@ function markAt(dbg, f, off) {
 // builtin the frame was calling when the error happened, if any: named by
 // the call's marker (a direct call), or else by the outermost hidden frame
 // called from it (a builtin called as a value).
-function starlarkFrames(dbg, stack, plain) {
+// A hidden frame named "%dyn" (rt_obj_calldyn: a library object being
+// called) takes its name from callnames, innermost first.
+function starlarkFrames(dbg, stack, plain, callnames = []) {
   const frames = [];
+  let dyn = 0;
   let hidden = null; // outermost hidden frame since the last Starlark frame
   for (const line of stack.split("\n")) { // innermost first
     const m = /wasm-function\[(\d+)\]:0x([0-9a-f]+)/.exec(line);
@@ -216,7 +255,7 @@ function starlarkFrames(dbg, stack, plain) {
     const fn = dbg.funcs.get(f);
     if (!fn) continue;
     if (fn.kind === "hidden") { // prelude code and wrappers act like builtins
-      hidden = fn.name;
+      hidden = fn.name === "%dyn" ? callnames[dyn++] ?? "?" : fn.name;
       continue;
     }
     let tag;
@@ -273,9 +312,9 @@ function floatEq(x, y) {
   return a === b + 1n || b === a + 1n;
 }
 
-function formatError(mod, message, stack, plain = false) {
+function formatError(mod, message, stack, plain = false, callnames = []) {
   const debug = readDebugInfo(mod);
-  const frames = debug ? starlarkFrames(debug, stack, plain) : [];
+  const frames = debug ? starlarkFrames(debug, stack, plain, callnames) : [];
   let out = "";
   if (frames.length) {
     out += "Traceback (most recent call last):\n";
@@ -326,6 +365,14 @@ export function runModule(module, opts = {}) {
   let outPath = null;
   let outChunks = [];
   const mem = (ptr, len) => new Uint8Array(instance.exports.memory.buffer, ptr, len);
+  // names of the library objects being called (see "%dyn" frames), innermost first
+  const callNames = () => {
+    const x = instance.exports;
+    if (!x.callname_count) return [];
+    const names = [];
+    for (let k = 0, n = x.callname_count(); k < n; k++) names.push(utf8.decode(mem(0, x.callname_get(k))));
+    return names;
+  };
 
   const imports = {
     host: {
@@ -342,6 +389,7 @@ export function runModule(module, opts = {}) {
         const e = new StarlarkError(utf8.decode(mem(ptr, len)));
         e.trace = new Error().stack;
         e.plain = plain;
+        e.callnames = callNames();
         throw e;
       },
       file_size(ptr, len) {
@@ -407,7 +455,7 @@ export function runModule(module, opts = {}) {
           // at a sync point): the traceback starts in f
           const lines = e.trace.split("\n");
           const inner = lines.slice(0, Math.max(1, lines.length - (outer - 2))).join("\n");
-          stderr(formatError(module, e.message, inner, e.plain));
+          stderr(formatError(module, e.message, inner, e.plain, e.callnames));
           return 1;
         }
       },
@@ -449,7 +497,7 @@ export function runModule(module, opts = {}) {
   } catch (e) {
     if (e instanceof Exit) return e.code;
     if (e instanceof StarlarkError) {
-      stderr(formatError(module, e.message, e.trace, e.plain));
+      stderr(formatError(module, e.message, e.trace, e.plain, e.callnames));
       return 1;
     }
     // Wasm traps (unreachable, null deref, bad cast, stack overflow): still a

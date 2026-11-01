@@ -89,6 +89,7 @@ load(
     "ext_transform",
 )
 load("../lib/prelude.star", "PRELUDE")
+load("../lib/proto.star", "PROTO_PRELUDE")
 
 V = EQREF
 NONE = gget("None")
@@ -163,6 +164,35 @@ BUILTINS = {
     "_struct_dict": (1, 1),
     "_bound": (2, 2),
     "_nearest": (2, 2),
+    # library objects and the proto module (lib/builtins.star: _objects, _wire)
+    "_obj_new": (2, 2),
+    "_obj_kind": (1, 1),
+    "_obj_data": (1, 1),
+    "_obj_id": (1, 1),
+    "_obj_op": (4, 4),
+    "_identical": (2, 2),
+    "_pb_buf": (0, 0),
+    "_pb_put_varint": (3, 3),
+    "_pb_put_fixed32": (2, 2),
+    "_pb_put_fixed64": (2, 2),
+    "_pb_put_float": (2, 2),
+    "_pb_put_double": (2, 2),
+    "_pb_put_bytes": (2, 2),
+    "_pb_put_buf": (2, 2),
+    "_pb_buf_len": (1, 1),
+    "_pb_buf_bytes": (1, 1),
+    "_pb_varint": (2, 2),
+    "_pb_fixed32": (2, 2),
+    "_pb_fixed64": (2, 2),
+    "_pb_float": (2, 2),
+    "_pb_double": (2, 2),
+    "_pb_int": (2, 2),
+    "_pb_bytes_str": (1, 1),
+    "_pb_str_bytes": (1, 1),
+    "_pb_utf8_ok": (1, 1),
+    "_f32": (1, 1),
+    "_float_text": (2, 2),
+    "_pb_descriptor_set": (0, 0),
     # Test-only builtins (programs compiled with --test; see TEST_BUILTINS):
     "test_catch": (1, 1),
     "test_error": (1, 1),
@@ -207,6 +237,34 @@ SIMPLE_BUILTINS = {
     "_struct_dict": "rt_struct_dict",
     "_bound": "rt_bound",
     "_nearest": "rt_nearest_v",
+    "_obj_new": "rt_obj_new",
+    "_obj_kind": "rt_obj_kind",
+    "_obj_data": "rt_obj_data",
+    "_obj_id": "rt_obj_id",
+    "_obj_op": "rt_obj_op_v",
+    "_identical": "rt_identical",
+    "_pb_buf": "rt_pb_buf",
+    "_pb_put_varint": "rt_pb_put_varint",
+    "_pb_put_fixed32": "rt_pb_put_fixed32",
+    "_pb_put_fixed64": "rt_pb_put_fixed64",
+    "_pb_put_float": "rt_pb_put_float",
+    "_pb_put_double": "rt_pb_put_double",
+    "_pb_put_bytes": "rt_pb_put_bytes",
+    "_pb_put_buf": "rt_pb_put_buf",
+    "_pb_buf_len": "rt_pb_buf_len",
+    "_pb_buf_bytes": "rt_pb_buf_bytes",
+    "_pb_varint": "rt_pb_varint",
+    "_pb_fixed32": "rt_pb_fixed32",
+    "_pb_fixed64": "rt_pb_fixed64",
+    "_pb_float": "rt_pb_float",
+    "_pb_double": "rt_pb_double",
+    "_pb_int": "rt_pb_int",
+    "_pb_bytes_str": "rt_pb_bytes_str",
+    "_pb_str_bytes": "rt_pb_str_bytes",
+    "_pb_utf8_ok": "rt_pb_utf8_ok",
+    "_f32": "rt_f32",
+    "_float_text": "rt_float_text",
+    "_pb_descriptor_set": "rt_pb_fds",  # added by compile_program
     "test_catch": "rt_test_catch",
     "test_error": "rt_test_error",
     "test_matches": "rt_test_matches",
@@ -306,6 +364,8 @@ def lookup(mc, fc, name, posn, early = None):
             return ("func", key)
     if not in_prelude and not name.startswith("_") and pre["funcs"].get(name) != None:
         return ("func", pre["funcs"][name])  # a builtin written in Starlark
+    if name == "proto" and pre["funcs"].get("_proto_module") != None:
+        return ("protomod", pre["funcs"]["_proto_module"])  # starlark-go's lib/proto (lib/proto.star)
     if BUILTINS.get(name) != None and (in_prelude or not name.startswith("_")) and (mc["test"] or not TEST_BUILTINS.get(name, False)):
         return ("builtin", name)
     cerr(mc, posn, "undefined: " + name + spell_hint(name, early if early != None else visible_names(mc, fc)))
@@ -534,6 +594,8 @@ def gen_name(mc, fc, e):
         return gget(w)
     if kind == "func":
         return checked(mc, gget("fv_" + w), "global", name, posn)
+    if kind == "protomod":
+        return call("f_" + w)
     return builtin_value(mc, name, e["pos"])
 
 def bparam(name, star = "", default = None):
@@ -719,13 +781,33 @@ def has_star_args(e):
             return True
     return False
 
-def gen_call(mc, fc, e):
+def gen_call(mc, fc, e, no_obj = False):
     fn = e["fn"]
     args = e["args"]
     if fn["kind"] == "dot":
         name = fn["name"]
         m = mc["m"]
+        x = fn["x"]
+        if x["kind"] == "name" and lookup(mc, fc, x["id"], x["pos"])[0] == "protomod":
+            # proto.<member>(...): a direct call of the prelude's _mod_proto__<member>
+            key = mc["prelude"]["funcs"].get("_mod_proto__" + name)
+            if key != None and not has_star_args(e):
+                code = gen_user_call(mc, fc, mc["allfuncs"][key], e, "proto." + name)
+                if code != None:
+                    return code
         known = METHODS.get(name) != None or mc["prelude"]["funcs"].get("_m_" + name) != None
+        if known and mc["has_obj"] and not no_obj:
+            # x.name(...) where x may be a library object: its attribute
+            t = temp(fc, V)
+            obj_call = gen_dynamic_call(mc, fc, callmeth(mc, fn["pos"], fn["pos"], "", "f_" + mc["prelude"]["funcs"]["_attr"], get(t), S(m, name)), e)
+            fn2 = dict(fn)
+            fn2["x"] = {"kind": "%code", "code": get(t), "pos": x["pos"]}
+            e2 = dict(e)
+            e2["fn"] = fn2
+            return [
+                set(t, gen(mc, fc, x)),
+                if_(is_obj(get(t)), obj_call, gen_call(mc, fc, e2, True), result = V),
+            ]
         if not known:
             # x.name(...) where name is no method: a struct field (or an
             # error at run time: "list has no .frobnicate field or method")
@@ -759,6 +841,9 @@ def gen_call(mc, fc, e):
 
 def is_struct(code):
     return [code, ("ref.test", ref("Struct"))]
+
+def is_obj(code):
+    return [code, ("ref.test", ref("Obj"))]
 
 def gen_method_call(mc, fc, e, recv):
     """x.name(args) for a method of a builtin type; recv: code for x."""
@@ -1166,7 +1251,7 @@ def first_leaf(mc, fc, e):
     k = e["kind"]
     if k == "name":
         kind = lookup(mc, fc, e["id"], e["pos"])[0]
-        if kind == "const" or kind == "builtin":
+        if kind == "const" or kind == "builtin" or kind == "protomod":
             return None  # predeclared values carry no position
         return e["pos"]
     if k == "list" or k == "tuple":
@@ -1189,7 +1274,7 @@ def last_leaf(mc, fc, e):
     k = e["kind"]
     if k == "name":
         kind = lookup(mc, fc, e["id"], e["pos"])[0]
-        return None if kind == "const" or kind == "builtin" else e["pos"]
+        return None if kind == "const" or kind == "builtin" or kind == "protomod" else e["pos"]
     if k == "list" or k == "tuple":
         for i in range(len(e["elems"]) - 1, -1, -1):
             q = last_leaf(mc, fc, e["elems"][i])
@@ -1464,6 +1549,13 @@ def gen_assign(mc, fc, t, value, posn):
             set(v, value),
             callat(mc, t["pos"], "rt_setindex", gen(mc, fc, t["x"]), gen(mc, fc, t["i"]), get(v)),
         ]
+    if k == "dot":
+        # x.name = value: the value first, then x (as starlark-go)
+        v = temp(fc, V)
+        return [
+            set(v, value),
+            drop(callat(mc, t["pos"], "f_" + mc["prelude"]["funcs"]["_setattr"], gen(mc, fc, t["x"]), S(mc["m"], t["name"]), get(v))),
+        ]
     if k == "tuple" or k == "list":
         vals = temp(fc, ref("Vals", True))
         code = [set(vals, callat(mc, posn, "rt_unpack", value, i32(len(t["elems"]))))]
@@ -1576,6 +1668,15 @@ def gen_augassign(mc, fc, s):
             set(ti, gen(mc, fc, t["i"])),
             callat(mc, t["pos"], "rt_setindex", get(tx), get(ti),
                    callat(mc, s["oppos"], fn, callat(mc, t["pos"], "rt_index", get(tx), get(ti)), gen(mc, fc, s["rhs"]))),
+        ]
+    if t["kind"] == "dot":
+        tx = temp(fc, V)
+        key = mc["prelude"]["funcs"]
+        cur = callmeth(mc, t["pos"], t["pos"], "", "f_" + key["_attr"], get(tx), S(mc["m"], t["name"]))
+        return [
+            set(tx, gen(mc, fc, t["x"])),
+            drop(callat(mc, t["pos"], "f_" + key["_setattr"], get(tx), S(mc["m"], t["name"]),
+                        callat(mc, s["oppos"], fn, cur, gen(mc, fc, s["rhs"])))),
         ]
     cerr(mc, t["pos"], "cannot use " + s["op"] + " on this target")
 
@@ -1693,6 +1794,8 @@ def declare_module(mc, mod):
                 s["prelude"] = True
                 if s["name"].startswith("_m_"):
                     s["display"] = s["name"][3:]  # method name, for messages
+                elif s["name"].startswith("_mod_"):
+                    s["display"] = s["name"][5:].replace("__", ".")  # _mod_proto__file: proto.file
             mod["funcs"][s["name"]] = key
             mc["allfuncs"][key] = s
         elif s["kind"] == "load":
@@ -1762,7 +1865,7 @@ def compile_module_init(mc, mod):
     add_func(m, "init" + str(mod["id"]), [], [], body, locals = fc["wlocals"])
 
 def new_refs():
-    return {"names": {}, "methods": {}, "attrs": {}, "getattr_uses": 0, "getattr_literal": 0}
+    return {"names": {}, "methods": {}, "attrs": {}, "getattr_uses": 0, "getattr_literal": 0, "setattr": False}
 
 def collect_refs(x, refs):
     """Record what AST x uses: identifiers (names), names called as methods
@@ -1792,6 +1895,8 @@ def collect_refs(x, refs):
                 refs["getattr_literal"] += 1
         elif k == "dot":
             refs["attrs"][x["name"]] = True
+        elif k == "assign" and x["lhs"]["kind"] == "dot":
+            refs["setattr"] = True  # x.name = v
         for key in x:
             if key != "scope":
                 collect_refs(x[key], refs)
@@ -1805,6 +1910,16 @@ def add_prelude(mc):
     stmts = parse_file(PRELUDE, "lib/prelude.star")
     ext_stmts, ext_roots = ext_prelude(mc)  # runtime support of extensions in use
     stmts = stmts + ext_stmts
+    # the proto module (lib/proto.star), if the program names it
+    uses_proto = False
+    for mod in mc["mods"]:
+        r = new_refs()
+        collect_refs(mod["stmts"], r)
+        if r["names"].get("proto", False):
+            uses_proto = True
+    if uses_proto:
+        stmts = stmts + parse_file(PROTO_PRELUDE, "lib/proto.star")
+    mc["has_obj"] = uses_proto
     defs = {}  # name -> the def or top-level assignment that binds it
     rest = []  # other top-level statements (always kept)
     for s in stmts:
@@ -1848,6 +1963,8 @@ def add_prelude(mc):
                 user[key][n] = True
         user["getattr_uses"] += r["getattr_uses"]
         user["getattr_literal"] += r["getattr_literal"]
+        if r["setattr"]:
+            user["setattr"] = True
     attrs = user["attrs"]
     if user["getattr_uses"] > user["getattr_literal"]:
         attrs = universe  # getattr(x, name) with any name
@@ -1863,6 +1980,15 @@ def add_prelude(mc):
     for meth in user["methods"]:
         if not universe.get(meth, False):
             want("_attr")  # x.unknown(...): a struct field, or an error at run time
+    if user["setattr"]:
+        want("_setattr")
+        want("_attr")  # x.name += v
+    if uses_proto:
+        for n in ["_proto_module", "_obj_dispatch", "_attr"]:
+            want(n)
+        for n in defs:
+            if n.startswith("_mod_proto__"):
+                want(n)
     want_refs(rest, False)
     for n in ext_roots:
         want(n)
@@ -1885,7 +2011,7 @@ def add_prelude(mc):
     mc["prelude"] = mod
     mc["order"] = [mod] + mc["order"]
 
-def compile_program(src, filename, test = False):
+def compile_program(src, filename, test = False, descriptor_set = None):
     mc = {
         "m": None,  # the Wasm module, created after parsing (below)
         "test": test,  # test-only builtins visible (TEST_BUILTINS)
@@ -1908,6 +2034,8 @@ def compile_program(src, filename, test = False):
         "prelude": None,  # the prelude module
         "method_values": [],  # methods that may be taken as values (see add_prelude)
         "has_struct": False,  # the program may create structs
+        "has_obj": False,  # the program may have library objects (uses proto)
+        "descriptor_set": descriptor_set,  # bytes of a FileDescriptorSet (string), or None
         "floats": {},  # float literal text -> getter function
         "ext": {},  # extensions' state (compiler/extensions.star)
     }
@@ -1922,6 +2050,9 @@ def compile_program(src, filename, test = False):
         add_test_builtins(m)
     ext_runtime(mc, m)
     add_prelude(mc)
+    # _pb_descriptor_set(): the FileDescriptorSet given to the compiler, as bytes
+    add_func(m, "rt_pb_fds", [], [V], [new("Bytes", i32(0), field("Str", "b", S(m, descriptor_set or "")))])
+    mc["funcinfo"].append(("rt_obj_calldyn", "hidden", "%dyn", -1))  # see rt_obj_call
     for mod in mc["order"]:
         declare_module(mc, mod)
     # the class and case tables, if a method that needs them is kept
@@ -1935,6 +2066,9 @@ def compile_program(src, filename, test = False):
     add_global(m, "argv", V, True, [null("eq")])
     add_global(m, "call_depth", I32, True, [i32(1)])  # the top level counts, as in starlark-go
     main_body = [gset("argv", call("rt_argv")), call("init" + str(mc["prelude"]["id"]))]
+    if mc["prelude"]["funcs"].get("_obj_dispatch") != None:
+        # the dispatcher of library objects (see _objects in lib/builtins.star)
+        main_body.append(gset("obj_ops", as_("Func", gget("fv_" + mc["prelude"]["funcs"]["_obj_dispatch"]))))
     if mc["prelude"]["funcs"].get("_attr") != None:
         # the method table for bound methods (after the prelude's defs ran)
         main_body.append(gset("method_funcs", call("rt_dict_new")))
@@ -1972,8 +2106,9 @@ def debug_section(mc):
     ])
     return list(text.elem_ords())
 
-def compile(src, filename, test = False):
+def compile(src, filename, test = False, descriptor_set = None):
     """Compile a Starlark program (and the modules it loads, read relative
     to filename) to Wasm bytes (a list of ints). test: make the test-only
-    builtins (TEST_BUILTINS) visible."""
-    return encode(compile_program(src, filename, test))
+    builtins (TEST_BUILTINS) visible. descriptor_set: the contents of a
+    binary FileDescriptorSet, the files proto.file() can find."""
+    return encode(compile_program(src, filename, test, descriptor_set))

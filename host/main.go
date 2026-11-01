@@ -2,7 +2,11 @@
 // starwasm compiler needs: recursion and while loops enabled, plus
 // host builtins for file I/O. It is the stage-0 bootstrap interpreter.
 //
-// Usage: starhost <file.star> [args...]
+// Usage: starhost [--descriptor_set=FILE] <file.star> [args...]
+//
+// The predeclared proto module is starlark-go's lib/proto; its descriptor
+// pool holds the files of the binary FileDescriptorSet FILE (what
+// `protoc --include_imports --descriptor_set_out` writes), or none.
 //
 // Host builtins (the only "external" functions the compiler may use):
 //
@@ -16,10 +20,33 @@ import (
 	"os"
 	"path/filepath"
 
+	"strings"
+
+	starlarkproto "go.starlark.net/lib/proto"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
+
+// descriptorPool reads a binary FileDescriptorSet (no file: an empty pool).
+func descriptorPool(file string) (*protoregistry.Files, error) {
+	if file == "" {
+		return new(protoregistry.Files), nil
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	set := new(descriptorpb.FileDescriptorSet)
+	if err := proto.Unmarshal(data, set); err != nil {
+		return nil, fmt.Errorf("%s: %v", file, err)
+	}
+	return protodesc.NewFiles(set)
+}
 
 func readFile(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
@@ -61,12 +88,23 @@ func writeFile(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwa
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: starhost <file.star> [args...]")
+	args := os.Args[1:]
+	fds := ""
+	if len(args) > 0 && strings.HasPrefix(args[0], "--descriptor_set=") {
+		fds = strings.TrimPrefix(args[0], "--descriptor_set=")
+		args = args[1:]
+	}
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: starhost [--descriptor_set=FILE] <file.star> [args...]")
 		os.Exit(2)
 	}
-	argv := make([]starlark.Value, 0, len(os.Args)-2)
-	for _, a := range os.Args[2:] {
+	pool, err := descriptorPool(fds)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "starhost:", err)
+		os.Exit(2)
+	}
+	argv := make([]starlark.Value, 0, len(args)-1)
+	for _, a := range args[1:] {
 		argv = append(argv, starlark.String(a))
 	}
 	predeclared := starlark.StringDict{
@@ -75,6 +113,8 @@ func main() {
 		"argv":       starlark.NewList(argv),
 		// struct is not a core builtin; starlark-go provides it in a library.
 		"struct": starlark.NewBuiltin("struct", starlarkstruct.Make),
+		// proto: starlark-go's lib/proto (not a core builtin either)
+		"proto": starlarkproto.Module,
 	}
 	opts := &syntax.FileOptions{
 		Recursion:       true, // parsers and tree walkers need it
@@ -102,6 +142,7 @@ func main() {
 			cache[path] = nil // mark in progress
 			t := &starlark.Thread{Name: path, Load: load,
 				Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) }}
+			starlarkproto.SetPool(t, pool)
 			g, err := starlark.ExecFileOptions(opts, t, path, nil, predeclared)
 			e = &entry{g, err}
 			cache[path] = e
@@ -109,16 +150,20 @@ func main() {
 		return e.globals, e.err
 	}
 	thread := &starlark.Thread{
-		Name:  os.Args[1],
+		Name:  args[0],
 		Load:  load,
 		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
 	}
-	if _, err := starlark.ExecFileOptions(opts, thread, os.Args[1], nil, predeclared); err != nil {
+	starlarkproto.SetPool(thread, pool)
+	if _, err := starlark.ExecFileOptions(opts, thread, args[0], nil, predeclared); err != nil {
+		msg := err.Error()
 		if evalErr, ok := err.(*starlark.EvalError); ok {
-			fmt.Fprintln(os.Stderr, evalErr.Backtrace())
-		} else {
-			fmt.Fprintln(os.Stderr, err)
+			msg = evalErr.Backtrace()
 		}
+		// protobuf-go's error messages start "proto: " or, depending on a
+		// hash of the binary, "proto:\u00a0" (to discourage comparing them):
+		// normalized, so that tests don't depend on how starhost was built
+		fmt.Fprintln(os.Stderr, strings.ReplaceAll(msg, "proto:\u00a0", "proto: "))
 		os.Exit(1)
 	}
 }

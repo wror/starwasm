@@ -62,7 +62,23 @@ def _clamp(n, i, default):
 def _is_iterable(x):
     t = type(x)
     return t == "list" or t == "tuple" or t == "dict" or t == "set" or t == "range" or \
-           t == "string.elems" or t == "string.codepoints" or t == "bytes.elems"
+           t == "string.elems" or t == "string.codepoints" or t == "bytes.elems" or \
+           (_obj_kind(x) & _OBJ_ITERABLE) != 0
+
+# Library objects (values of types written in Starlark, like the proto
+# module's; see _objects in lib/builtins.star): _obj_kind(x) is their kind,
+# or 0. These bits of a kind say what the generic code here may assume;
+# _obj_op(op, x, a, b) calls their dispatcher with an operation:
+_OBJ_ITERABLE = 256
+_OBJ_MAPPING = 512
+_OBJ_ITEMS = 15  # a mapping's items (pairs)
+_OBJ_ATTR = 16  # x.a (b: None to fail if there is none, else return (found, value or message))
+_OBJ_SETATTR = 17  # x.a = b
+_OBJ_DIR = 18  # the attribute names
+_OBJ_HASATTR = 19
+
+def _is_obj(x):
+    return _obj_kind(x) > 0
 
 def _iterable(name, x):
     if not _is_iterable(x):
@@ -221,6 +237,9 @@ def dict(*args, **kwargs):
         if type(a) == "dict":
             for k in a:
                 d[k] = a[k]
+        elif _obj_kind(a) & _OBJ_MAPPING:
+            for k, v in _obj_op(_OBJ_ITEMS, a, None, None):
+                d[k] = v
         else:
             if not _is_iterable(a):
                 _error("dict: got " + type(a) + ", want iterable")
@@ -261,15 +280,27 @@ def hasattr(x, name):
         _error("hasattr: for parameter 2: got " + type(name) + ", want string")
     if type(x) == "struct":
         return name in _struct_dict(x)
+    if _is_obj(x):
+        return _obj_op(_OBJ_HASATTR, x, name, None)
     return name in _ATTRS.get(type(x), [])
 
 def dir(x):
     if type(x) == "struct":
         return list(_struct_dict(x))
+    if _is_obj(x):
+        return sorted(_obj_op(_OBJ_DIR, x, None, None))
     return sorted(_ATTRS.get(type(x), []))
+
+def _setattr(x, name, v):
+    """x.name = v"""
+    if _is_obj(x):
+        return _obj_op(_OBJ_SETATTR, x, name, v)
+    _error_plain("can't assign to ." + name + " field of " + type(x))
 
 def _attr(x, name):
     """x.name, for an attribute expression that is not a method call."""
+    if _is_obj(x):
+        return _obj_op(_OBJ_ATTR, x, name, None)
     t = type(x)
     if t == "struct":
         d = _struct_dict(x)
@@ -285,6 +316,13 @@ def getattr(x, name, *default):
         _error("getattr: got " + str(2 + len(default)) + " arguments, want at most 3")
     if type(name) != "string":
         _error("getattr: for parameter 2: got " + type(name) + ", want string")
+    if _is_obj(x):
+        found, v = _obj_op(_OBJ_ATTR, x, name, True)
+        if found:
+            return v
+        if default:
+            return default[0]
+        _error("getattr: " + v)
     if hasattr(x, name):
         return _attr(x, name)
     if default:
@@ -894,6 +932,9 @@ def _m_update(d, *args, **kwargs):
         if type(a) == "dict":
             for k in a.keys():
                 d[k] = a[k]
+        elif _obj_kind(a) & _OBJ_MAPPING:
+            for k, v in _obj_op(_OBJ_ITEMS, a, None, None):
+                d[k] = v
         else:
             if type(a) != "list" and type(a) != "tuple":
                 _error("update: got " + type(a) + ", want iterable")
