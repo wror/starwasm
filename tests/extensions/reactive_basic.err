@@ -2,14 +2,17 @@ Traceback (most recent call last):
   tests/extensions/reactive_basic.star:31:16: in <toplevel>
 Error: unhashable type: dict
 <stdin>:17:1: nope is not a reactive variable
-<stdin>:18:9: not a literal: foo (only literal values can be assigned)
-<stdin>:19:11: want ; or the end of the line after a value
-<stdin>:20:14: want ]
+<stdin>:18:9: undefined: foo
+<stdin>:19:12: want an expression here
+<stdin>:20:14: want ] here
 <stdin>:21:9: invalid int literal: 012 (no leading zeros)
 <stdin>:22:10: invalid escape sequence \q
-<stdin>:23:10: unhashable type: list
-<stdin>:24:23: want ; or the end of the line after a value
+Error: unhashable type: list
+<stdin>:24:23: want ; or the end of the line after an expression
 Traceback (most recent call last):
   tests/extensions/reactive_basic.star:27:20: in <toplevel>
   tests/extensions/reactive_basic.star:10:31: in total
 Error: unknown binary op: int + string
+<stdin>:33:9: size is a reactive variable: a new value can't refer to one
+<stdin>:34:9: undefined: undefined_name
+Error: floored division by zero

@@ -5,13 +5,13 @@
 #   print("y is", y)      # re-run whenever y changes
 #
 # A program with reactive variables doesn't exit at the end of its top
-# level: it reads lines like `x = 5` from standard input, sets the
+# level: it reads lines like `x = 5` or `x = f(4)` from standard input, sets the
 # variables, and recomputes everything that depends on them, transitively.
 #
 # Almost all of it is Starlark: the checks and the rewriting of the program
 # are done here, on the AST, before anything is compiled, and the loop that
-# reads standard input, parses the literals and propagates changes is the
-# Starlark in RUNTIME below, added to the prelude. The Wasm part is three
+# reads standard input, parses and evaluates the new values and propagates
+# changes is the Starlark in RUNTIME below, added to the prelude. The Wasm part is three
 # small primitives: read a line, write to stderr, and call a function so
 # that a Starlark error is reported without stopping the program.
 #
@@ -67,6 +67,13 @@ INTRINSICS = {
 VALUES = "%reactive"  # module variable holding the reactive values
 NODES = "%nodes"  # module variable listing what to recompute
 STATE = "%rstate"  # module variable: {"lineno": input lines read}
+NAMES = "%rnames"  # module variable: what input expressions can use
+
+# Builtins that expressions on standard input may use (struct only in
+# programs that mention it: it makes method calls check for structs).
+INPUT_BUILTINS = ["abs", "all", "any", "bool", "bytes", "chr", "dict", "enumerate", "fail", "float", "getattr",
+                  "hasattr", "hash", "int", "len", "list", "max", "min", "ord", "print", "range", "repr",
+                  "reversed", "set", "sorted", "str", "tuple", "type", "zip"]
 
 # ---------------------------------------------------------------- checks
 
@@ -420,6 +427,7 @@ def transform(cg, mc):
         _assign(_name(VALUES, first), {"kind": "dict", "entries": [], "colons": [], "pos": first}, first),
         _assign(_name(NODES, first), {"kind": "list", "elems": [], "pos": first}, first),
         _assign(_name(STATE, first), {"kind": "dict", "entries": [(_str("lineno", first), {"kind": "int", "val": 0, "pos": first})], "colons": [first], "pos": first}, first),
+        _assign(_name(NAMES, first), _names_table(stmts, bound, reactive, first), first),
     ]
     nthunks = 0
     for s in stmts:
@@ -465,6 +473,34 @@ def transform(cg, mc):
     out.append(_input_call(0, stmts[-1]["pos"]))
     main["stmts"] = out
 
+def _mentions(x, name):
+    """Does AST x have a name node for name?"""
+    t = type(x)
+    if t == "dict":
+        if x.get("kind") == "name" and x.get("id") == name:
+            return True
+        return any([_mentions(v, name) for k, v in x.items() if k != "pos"])
+    if t == "list" or t == "tuple":
+        return any([_mentions(v, name) for v in x])
+    return False
+
+def _names_table(stmts, bound, reactive, posn):
+    """{name: lambda: name}, for every top-level name (not a reactive
+    variable) and the INPUT_BUILTINS not shadowed by one: input expressions
+    read the current values through these. (It mentions getattr, so every
+    method can be called on values, as with getattr(x, any_name).)"""
+    names = {}
+    for n in bound:
+        if reactive.get(n) == None and not n.startswith("%"):
+            names[n] = True
+    for n in INPUT_BUILTINS + (["struct"] if _mentions(stmts, "struct") else []):
+        names[n] = True
+    entries = []
+    for i, n in enumerate(sorted(names)):
+        p = (posn[0], posn[1] + i)
+        entries.append((_str(n, p), {"kind": "lambda", "params": [], "body": _name(n, p), "pos": p}))
+    return {"kind": "dict", "entries": entries, "colons": [e[0]["pos"] for e in entries], "pos": posn}
+
 def _call(fn, args, posn):
     # codegen tells a call's arguments apart by position (id_of), so each
     # gets its own column
@@ -472,8 +508,9 @@ def _call(fn, args, posn):
     return {"kind": "call", "fn": fn, "args": args, "pos": posn, "lparen": posn}
 
 def _input_call(before, posn):
-    """_reactive_input(%reactive, %nodes, %rstate, before) as a statement."""
-    args = [_name(VALUES, posn), _name(NODES, posn), _name(STATE, posn), {"kind": "int", "val": before, "pos": posn}]
+    """_reactive_input(%reactive, %nodes, %rstate, %rnames, before) as a
+    statement."""
+    args = [_name(VALUES, posn), _name(NODES, posn), _name(STATE, posn), _name(NAMES, posn), {"kind": "int", "val": before, "pos": posn}]
     return {"kind": "expr", "pos": posn, "x": _call(_name("%prelude._reactive_input", posn), args, posn)}
 
 def imports(mc, m):
@@ -550,10 +587,13 @@ def prelude(mc):
 # hidden in tracebacks, like the prelude's). Compile errors in it give
 # line numbers counted from the start of the string.
 RUNTIME = r'''
-def _reactive_input(values, nodes, state, before):
-    """Read lines of assignments `x = literal` (or `x : literal`), separated
-    by ";", set those reactive variables, and recompute what depends on
-    them (_reactive_update): until the end of standard input if before is
+def _reactive_input(values, nodes, state, names, before):
+    """Read lines of assignments `x = expression` (or `x : expression`),
+    separated by ";", set those reactive variables, and recompute what
+    depends on them (_reactive_update). An expression may use the
+    program's other top-level names and builtins (names: name -> function
+    returning its current value), but no reactive variable. Until the end
+    of standard input if before is
     0, else while the host has lines due before source line `before` (a
     sync point; see the top of the file). A bad line is reported on stderr
     and ignored. If recomputing fails, the error is reported and every
@@ -564,14 +604,14 @@ def _reactive_input(values, nodes, state, before):
             return
         state["lineno"] += 1
         p = {"s": line, "i": 0, "err": None, "depth": 0}
-        assigns = _r_line(p, values)
+        assigns = _r_line(p, values, names)
         if p["err"] != None:
             _eprint("<stdin>:" + str(state["lineno"]) + ":" + str(p["errpos"] + 1) + ": " + p["err"])
             continue
         if not assigns:
             continue
         saved = dict(values)
-        if not _try(lambda: _reactive_update(values, nodes, assigns)):
+        if not _try(lambda: _reactive_update(values, nodes, [(n, _r_eval(e, {}, names)) for n, e in assigns])):
             values.clear()
             values.update(saved)
 
@@ -766,11 +806,6 @@ def _r_space(p):
             return
     p["i"] = len(s)
 
-def _r_at_end(p):
-    """Only spaces or a comment left."""
-    _r_space(p)
-    return p["i"] >= len(p["s"]) or p["s"][p["i"]] == "#"
-
 def _r_ident(p):
     s = p["s"]
     start = p["i"]
@@ -784,132 +819,506 @@ def _r_ident(p):
     p["i"] = i
     return s[start:i]
 
-def _r_line(p, values):
-    """The (name, value) pairs of a line, in order."""
-    out = []
-    for _ in range(len(p["s"]) + 1):
-        if _r_at_end(p):
-            break
-        start = p["i"]
-        name = _r_ident(p)
-        if name == None:
-            return _r_fail(p, "want a reactive variable name, then = and a literal")
-        if name not in values:
-            return _r_fail(p, name + " is not a reactive variable", start)
-        _r_space(p)
-        c = _r_peek(p)
-        if c != "=" and c != ":":
-            return _r_fail(p, "want = after " + name)
-        p["i"] += 1
-        v = _r_value(p)
-        if p["err"] != None:
-            return None
-        out.append((name, v))
-        if _r_at_end(p):
-            break
-        if _r_peek(p) != ";":
-            return _r_fail(p, "want ; or the end of the line after a value")
-        p["i"] += 1
-    return out
+_R_KEYWORDS = {"and": True, "or": True, "not": True, "in": True, "if": True, "else": True,
+               "for": True, "lambda": True, "None": True, "True": True, "False": True}
+_R_PUNCT2 = {"//": True, "<<": True, ">>": True, "==": True, "!=": True, "<=": True, ">=": True}
+_R_PUNCT1 = "+-*/%&|^~<>()[]{},:.;="
+_R_COMPARE = {"==": True, "!=": True, "<": True, ">": True, "<=": True, ">=": True, "in": True}
+_R_BINARY = [["|"], ["^"], ["&"], ["<<", ">>"], ["+", "-"], ["*", "/", "//", "%"]]
 
-def _r_value(p):
-    """A literal: None True False, an int, float, string or bytes literal
-    (a sign is allowed before a number), or a list, tuple or dict of
-    literals."""
-    _r_space(p)
-    c = _r_peek(p)
-    start = p["i"]
-    if c == "":
-        return _r_fail(p, "want a literal value")
-    if c == "[" or c == "(" or c == "{":
-        if p["depth"] >= _R_MAX_DEPTH:
-            return _r_fail(p, "value nested too deeply")
-        p["depth"] += 1
-        v = _r_container(p, c)
-        p["depth"] -= 1
-        return v
-    if c == "-" or c == "+":
-        p["i"] += 1
+def _r_tokens(p):
+    """The tokens of the line: {"k": "const" | "name" | "kw" | "op" | "end",
+    "v": value, "pos": byte offset}."""
+    s = p["s"]
+    toks = []
+    for _ in range(len(s) + 1):
         _r_space(p)
-        d = _r_peek(p)
-        if d == "" or (d not in _R_DIGITS and d != "."):
-            return _r_fail(p, "want a number after " + c)
-        v = _r_number(p)
-        if p["err"] != None or c == "+":
-            return v
-        return -v
-    if c in _R_DIGITS or (c == "." and _r_peek(p, 1) != "" and _r_peek(p, 1) in _R_DIGITS):
-        return _r_number(p)
-    if c == "\"" or c == "'":
-        return _r_string(p, False, False)
-    if c in "rb":
+        i = p["i"]
+        if i >= len(s) or s[i] == "#":
+            break
+        c = s[i]
         d = _r_peek(p, 1)
         e = _r_peek(p, 2)
-        if d == "\"" or d == "'":
+        if c in _R_DIGITS or (c == "." and d != "" and d in _R_DIGITS):
+            v = _r_number(p)
+        elif c == "\"" or c == "'":
+            v = _r_string(p, False, False)
+        elif c in "rb" and (d == "\"" or d == "'"):
             p["i"] += 1
-            return _r_string(p, c == "r", c == "b")
-        if (c + d == "rb" or c + d == "br") and (e == "\"" or e == "'"):
+            v = _r_string(p, c == "r", c == "b")
+        elif (c + d == "rb" or c + d == "br") and (e == "\"" or e == "'"):
             p["i"] += 2
-            return _r_string(p, True, True)
-    name = _r_ident(p)
-    if name == "None":
-        return None
-    if name == "True":
-        return True
-    if name == "False":
-        return False
-    if name != None:
-        return _r_fail(p, "not a literal: " + name + " (only literal values can be assigned)", start)
-    return _r_fail(p, "want a literal value")
-
-def _r_container(p, open):
-    """[a, b], (a, b), (a,), (a) (just a), {k: v}; trailing commas are fine."""
-    close = {"[": "]", "(": ")", "{": "}"}[open]
-    p["i"] += 1
-    items = []
-    commas = 0
-    for _ in range(len(p["s"])):
-        _r_space(p)
-        if _r_peek(p) == close:
-            p["i"] += 1
-            break
-        if items and commas < len(items):
-            if _r_peek(p) == "":
-                return _r_fail(p, "want " + close)
-            return _r_fail(p, "want , or " + close)
-        if _r_peek(p) == "" or _r_peek(p) == "#":
-            return _r_fail(p, "want " + close)
-        keypos = p["i"]
-        v = _r_value(p)
+            v = _r_string(p, True, True)
+        elif c in _R_IDSTART:
+            name = _r_ident(p)
+            toks.append({"k": "kw" if name in _R_KEYWORDS else "name", "v": name, "pos": i})
+            continue
+        elif _R_PUNCT2.get(s[i:i + 2], False):
+            toks.append({"k": "op", "v": s[i:i + 2], "pos": i})
+            p["i"] = i + 2
+            continue
+        elif c in _R_PUNCT1:
+            toks.append({"k": "op", "v": c, "pos": i})
+            p["i"] = i + 1
+            continue
+        else:
+            return _r_fail(p, "unexpected character " + repr(c))
         if p["err"] != None:
             return None
-        if open == "{":
-            u = _unhashable(v)
-            if u != None:
-                return _r_fail(p, "unhashable type: " + u, keypos)
-            _r_space(p)
-            if _r_peek(p) != ":":
-                return _r_fail(p, "want : after a dict key")
-            p["i"] += 1
-            w = _r_value(p)
-            if p["err"] != None:
-                return None
-            v = (v, w)
-        items.append(v)
-        _r_space(p)
-        if _r_peek(p) == ",":
-            p["i"] += 1
-            commas += 1
-    if open == "[":
-        return items
-    if open == "(":
-        if len(items) == 1 and commas == 0:
-            return items[0]
-        return tuple(items)
-    d = {}
-    for k, v in items:
-        d[k] = v
-    return d
+        toks.append({"k": "const", "v": v, "pos": i})
+    toks.append({"k": "end", "v": "", "pos": len(s)})
+    return toks
+
+def _r_line(p, values, names):
+    """The (name, expression) pairs of a line, in order; expressions are
+    parsed (see _r_eval) and checked not to refer to reactive variables."""
+    toks = _r_tokens(p)
+    if p["err"] != None:
+        return None
+    p["toks"] = toks
+    p["t"] = 0
+    out = []
+    for _ in range(len(toks)):
+        if _r_tok(p)["k"] == "end":
+            break
+        t = _r_next(p)
+        if t["k"] != "name":
+            return _r_fail(p, "want a reactive variable name, then = and an expression", t["pos"])
+        if t["v"] not in values:
+            return _r_fail(p, t["v"] + " is not a reactive variable", t["pos"])
+        if not _r_is(p, "=") and not _r_is(p, ":"):
+            return _r_fail(p, "want = after " + t["v"], _r_tok(p)["pos"])
+        _r_next(p)
+        e = _r_exprs(p)
+        if p["err"] != None:
+            return None
+        _r_check(p, e, {}, values, names)
+        if p["err"] != None:
+            return None
+        out.append((t["v"], e))
+        if _r_tok(p)["k"] == "end":
+            break
+        if not _r_is(p, ";"):
+            return _r_fail(p, "want ; or the end of the line after an expression", _r_tok(p)["pos"])
+        _r_next(p)
+    return out
+
+# ---- the expression parser: p["toks"], p["t"] (index of the next token).
+# Nodes are tuples: ("const", v) ("name", id, pos) ("list", elems)
+# ("tuple", elems) ("dict", [(k, v)]) ("unop", op, x) ("not", x)
+# ("and", x, y) ("or", x, y) ("binop", op, x, y) ("cond", test, then, else)
+# ("attr", x, name) ("call", f, [(name or None, star, x)]) ("index", x, i)
+# ("slice", x, lo, hi, step) ("comp", "list" | "dict", body, clauses),
+# clauses being ("for", [names], iterable) or ("if", test).
+
+def _r_tok(p):
+    return p["toks"][p["t"]]
+
+def _r_next(p):
+    t = p["toks"][p["t"]]
+    if t["k"] != "end":
+        p["t"] += 1
+    return t
+
+def _r_is(p, v):
+    t = p["toks"][p["t"]]
+    return (t["k"] == "op" or t["k"] == "kw") and t["v"] == v
+
+def _r_expect(p, v):
+    if not _r_is(p, v):
+        t = _r_tok(p)
+        return _r_fail(p, "want " + v + (" here" if t["k"] == "end" else ", got " + repr(t["v"])), t["pos"])
+    return _r_next(p)
+
+def _r_exprs(p):
+    """An expression, or several separated by commas (a tuple)."""
+    x = _r_test(p)
+    if not _r_is(p, ","):
+        return x
+    elems = [x]
+    for _ in range(len(p["toks"])):
+        if not _r_is(p, ",") or p["err"] != None:
+            break
+        _r_next(p)
+        if _r_tok(p)["k"] == "end" or _r_is(p, ";"):
+            break
+        elems.append(_r_test(p))
+    return ("tuple", elems)
+
+def _r_test(p):
+    if _r_is(p, "lambda"):
+        return _r_fail(p, "lambda is not supported here", _r_tok(p)["pos"])
+    x = _r_por(p)
+    if _r_is(p, "if"):
+        _r_next(p)
+        test = _r_por(p)
+        _r_expect(p, "else")
+        return ("cond", test, x, _r_test(p))
+    return x
+
+def _r_por(p):
+    x = _r_pand(p)
+    for _ in range(len(p["toks"])):
+        if not _r_is(p, "or") or p["err"] != None:
+            break
+        _r_next(p)
+        x = ("or", x, _r_pand(p))
+    return x
+
+def _r_pand(p):
+    x = _r_pnot(p)
+    for _ in range(len(p["toks"])):
+        if not _r_is(p, "and") or p["err"] != None:
+            break
+        _r_next(p)
+        x = ("and", x, _r_pnot(p))
+    return x
+
+def _r_pnot(p):
+    if _r_is(p, "not"):
+        _r_next(p)
+        return ("not", _r_pnot(p))
+    x = _r_binary(p, 0)
+    t = _r_tok(p)
+    op = t["v"] if t["k"] == "op" or t["k"] == "kw" else ""
+    if op == "not" and p["toks"][p["t"] + 1]["v"] == "in":
+        _r_next(p)
+        op = "not in"
+    elif not _R_COMPARE.get(op, False):
+        return x
+    _r_next(p)
+    y = _r_binary(p, 0)
+    t = _r_tok(p)
+    if (t["k"] == "op" or t["k"] == "kw") and (_R_COMPARE.get(t["v"], False) or t["v"] == "not"):
+        return _r_fail(p, "comparison operators don't chain; use parentheses", t["pos"])
+    return ("binop", op, x, y)
+
+def _r_binary(p, level):
+    if level == len(_R_BINARY):
+        return _r_unary(p)
+    x = _r_binary(p, level + 1)
+    for _ in range(len(p["toks"])):
+        t = _r_tok(p)
+        if t["k"] != "op" or t["v"] not in _R_BINARY[level] or p["err"] != None:
+            break
+        _r_next(p)
+        x = ("binop", t["v"], x, _r_binary(p, level + 1))
+    return x
+
+def _r_unary(p):
+    t = _r_tok(p)
+    if t["k"] == "op" and t["v"] in ("-", "+", "~"):
+        _r_next(p)
+        return ("unop", t["v"], _r_unary(p))
+    return _r_postfix(p)
+
+def _r_postfix(p):
+    x = _r_primary(p)
+    for _ in range(len(p["toks"])):
+        if p["err"] != None:
+            break
+        if _r_is(p, "."):
+            _r_next(p)
+            t = _r_next(p)
+            if t["k"] != "name":
+                return _r_fail(p, "want a name after .", t["pos"])
+            x = ("attr", x, t["v"])
+        elif _r_is(p, "("):
+            _r_next(p)
+            x = ("call", x, _r_args(p))
+        elif _r_is(p, "["):
+            _r_next(p)
+            x = _r_subscript(p, x)
+        else:
+            break
+    return x
+
+def _r_args(p):
+    args = []
+    for _ in range(len(p["toks"])):
+        if _r_is(p, ")") or p["err"] != None:
+            break
+        if args:
+            _r_expect(p, ",")
+            if _r_is(p, ")"):
+                break
+        if _r_is(p, "*") or _r_is(p, "**"):
+            star = _r_next(p)["v"]
+            args.append((None, star, _r_test(p)))
+        elif _r_tok(p)["k"] == "name" and p["toks"][p["t"] + 1]["v"] == "=" and p["toks"][p["t"] + 1]["k"] == "op":
+            name = _r_next(p)["v"]
+            _r_next(p)
+            args.append((name, "", _r_test(p)))
+        else:
+            args.append((None, "", _r_test(p)))
+    _r_expect(p, ")")
+    return args
+
+def _r_subscript(p, x):
+    lo = None
+    if not _r_is(p, ":"):
+        lo = _r_exprs(p)
+        if _r_is(p, "]"):
+            _r_next(p)
+            return ("index", x, lo)
+    hi = None
+    step = None
+    _r_expect(p, ":")
+    if not _r_is(p, ":") and not _r_is(p, "]"):
+        hi = _r_test(p)
+    if _r_is(p, ":"):
+        _r_next(p)
+        if not _r_is(p, "]"):
+            step = _r_test(p)
+    _r_expect(p, "]")
+    return ("slice", x, lo, hi, step)
+
+def _r_primary(p):
+    t = _r_tok(p)
+    if p["err"] != None:
+        return None
+    if t["k"] == "const":
+        _r_next(p)
+        return ("const", t["v"])
+    if t["k"] == "name":
+        _r_next(p)
+        return ("name", t["v"], t["pos"])
+    if t["k"] == "kw" and t["v"] in ("None", "True", "False"):
+        _r_next(p)
+        return ("const", {"None": None, "True": True, "False": False}[t["v"]])
+    if t["k"] == "op" and t["v"] in ("(", "[", "{"):
+        if p["depth"] >= _R_MAX_DEPTH:
+            return _r_fail(p, "expression nested too deeply", t["pos"])
+        p["depth"] += 1
+        _r_next(p)
+        x = _r_paren(p) if t["v"] == "(" else _r_list(p) if t["v"] == "[" else _r_dict(p)
+        p["depth"] -= 1
+        return x
+    if t["k"] == "end":
+        return _r_fail(p, "want an expression here", t["pos"])
+    return _r_fail(p, "want an expression, got " + repr(t["v"]), t["pos"])
+
+def _r_paren(p):
+    if _r_is(p, ")"):
+        _r_next(p)
+        return ("tuple", [])
+    x = _r_test(p)
+    if not _r_is(p, ","):
+        _r_expect(p, ")")
+        return x
+    elems = [x]
+    for _ in range(len(p["toks"])):
+        if not _r_is(p, ",") or p["err"] != None:
+            break
+        _r_next(p)
+        if _r_is(p, ")"):
+            break
+        elems.append(_r_test(p))
+    _r_expect(p, ")")
+    return ("tuple", elems)
+
+def _r_list(p):
+    if _r_is(p, "]"):
+        _r_next(p)
+        return ("list", [])
+    x = _r_test(p)
+    if _r_is(p, "for"):
+        clauses = _r_clauses(p, "]")
+        return ("comp", "list", x, clauses)
+    elems = [x]
+    for _ in range(len(p["toks"])):
+        if not _r_is(p, ",") or p["err"] != None:
+            break
+        _r_next(p)
+        if _r_is(p, "]"):
+            break
+        elems.append(_r_test(p))
+    _r_expect(p, "]")
+    return ("list", elems)
+
+def _r_dict(p):
+    if _r_is(p, "}"):
+        _r_next(p)
+        return ("dict", [])
+    k = _r_test(p)
+    _r_expect(p, ":")
+    v = _r_test(p)
+    if _r_is(p, "for"):
+        return ("comp", "dict", (k, v), _r_clauses(p, "}"))
+    entries = [(k, v)]
+    for _ in range(len(p["toks"])):
+        if not _r_is(p, ",") or p["err"] != None:
+            break
+        _r_next(p)
+        if _r_is(p, "}"):
+            break
+        k = _r_test(p)
+        _r_expect(p, ":")
+        entries.append((k, _r_test(p)))
+    _r_expect(p, "}")
+    return ("dict", entries)
+
+def _r_clauses(p, close):
+    clauses = []
+    for _ in range(len(p["toks"])):
+        if p["err"] != None or _r_is(p, close):
+            break
+        if _r_is(p, "for"):
+            _r_next(p)
+            targets = []
+            for _ in range(len(p["toks"])):
+                t = _r_next(p)
+                if t["k"] != "name":
+                    return _r_fail(p, "want a variable name after for", t["pos"])
+                targets.append(t["v"])
+                if not _r_is(p, ","):
+                    break
+                _r_next(p)
+            _r_expect(p, "in")
+            clauses.append(("for", targets, _r_por(p)))
+        elif _r_is(p, "if"):
+            _r_next(p)
+            clauses.append(("if", _r_por(p)))
+        else:
+            t = _r_tok(p)
+            return _r_fail(p, "want for, if or " + close, t["pos"])
+    _r_expect(p, close)
+    return clauses
+
+def _r_children(n):
+    """The subexpressions of node n (for _r_check)."""
+    k = n[0]
+    if k == "const" or k == "name":
+        return []
+    if k == "list" or k == "tuple":
+        return n[1]
+    if k == "dict":
+        return [x for kv in n[1] for x in kv]
+    if k == "unop":
+        return [n[2]]
+    if k == "not":
+        return [n[1]]
+    if k == "and" or k == "or":
+        return [n[1], n[2]]
+    if k == "binop":
+        return [n[2], n[3]]
+    if k == "cond":
+        return [n[1], n[2], n[3]]
+    if k == "attr":
+        return [n[1]]
+    if k == "call":
+        return [n[1]] + [a[2] for a in n[2]]
+    if k == "index":
+        return [n[1], n[2]]
+    if k == "slice":
+        return [x for x in n[1:] if x != None]
+    return []
+
+def _r_check(p, n, bound, values, names):
+    """Names in n must be comprehension variables, or top-level names or
+    builtins of the program (names), and not reactive variables."""
+    if n == None or p["err"] != None:
+        return
+    if n[0] == "name":
+        if bound.get(n[1], False):
+            return
+        if n[1] in values:
+            _r_fail(p, n[1] + " is a reactive variable: a new value can't refer to one", n[2])
+        elif n[1] not in names:
+            _r_fail(p, "undefined: " + n[1], n[2])
+        return
+    if n[0] == "comp":
+        inner = dict(bound)
+        for c in n[3]:
+            if c[0] == "for":
+                for t in c[1]:
+                    inner[t] = True
+        for c in n[3]:
+            _r_check(p, c[2] if c[0] == "for" else c[1], inner, values, names)
+        for x in (n[2] if n[1] == "dict" else [n[2]]):
+            _r_check(p, x, inner, values, names)
+        return
+    for x in _r_children(n):
+        _r_check(p, x, bound, values, names)
+
+def _r_eval(n, env, names):
+    """The value of expression node n; env: comprehension variables."""
+    k = n[0]
+    if k == "const":
+        return n[1]
+    if k == "name":
+        return env[n[1]] if n[1] in env else names[n[1]]()
+    if k == "list":
+        return [_r_eval(x, env, names) for x in n[1]]
+    if k == "tuple":
+        return tuple([_r_eval(x, env, names) for x in n[1]])
+    if k == "dict":
+        d = {}
+        for key, val in n[1]:
+            d[_r_eval(key, env, names)] = _r_eval(val, env, names)
+        return d
+    if k == "unop":
+        return _r_unop(n[1], _r_eval(n[2], env, names))
+    if k == "not":
+        return not _r_eval(n[1], env, names)
+    if k == "and":
+        x = _r_eval(n[1], env, names)
+        return _r_eval(n[2], env, names) if x else x
+    if k == "or":
+        x = _r_eval(n[1], env, names)
+        return x if x else _r_eval(n[2], env, names)
+    if k == "binop":
+        return _r_binop(n[1], _r_eval(n[2], env, names), _r_eval(n[3], env, names))
+    if k == "cond":
+        return _r_eval(n[2], env, names) if _r_eval(n[1], env, names) else _r_eval(n[3], env, names)
+    if k == "attr":
+        return _attr(_r_eval(n[1], env, names), n[2])
+    if k == "call":
+        f = _r_eval(n[1], env, names)
+        pos = []
+        kw = {}
+        for name, star, x in n[2]:
+            v = _r_eval(x, env, names)
+            if star == "*":
+                pos.extend(v)
+            elif star == "**":
+                kw.update(v)
+            elif name != None:
+                kw[name] = v
+            else:
+                pos.append(v)
+        return f(*pos, **kw)
+    if k == "index":
+        return _r_eval(n[1], env, names)[_r_eval(n[2], env, names)]
+    if k == "slice":
+        part = [None if x == None else _r_eval(x, env, names) for x in n[2:]]
+        return _r_eval(n[1], env, names)[part[0]:part[1]:part[2]]
+    out = [] if n[1] == "list" else {}
+    _r_comp(n, 0, dict(env), names, out)
+    return out
+
+def _r_comp(n, i, env, names, out):
+    if i == len(n[3]):
+        if n[1] == "list":
+            out.append(_r_eval(n[2], env, names))
+        else:
+            out[_r_eval(n[2][0], env, names)] = _r_eval(n[2][1], env, names)
+        return
+    c = n[3][i]
+    if c[0] == "if":
+        if _r_eval(c[1], env, names):
+            _r_comp(n, i + 1, env, names, out)
+        return
+    for v in _r_eval(c[2], env, names):
+        if len(c[1]) == 1:
+            env[c[1][0]] = v
+        else:
+            vs = tuple(v)
+            if len(vs) != len(c[1]):
+                fail("got %d values to unpack, want %d" % (len(vs), len(c[1])))
+            for j, t in enumerate(c[1]):
+                env[t] = vs[j]
+        _r_comp(n, i + 1, env, names, out)
 
 def _r_number(p):
     """An unsigned int or float literal, as Starlark writes them."""

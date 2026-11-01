@@ -26,8 +26,8 @@
 //   and trailing backslashes continue on "..." lines; a block ends with an
 //   empty line.
 // - Reactive variables (compiler/ext/reactive.star): an input that assigns
-//   literals to them (`x = 5`, `x = 1; y = 2`) is sent to the program as a
-//   line of standard input, as host/run.mjs would. It joins the session as
+//   new values to them (`x = 5`, `x = f(2); y = 2`) is sent to the program
+//   as a line of standard input, as host/run.mjs would. It joins the session as
 //   an update, which replay delivers at the sync point right after the
 //   inputs it followed, so later inputs see the new values.
 //   No replay is needed for that, though: a session with reactive variables
@@ -302,7 +302,7 @@ function statementCode(src, num, names) {
   return { code, offset: 0 };
 }
 
-// `x = literal...` (or `x : ...`) on one line, x a reactive variable: an
+// `x = expression...` (or `x : ...`) on one line, x a reactive variable: an
 // update, for the program's standard input.
 function isUpdate(src, names) {
   const t = src.trim();

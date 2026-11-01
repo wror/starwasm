@@ -65,3 +65,8 @@ b
 a+4
 a=4
 a=4
+def sq(n):
+    return n * n
+
+a = sq(3) + 1
+a = b

@@ -32,3 +32,8 @@ big: True
 size: 30
 total: 127.0
 tagged {True: 127.0}
+comp [0, 1] 5
+doubled 10
+total: 40
+tagged {True: 40}
+tagged {"A-BTrue": 40}

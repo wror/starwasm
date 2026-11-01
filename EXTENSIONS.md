@@ -77,9 +77,9 @@ as in Python.
 
 A variable defined at top level with `:` instead of `=` is *reactive*. A
 program that has any doesn't exit at the end of its top level: it reads
-standard input, where each line assigns literal values to reactive
-variables (`width = 10`, or `width = 6; height = 2` to change several at
-once), and then recomputes every reactive variable that depends on them,
+standard input, where each line assigns new values to reactive
+variables (`width = 10`, `width = area(2, 3) + 1`, or `width = 6; height = 2`
+to change several at once), and then recomputes every reactive variable that depends on them,
 transitively, and re-runs every top-level expression statement that reads
 one of them (`print("size is", size)` above). It stops at the end of
 standard input.
@@ -158,15 +158,23 @@ standard input.
   reactive_struct_err_*.star.
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
-- Input lines: `name = literal` (`:` also works), several separated by
-  `;`; blank lines and `#` comments are ignored. Literals: None, True,
-  False, ints (decimal, 0x, 0o, 0b; a sign is allowed), floats, strings
-  and bytes (quotes, triple quotes, r/b prefixes, Starlark's escapes), and
-  lists, tuples and dicts of literals. Any reactive variable can be set,
-  derived ones too; a derived one keeps that value until something it
-  depends on changes. A line that isn't valid (unknown name, not a
-  literal, syntax) is reported on stderr as `<stdin>:line:col: message`
-  and ignored.
+- Input lines: `name = expression` (`:` also works), several separated
+  by `;`; blank lines and `#` comments are ignored. The expression may be
+  any Starlark expression except a lambda (literals of every kind,
+  operators, `x if c else y`, calls with keyword and `*`/`**` arguments,
+  indexing, slices, attributes and methods, list/tuple/dict displays and
+  comprehensions) that doesn't refer to a reactive variable. It can use
+  the program's other top-level names (defs, variables, loaded names; their
+  values at the time) and the builtins abs, all, any, bool, bytes, chr,
+  dict, enumerate, fail, float, getattr, hasattr, hash, int, len, list,
+  max, min, ord, print, range, repr, reversed, set, sorted, str, tuple,
+  type, zip (and struct, if the program mentions it). Any reactive
+  variable can be set, derived ones too; a derived one keeps that value
+  until something it depends on changes. A line that isn't valid (not a
+  reactive variable, syntax, an undefined name, a reactive variable in
+  the expression) is reported on stderr as `<stdin>:line:col: message`
+  and ignored. An error while evaluating the expressions is reported like
+  an error while recomputing (below); nothing is assigned.
 - Updates: the assigned variables count as changed. Then each reactive
   definition and observing expression statement is visited in source
   order; one that reads a changed variable is recomputed (re-run). A
@@ -178,8 +186,8 @@ standard input.
   reactive variable gets back its value from before the line, and the
   program carries on with the next line. Output already printed by
   observers during that update stays printed.
-- In the REPL (host/repl.mjs), an input assigning literals to reactive
-  variables (`x = 5`) is sent to the program as a line of standard input.
+- In the REPL (host/repl.mjs), an input assigning to reactive variables
+  (`x = 5`, `x = f(2)`) is sent to the program as a line of standard input.
   Replay keeps it in the session as an update and delivers it right after
   the inputs it followed (see sync points below), so later inputs see the
   new value. A failing update is not kept. Updates don't recompile
@@ -212,9 +220,13 @@ standard input.
     REPL uses them to deliver each update after the code entered before
     it.
   - At run time: `_reactive_input` (Starlark, in the extension's RUNTIME
-    string, added to the prelude) reads lines, parses the literals (a
-    small recursive-descent parser in Starlark), and propagates changes
-    over `%nodes`.
+    string, added to the prelude) reads lines, parses the expressions (a
+    small recursive-descent parser in Starlark), evaluates them (a tree
+    walker, `_r_eval`) and propagates changes over `%nodes`. Expressions
+    see top-level names through `%rnames`, a dict of `name: lambda: name`
+    built at the start of the top level; since it mentions getattr, every
+    method is kept as a value in such programs (as `getattr(x, name)`
+    would), so `_attr` can call any method.
   - Wasm and host: three primitives only the prelude sees:
     `_read_line(before)` (host import read_line, from the host's
     `readLine(before)`: host/run.mjs reads stdin synchronously in its

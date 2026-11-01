@@ -69,7 +69,7 @@ Traceback (most recent call last):
   <input 32>:1:9: in <toplevel>
   <input 30>:2:15: in half
 Error: floored division by zero
-<input 37>:1:5: not a literal: nope (only literal values can be assigned)
+<input 37>:1:5: undefined: nope
 h = 10
 <input 39>:1:5: reactive variable r can only be used in a reactive definition (name : expr) or a top-level expression statement
 g 20
@@ -101,3 +101,5 @@ b = 13
 13
 7
 b = 14
+b = 20
+<input 54>:1:5: b is a reactive variable: a new value can't refer to one
