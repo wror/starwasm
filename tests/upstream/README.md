@@ -7,7 +7,7 @@ runs it too.
     node tests/upstream/run.mjs              # all files
     node tests/upstream/run.mjs bool.star    # some files
     node tests/upstream/run.mjs -v           # every verdict's details
-    COMPILER="node host/run.mjs out/stage2.wasm --" node tests/upstream/run.mjs
+    RUNFLAGS=--compiler=out/stage2.wasm node tests/upstream/run.mjs   # another compiler
 
 It needs `bin/starhost`, `bin/upstreamhost`
 (`cd host && go build -o ../bin/upstreamhost ./upstream`, which test.sh

@@ -9,10 +9,11 @@
 # "# option:globalreassign" or "# option:recursion" runs with that option
 # on, in both.
 cd "$(dirname "$0")/.."
-# The compiler to test; default: the interpreted one. test.sh also runs
-# these with the self-compiled compiler (node host/run.mjs out/stage2.wasm --).
-COMPILER=${COMPILER:-bin/starhost --recursion compiler/main.star}
-export COMPILER
+# Programs are compiled and run by node host/run.mjs (which caches their
+# Wasm in __wasmcache__/), with the options RUNFLAGS, e.g.
+# RUNFLAGS=--compiler=out/stage2.wasm; default: none (the compiler built
+# from compiler/main.star).
+export RUNFLAGS
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 mkdir -p out
 files=$(ls tests/compile/*.star tests/errors/*.star)

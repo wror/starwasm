@@ -10,7 +10,10 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     host/main.go          stage-0 host: starlark-go + file I/O (dialect flags as the compiler)
     host/wasmhost.mjs     runs compiled modules: host imports, files, argv,
                           tracebacks (used by run.mjs and repl.mjs)
-    host/run.mjs          command line: run a .wasm export
+    host/run.mjs          command line: run a .wasm export, or a .star program
+                          (compiled only when needed, via wasmcache.mjs)
+    host/wasmcache.mjs    .star -> __wasmcache__/*.wasm, recompiled when the
+                          source, a loaded module or the compiler changes (.pyc-style)
     host/repl.mjs         interactive REPL on the self-compiled compiler
     lib/wasm.star         Wasm + WasmGC binary encoder (instructions as data)
     lib/dsl.star          expression-style builders: call, op, if_, while_, field...
@@ -126,10 +129,30 @@ So the self-compiled compiler can replace starhost entirely:
     node host/run.mjs out/stage2.wasm -- prog.star prog.wasm
     node host/run.mjs prog.wasm [-- args...]
 
-test.sh checks the fixpoint, reruns tests/compile.sh and
-tests/compile_errors.sh with COMPILER="node host/run.mjs out/stage2.wasm --",
-and checks that the interpreted and self-compiled compilers emit identical
-bytes for every test program. starhost is still needed once, to bootstrap
+or, in one step, with the Wasm cached as Python caches bytecode:
+
+    node host/run.mjs [--globalreassign] [--recursion] prog.star [-- args...]
+
+host/wasmcache.mjs keeps prog.star's module in __wasmcache__/prog[.<options>].wasm
+next to it, with a header (a custom section, "starwasm.cache") recording
+what it was compiled from: a hash of the compiler's Wasm (Python's magic
+number), the source path as given (it is in tracebacks), the options, and
+the mtime and size of every file the compiler read (the program, every
+module it load()s, the descriptor set). If any of that differs, it is
+recompiled and rewritten atomically; if the cache isn't writable, the
+program is just compiled in memory. The compiler itself is
+compiler/__wasmcache__/main.recursion.wasm, built by bin/starhost (stage1)
+whenever a .star file under compiler/ or lib/ changes. `--compile`
+compiles without running (python -m py_compile); `--compiler=FILE.wasm`
+uses another compiler. A single test, e.g.:
+
+    node host/run.mjs tests/extensions/reactive_basic.star < tests/extensions/reactive_basic.in | diff tests/extensions/reactive_basic.out -
+
+The test scripts compile and run every program that way (RUNFLAGS: more
+options for run.mjs, e.g. --compiler=out/stage2.wasm). test.sh checks
+the fixpoint, and that the interpreted and self-compiled compilers emit
+identical bytes (or the same compile error) for every test program, so
+the tests, run on stage1, hold for both. starhost is still needed once, to bootstrap
 (or keep a checked-in stage wasm, like OCaml's boot/).
 
 What it took beyond milestone 3.5:
@@ -150,6 +173,7 @@ What it took beyond milestone 3.5:
 
     bin/starhost --recursion compiler/main.star [--globalreassign] [--recursion] prog.star out/prog.wasm
     node host/run.mjs out/prog.wasm [-- args...]     # runs top level
+    node host/run.mjs [--globalreassign] [--recursion] prog.star [-- args...]   # both, cached
 
 - Written in plain Starlark. It started out in a subset (no %, lambdas,
   closures or comprehensions) so the front end could compile itself early

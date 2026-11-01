@@ -2,6 +2,7 @@
 #
 #   bin/starhost compiler/main.star [--test] [--globalreassign] [--recursion] [--repl] [--descriptor_set=FILE] input.star output.wasm
 #   node host/run.mjs output.wasm        # runs the module's top level
+#   node host/run.mjs [options] input.star   # both: compiles only when needed (host/wasmcache.mjs)
 #
 # --test makes the test-only builtins visible (see TEST_BUILTINS in
 # codegen.star); tests/upstream/ uses it to run starlark-go's test files.

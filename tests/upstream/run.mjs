@@ -13,7 +13,7 @@
 //   reference  bin/upstreamhost -options=starwasm: starlark-go with
 //              starwasm's dialect for the options the chunk names, and
 //              starwasm's predeclared names, i.e. what starwasm should do.
-//   starwasm   compiled with `$COMPILER --test` and run by Node
+//   starwasm   compiled and run by `node host/run.mjs --test $RUNFLAGS`
 //              (syntax/testdata chunks: parsed by tests/upstream/parse_only.star)
 //
 // Verdict per chunk:
@@ -43,7 +43,9 @@ import { join, resolve, basename } from "node:path";
 
 const ROOT = resolve(new URL("../..", import.meta.url).pathname);
 const OUT = join(ROOT, "out/upstream");
-const COMPILER = (process.env.COMPILER || "bin/starhost --recursion compiler/main.star").split(/\s+/);
+// host/run.mjs's options, e.g. --compiler=out/stage2.wasm (made absolute: chunks run in their own directory)
+const RUNFLAGS = (process.env.RUNFLAGS || "").split(/\s+/).filter(Boolean)
+  .map((f) => (f.startsWith("--compiler=") ? `--compiler=${resolve(f.slice("--compiler=".length))}` : f));
 
 // The test files, as in starlark-go's TestExecFile / TestResolve /
 // TestParseErrors. lines: run only the first N lines (the rest needs a Go
@@ -309,7 +311,6 @@ async function runChunk(job) {
   if (file.mode === "parse") {
     sw = await run(join(ROOT, "bin/starhost"), ["--recursion", "tests/upstream/parse_only.star", join(dir, name)], ROOT);
   } else {
-    const wasm = join(dir, "prog.wasm");
     let src = join(dir, name);
     if (file.unload) {
       // starwasm's copy, without the Go test's load() (same name, line numbers)
@@ -325,14 +326,13 @@ async function runChunk(job) {
       ...(/option:(globalreassign|while|toplevelcontrol)/.test(chunk.src) ? ["--globalreassign"] : []),
       ...(/option:recursion/.test(chunk.src) ? ["--recursion"] : []),
     ];
-    sw = await run(COMPILER[0], [...COMPILER.slice(1), "--test", ...reassign, ...fds.map((f) => `--descriptor_set=${f}`), src, wasm], ROOT);
+    const flags = [...RUNFLAGS, "--test", ...reassign, ...fds.map((f) => `--descriptor_set=${f}`)];
+    sw = await run("node", [join(ROOT, "host/run.mjs"), "--compile", ...flags, src], ROOT);
     if (sw.code !== 0) {
-      // a compile error: keep "file:line:col: msg" (the last line of the
-      // compiler's own traceback)
-      const last = sw.err.trim().split("\n").at(-1).replace(/^Error in fail: fail: /, "");
-      sw = { code: 1, out: "", err: last + "\n" };
+      // a compile error: "file:line:col: msg"
+      sw = { code: 1, out: "", err: sw.err.trim().split("\n").at(-1) + "\n" };
     } else if (file.mode === "exec") {
-      sw = await run("node", [join(ROOT, "host/run.mjs"), wasm], dir);
+      sw = await run("node", [join(ROOT, "host/run.mjs"), ...flags, src], dir);
     }
   }
   const swc = check(sw, true);
