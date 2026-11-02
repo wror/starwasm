@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>starwasm REPL</title>
+<meta name="description" content="A Starlark REPL in the browser, on the self-hosting starwasm compiler (Starlark to WasmGC).">
+<style>
+  :root {
+    --bg: #fbfbf9; --fg: #1d1d1b; --muted: #6b6b66; --line: #deddd6;
+    --panel: #ffffff; --accent: #2457c5; --err: #b3261e; --echo: #55554f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --fg: #e8e7e2; --muted: #9a9993; --line: #34332f;
+      --panel: #1c1c1a; --accent: #8fb0ff; --err: #ff8a80; --echo: #a5a49d;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header, footer { padding: 10px 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0; }
+  h1 span { color: var(--muted); font-weight: normal; }
+  .opts { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 14px; color: var(--muted); }
+  .opts label { white-space: nowrap; cursor: pointer; }
+  button {
+    font: inherit; font-size: 13px; color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  #term {
+    flex: 1; overflow-y: auto; margin: 12px 16px; padding: 12px 14px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; cursor: text;
+  }
+  #out { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit; }
+  .echo { color: var(--echo); }
+  .err { color: var(--err); }
+  .note { color: var(--muted); font-style: italic; }
+  .line { display: flex; }
+  #prompt { white-space: pre; color: var(--echo); }
+  #input {
+    flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent;
+    border: 0; outline: 0; padding: 0;
+  }
+  #status { color: var(--muted); font-size: 13px; min-width: 6em; }
+  footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+  a { color: var(--accent); }
+  code { font: 13px ui-monospace, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>starwasm <span>Starlark REPL</span></h1>
+  <div class="opts">
+    <label><input type="checkbox" data-flag="--globalreassign"> globalreassign</label>
+    <label><input type="checkbox" data-flag="--recursion"> recursion</label>
+    <button id="stop" title="Stop the running input (the session starts over)">Stop</button>
+    <span id="status"></span>
+  </div>
+  <div class="opts">
+    Try:
+    <button data-example="def fib(n):&#10;    a, b = 0, 1&#10;    for _ in range(n):&#10;        a, b = b, a + b&#10;    return a&#10;&#10;[fib(i) for i in range(12)]">a function</button>
+    <button data-example="price : 10&#10;qty : 3&#10;total : price * qty&#10;total&#10;qty = 5&#10;price = 7">reactive variables</button>
+    <button data-example=":help">:help</button>
+  </div>
+</header>
+<div id="term">
+  <pre id="out"><span class="note">Starlark, compiled to WebAssembly (GC) by a compiler written in Starlark, itself compiled to WebAssembly, all running in this page.
+Each input recompiles and replays the session. :help for help.
+</span></pre>
+  <div class="line"><span id="prompt">&gt;&gt;&gt; </span><input id="input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Starlark input" disabled></div>
+</div>
+<footer>
+  Blocks and open brackets continue on <code>...</code> lines; end a block with an empty line.
+  ↑/↓ history, Ctrl-L clears. Files (<code>read_file</code>, <code>write_file</code>, <code>load</code>) live in memory.
+  <a href="https://github.com/wror/starwasm">Source</a>
+</footer>
+<script type="module" src="repl.js"></script>
+</body>
+</html>
