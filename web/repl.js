@@ -3,7 +3,8 @@
 // The session is saved in localStorage as a journal of the inputs accepted
 // (host/repl_core.mjs's Session.journal()), with the dialect, the screen
 // and the ↑/↓ history: reloading the page (or Stop) restores it, by
-// replaying the journal. :reset clears it, as does a change of dialect.
+// replaying the journal. :reset clears it and the screen (not the ↑/↓
+// history), as does a change of dialect (the session only).
 // (Several tabs share it: the last input saved wins.)
 const $ = (id) => document.getElementById(id);
 const out = $("out"), input = $("input"), promptEl = $("prompt"), status = $("status");
@@ -32,6 +33,13 @@ function saveScreen() {
   screen.splice(0, at);
   save("screen", screen);
   save("lines", history.slice(-500));
+}
+// Ctrl-L, :reset: also the screen saved
+function clearScreen() {
+  out.textContent = "";
+  screen.length = 0;
+  clearTimeout(saveTimer);
+  saveScreen();
 }
 let saveTimer = null;
 const saveScreenSoon = () => {
@@ -98,7 +106,8 @@ function start(note) {
       }
     } else if (m.type === "journal") {
       save("journal", m.journal.history.length ? { flags: flags(), journal: m.journal } : null);
-    } else if (m.type === "echo") write(m.text, "echo");
+    } else if (m.type === "clear") clearScreen();
+    else if (m.type === "echo") write(m.text, "echo");
     else if (m.type === "out") write(m.text);
     else if (m.type === "err") write(m.text, "err");
     else if (m.type === "fatal") {
@@ -144,9 +153,7 @@ input.addEventListener("keydown", (e) => {
     input.value = history[histAt] ?? "";
   } else if (e.key === "l" && e.ctrlKey) {
     e.preventDefault();
-    out.textContent = "";
-    screen.length = 0;
-    saveScreenSoon();
+    clearScreen();
   }
 });
 
