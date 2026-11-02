@@ -283,7 +283,8 @@ compiler as compiler.wasm. Differences from the terminal REPL:
   replay's write_file() runs), the dialect, the screen and the ↑/↓ lines.
   Opening the page again restores it with one replay (Session.restore());
   a journal that no longer runs (say, after a compiler change) is dropped,
-  with its error. :reset clears it; tabs share it (the last save wins).
+  with its error. :reset clears it and the screen; tabs share it (the
+  last save wins).
   tests/repl/browser_mode.mjs checks that a restored session.in is the same.
 - Stop terminates the worker (a long computation) and restores the session
   without that input; Stop during a restore drops the saved session. A

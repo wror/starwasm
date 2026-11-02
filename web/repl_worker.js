@@ -8,6 +8,7 @@
 // {type: "restored", count, error} after restoring the journal (error:
 // null, or why the session couldn't be restored), {type: "ready"},
 // {type: "echo", text} (the line, after its prompt) before running it,
+// {type: "clear"} instead for :reset (the screen is cleared too),
 // {type: "out" | "err", text}, {type: "prompt", more} after each line,
 // {type: "fatal", text} if the compiler can't be loaded, and
 // {type: "journal", journal} whenever the inputs accepted change, to save:
@@ -87,11 +88,14 @@ onmessage = ({ data: m }) => {
     busy = busy.then(async () => {
       let r = null;
       // echoed here, in order with the output of the lines before it
-      post({ type: "echo", text: (session?.buffer.length ? "... " : ">>> ") + m.line + "\n" });
+      if (session && session.buffer.length === 0 && m.line.trim() === ":reset") post({ type: "clear" });
+      else post({ type: "echo", text: (session?.buffer.length ? "... " : ">>> ") + m.line + "\n" });
       try {
         r = session ? await session.feed(m.line) : null;
       } catch (e) {
-        post({ type: "err", text: `internal error: ${e.stack || e}\n` });
+        // (Safari's stack has no message)
+        const stack = e.stack && !e.stack.includes(e.message) ? `${e}\n${e.stack}` : e.stack || e;
+        post({ type: "err", text: `internal error: ${stack}\n` });
       }
       if (r === "quit") post({ type: "out", text: "(nothing to quit in a web page: :reset starts over)\n" });
       post({ type: "prompt", more: r === "more" });

@@ -3,7 +3,8 @@
 // The session is saved in localStorage as a journal of the inputs accepted
 // (host/repl_core.mjs's Session.journal()), with the dialect, the screen
 // and the ↑/↓ history: reloading the page (or Stop) restores it, by
-// replaying the journal. :reset clears it, as does a change of dialect.
+// replaying the journal. :reset clears it and the screen (not the ↑/↓
+// history), as does a change of dialect (the session only).
 // (Several tabs share it: the last input saved wins.)
 const $ = (id) => document.getElementById(id);
 const out = $("out"), input = $("input"), promptEl = $("prompt"), status = $("status");
@@ -25,18 +26,31 @@ function save(name, value) {
     else localStorage.setItem(KEY + name, JSON.stringify(value));
   } catch {}
 }
+function saveScreen() {
+  // the last 200,000 characters
+  let n = 0, at = screen.length;
+  while (at > 0 && n + screen[at - 1][1].length <= 200000) n += screen[--at][1].length;
+  screen.splice(0, at);
+  save("screen", screen);
+  save("lines", history.slice(-500));
+}
+// Ctrl-L, :reset: also the screen saved
+function clearScreen() {
+  out.textContent = "";
+  screen.length = 0;
+  clearTimeout(saveTimer);
+  saveScreen();
+}
 let saveTimer = null;
 const saveScreenSoon = () => {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    // the last 200,000 characters
-    let n = 0, at = screen.length;
-    while (at > 0 && n + screen[at - 1][1].length <= 200000) n += screen[--at][1].length;
-    screen.splice(0, at);
-    save("screen", screen);
-    save("lines", history.slice(-500));
-  }, 300);
+  saveTimer = setTimeout(saveScreen, 300);
 };
+// (and right away when the page goes: a reload within 300 ms)
+addEventListener("pagehide", () => {
+  clearTimeout(saveTimer);
+  saveScreen();
+});
 
 let worker = null;
 let pending = 0; // lines sent, not yet answered with a prompt
@@ -92,7 +106,8 @@ function start(note) {
       }
     } else if (m.type === "journal") {
       save("journal", m.journal.history.length ? { flags: flags(), journal: m.journal } : null);
-    } else if (m.type === "echo") write(m.text, "echo");
+    } else if (m.type === "clear") clearScreen();
+    else if (m.type === "echo") write(m.text, "echo");
     else if (m.type === "out") write(m.text);
     else if (m.type === "err") write(m.text, "err");
     else if (m.type === "fatal") {
@@ -138,9 +153,7 @@ input.addEventListener("keydown", (e) => {
     input.value = history[histAt] ?? "";
   } else if (e.key === "l" && e.ctrlKey) {
     e.preventDefault();
-    out.textContent = "";
-    screen.length = 0;
-    saveScreenSoon();
+    clearScreen();
   }
 });
 
@@ -154,8 +167,16 @@ input.addEventListener("paste", (e) => {
   for (const line of lines) send(line);
 });
 
-term.addEventListener("click", () => {
-  if (!getSelection().toString()) input.focus();
+// A click in the terminal focuses the input line, unless it selected text.
+// On a touch screen, only a short tap outside the output does: a tap on
+// the output may start selecting it to copy (a long press, which iOS ends
+// with a click), and focusing the input would drop that selection.
+let pointer = { type: "mouse", at: 0 };
+term.addEventListener("pointerdown", (e) => (pointer = { type: e.pointerType, at: e.timeStamp }));
+term.addEventListener("click", (e) => {
+  if (getSelection().toString()) return;
+  if (pointer.type !== "mouse" && (out.contains(e.target) || e.timeStamp - pointer.at > 400)) return;
+  input.focus();
 });
 
 // Stop: the input running is dropped (it isn't in the journal); stopping
