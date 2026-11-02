@@ -277,8 +277,17 @@ compiler as compiler.wasm. Differences from the terminal REPL:
   GitHub Pages can't turn on): each update replays the session. The output
   is the same: tests/repl/browser_mode.mjs runs tests/repl/session.in this
   way (test.sh, and the Pages workflow before deploying).
-- Stop terminates the worker (a long computation); the session starts over.
-  So do the dialect checkboxes (--globalreassign, --recursion).
+- The session is saved in localStorage (web/repl.js): a journal of the
+  inputs accepted (Session.journal(): as compiled, so restoring needs no
+  re-classifying), the files in memory (load() is compiled before the
+  replay's write_file() runs), the dialect, the screen and the ↑/↓ lines.
+  Opening the page again restores it with one replay (Session.restore());
+  a journal that no longer runs (say, after a compiler change) is dropped,
+  with its error. :reset clears it; tabs share it (the last save wins).
+  tests/repl/browser_mode.mjs checks that a restored session.in is the same.
+- Stop terminates the worker (a long computation) and restores the session
+  without that input; Stop during a restore drops the saved session. A
+  change of dialect (--globalreassign, --recursion) starts over.
 
 Locally: `node web/build.mjs` (into out/site; builds the compiler if
 needed), then `python3 -m http.server -d out/site`.

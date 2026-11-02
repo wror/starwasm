@@ -182,6 +182,8 @@ function onceCode(src, num) {
  *                 input (host/repl.mjs). Without it, such a program runs to
  *                 its end like any other, and each update replays the
  *                 session.
+ *   onChange()    (optional): called when the inputs accepted change, e.g.
+ *                 to save journal() (web/: in the browser's localStorage)
  */
 export class Session {
   constructor(opts) {
@@ -290,6 +292,7 @@ export class Session {
         if (r.idle && r.err === "") {
           history.push(c);
           this.printed += r.stdout;
+          this.onChange?.();
         } else {
           this.err(this.mapPositions(r.err, [...history, c]));
           this.dropLive(); // its state may differ from the session's now
@@ -326,7 +329,41 @@ export class Session {
       this.printed = result.stdout;
       this.dropLive(); // it ran the session without this input
       this.live = result.prog ?? null;
+      this.onChange?.();
     } else this.err(result.error);
+  }
+
+  /**
+   * The session as data (JSON-able), for restore(): the inputs accepted, as
+   * compiled. Replaying them reproduces the session's state (and the files
+   * it wrote), as run.mjs --journal replays a program's input.
+   */
+  journal() {
+    return { inputNum: this.inputNum, history: this.history };
+  }
+
+  /**
+   * Restore a session from journal() (into an empty one): one run of all of
+   * its inputs, whose output is not shown (it was, when they were typed).
+   * Returns null, or the error if the session no longer runs (say, after a
+   * change of the compiler), leaving this session empty.
+   */
+  async restore(j) {
+    const ok = (c) => c && typeof c.src === "string" && Number.isInteger(c.num) &&
+      (c.update === true || (typeof c.code === "string" && Number.isInteger(c.offset)));
+    if (!j || !Array.isArray(j.history) || !j.history.every(ok) || !Number.isInteger(j.inputNum)) return "not a journal\n";
+    if (j.history.length === 0) return null;
+    const r = await this.run(j.history);
+    if (!r.ok) {
+      r.prog?.terminate();
+      return r.error || "the session failed\n";
+    }
+    this.history = j.history;
+    this.inputNum = j.inputNum;
+    this.printed = r.stdout;
+    this.dropLive();
+    this.live = r.prog ?? null;
+    return null;
   }
 
   /** A command (":help" ...); returns "quit" for :quit. */
@@ -337,6 +374,7 @@ export class Session {
       this.dropLive();
       this.history = [];
       this.printed = "";
+      this.onChange?.();
       this.out("session cleared\n");
     } else if (cmd === ":history") {
       for (const c of this.history) this.out(`# <input ${c.num}>${c.update ? " (update)" : ""}\n${c.src.replace(/\s+$/, "")}\n`);

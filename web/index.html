@@ -62,7 +62,7 @@
   <div class="opts">
     <label><input type="checkbox" data-flag="--globalreassign"> globalreassign</label>
     <label><input type="checkbox" data-flag="--recursion"> recursion</label>
-    <button id="stop" title="Stop the running input (the session starts over)">Stop</button>
+    <button id="stop" title="Stop the running input (the rest of the session is kept)">Stop</button>
     <span id="status"></span>
   </div>
   <div class="opts">
@@ -81,6 +81,7 @@ Each input recompiles and replays the session. :help for help.
 <footer>
   Blocks and open brackets continue on <code>...</code> lines; end a block with an empty line.
   ↑/↓ history, Ctrl-L clears. Files (<code>read_file</code>, <code>write_file</code>, <code>load</code>) live in memory.
+  The session is saved in this browser and restored when you come back; <code>:reset</code> clears it.
   <a href="https://github.com/wror/starwasm">Source</a>
 </footer>
 <script type="module" src="repl.js"></script>
