@@ -160,8 +160,16 @@ input.addEventListener("paste", (e) => {
   for (const line of lines) send(line);
 });
 
-term.addEventListener("click", () => {
-  if (!getSelection().toString()) input.focus();
+// A click in the terminal focuses the input line, unless it selected text.
+// On a touch screen, only a short tap outside the output does: a tap on
+// the output may start selecting it to copy (a long press, which iOS ends
+// with a click), and focusing the input would drop that selection.
+let pointer = { type: "mouse", at: 0 };
+term.addEventListener("pointerdown", (e) => (pointer = { type: e.pointerType, at: e.timeStamp }));
+term.addEventListener("click", (e) => {
+  if (getSelection().toString()) return;
+  if (pointer.type !== "mouse" && (out.contains(e.target) || e.timeStamp - pointer.at > 400)) return;
+  input.focus();
 });
 
 // Stop: the input running is dropped (it isn't in the journal); stopping
