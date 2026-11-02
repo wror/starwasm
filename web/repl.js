@@ -25,18 +25,24 @@ function save(name, value) {
     else localStorage.setItem(KEY + name, JSON.stringify(value));
   } catch {}
 }
+function saveScreen() {
+  // the last 200,000 characters
+  let n = 0, at = screen.length;
+  while (at > 0 && n + screen[at - 1][1].length <= 200000) n += screen[--at][1].length;
+  screen.splice(0, at);
+  save("screen", screen);
+  save("lines", history.slice(-500));
+}
 let saveTimer = null;
 const saveScreenSoon = () => {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    // the last 200,000 characters
-    let n = 0, at = screen.length;
-    while (at > 0 && n + screen[at - 1][1].length <= 200000) n += screen[--at][1].length;
-    screen.splice(0, at);
-    save("screen", screen);
-    save("lines", history.slice(-500));
-  }, 300);
+  saveTimer = setTimeout(saveScreen, 300);
 };
+// (and right away when the page goes: a reload within 300 ms)
+addEventListener("pagehide", () => {
+  clearTimeout(saveTimer);
+  saveScreen();
+});
 
 let worker = null;
 let pending = 0; // lines sent, not yet answered with a prompt
