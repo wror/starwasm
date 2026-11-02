@@ -33,7 +33,7 @@
 #                              implicit_id: True if no field is "id";
 #                              relation: True for `a name:` / `an name:`;
 #                              when: the condition of `a name when cond:`
-#                              (else absent), in which `=` is `==`
+#                              (else absent)
 
 # A port of starlark-go's parser (go.starlark.net/syntax/parse.go): the same
 # grammar, error messages and positions. Assignment targets and parameter
@@ -207,9 +207,7 @@ def parse_struct_def(p, relation, article = None):
     n["name"] = t["val"]
     if relation and tok(p) == "name" and peek(p)["val"] == "when":
         advance(p)
-        p["when_eq"] = True  # in the condition, `=` is `==` (parse_binop_expr)
         n["when"] = parse_test(p)
-        p["when_eq"] = False
         if not starts_struct_block(p, -1):
             error_here(p, "a relation (" + article + " " + n["name"] + " when ...) must be defined by a struct block")
     n["colon"] = pos(peek(p))
@@ -539,8 +537,6 @@ def parse_binop_expr(p, prec):
                 error_here(p, "got " + token_name(tok(p)) + ", want in")
             peek(p)["kind"] = "not in"  # the "in" is the operator "not in" now
         op = tok(p)
-        if op == "=" and p.get("when_eq", False):
-            op = "=="  # in a relation's `when` condition (parse_struct_def)
         opprec = PREC.get(op, -1)
         if opprec < prec:
             return x
@@ -614,8 +610,6 @@ def parse_slice_suffix(p, x):
     return n
 
 def parse_args(p):
-    when_eq = p.get("when_eq", False)
-    p["when_eq"] = False  # `=` in arguments is a keyword argument's
     args = []
     for _ in range(len(p["toks"])):
         if tok(p) == ")" or tok(p) == "eof":
@@ -637,7 +631,6 @@ def parse_args(p):
             args.append({"name": x["id"], "star": "", "value": parse_test(p), "pos": pos(t)})
             continue
         args.append({"name": None, "star": "", "value": x, "pos": pos(t)})
-    p["when_eq"] = when_eq
     return args
 
 def parse_primary(p):

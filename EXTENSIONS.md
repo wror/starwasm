@@ -205,7 +205,7 @@ standard input.
         dingbat:
             b: "foo"
             c: "bar"
-        a wally when dingbat.b = wally.e and not dingbat.b.startswith("a"):
+        a wally when dingbat.b == wally.e and not dingbat.b.startswith("a"):
             e: "foo"
             f: dingbat.c
 
@@ -217,16 +217,15 @@ standard input.
     member, cond is evaluated once more with the self-reference reading
     the identity (as for a new member), and if that is true the block is
     added as a new member (implicit `id`: the largest + 1). So a condition
-    that never holds of the identity (`dingbat.b = wally.e`, as `"foo" ==
+    that never holds of the identity (`dingbat.b == wally.e`, as `"foo" ==
     ""` is false) only updates existing members (e.g. members assigned on
-    standard input), and one like `stock.name = item.name or stock.name =
+    standard input), and one like `stock.name == item.name or stock.name ==
     ""` adds a member for a new name and updates it afterwards. The
     replaced and added members go at the end, in order; the relation
     counts as changed only if some member was replaced or added. The
     `_id` references above don't apply (the condition picks the members),
     and an explicit field `id` is used as written, even if another member
-    has it. In the condition (only, outside call arguments), `=` means
-    `==`, at the same precedence. Standard input assigns such a relation
+    has it. The condition is an ordinary expression. Standard input assigns such a relation
     as any other (by `id`). The original form (`a name:`, no `when`) is
     unchanged.
     Code: parser.star (`parse_struct_def` sets `when`), reactive.star

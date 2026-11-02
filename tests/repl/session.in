@@ -94,7 +94,7 @@ request = struct(id = 1, name = "foo", qty = 4)
 order
 product_request
 response
-a big_order when order.size > 3 and (big_order.product = order.product or big_order.product = ""):
+a big_order when order.size > 3 and (big_order.product == order.product or big_order.product == ""):
     product: order.product
     times: big_order.times + 1
 
