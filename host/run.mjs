@@ -13,6 +13,11 @@
 //                   compile with this compiler (e.g. out/stage2.wasm);
 //                   default: compiler/main.star, itself compiled when needed
 //   --compile       only compile (if needed), don't run: as python -m py_compile
+//   --journal=FILE  (also for .wasm files) a program with reactive variables
+//                   appends each line of standard input to FILE before
+//                   applying it, and on start replays FILE's lines first,
+//                   so a restarted program gets back its state (see
+//                   journaled() below)
 //
 // The export defaults to "main". Int args are passed to the export (as
 // Number, or BigInt for i64 params). Arguments after "--" are what the
@@ -25,7 +30,10 @@
 //
 // Programs with reactive variables read standard input line by line
 // (synchronously, from the worker: the module runs to completion in one call).
-import { readFileSync, readSync, writeSync } from "node:fs";
+import {
+  closeSync, fstatSync, fsyncSync, ftruncateSync, openSync, readFileSync, readSync, writeSync,
+} from "node:fs";
+import { dirname } from "node:path";
 import { Worker, isMainThread, parentPort } from "node:worker_threads";
 import { loadModule, runModule } from "./wasmhost.mjs";
 import { CompileError, compileStar } from "./wasmcache.mjs";
@@ -66,8 +74,97 @@ function stdinLines() {
   };
 }
 
-const USAGE = `usage: node host/run.mjs <file.wasm> [export [args...]] [-- program args...]
-       node host/run.mjs [--globalreassign] [--recursion] [--test] [--descriptor_set=FILE]
+// readLine (as from stdinLines) with a journal in the file at path:
+// opened (created if needed) at the first line asked for, which happens
+// only in programs with reactive variables. First come the journal's
+// valid lines, then readLine's, each appended to the journal (with "\n")
+// and synced to disk before it's returned, i.e. before it's applied.
+// A line is valid only if it ends with "\n": a write is atomic only up
+// to a prefix, so a line cut short by a crash (or a failed write) lacks
+// its "\n". Such a tail is dropped from the file before anything is
+// appended, so it can't join a later line. If a line can't be journaled,
+// the journal is cut back to its last valid line and the program stops
+// (an internal error) without applying it: an update applied but not
+// journaled would be lost on restart.
+function journaled(path, readLine) {
+  let fd = -1;
+  let size = 0; // bytes of valid lines in the journal
+  let replay = [];
+  const sync = (what) => {
+    try {
+      fsyncSync(what);
+    } catch (e) {
+      if (e.code !== "EINVAL" && e.code !== "EISDIR" && e.code !== "EBADF") throw e;
+    }
+  };
+  const open = () => {
+    let created = false;
+    try {
+      fd = openSync(path, "r+");
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+      fd = openSync(path, "wx+");
+      created = true;
+    }
+    const data = Buffer.alloc(fstatSync(fd).size);
+    for (let off = 0; off < data.length; ) {
+      const n = readSync(fd, data, off, data.length - off, off);
+      if (n === 0) break;
+      off += n;
+    }
+    size = data.lastIndexOf(10) + 1;
+    if (size < data.length) {
+      ftruncateSync(fd, size);
+      sync(fd);
+    }
+    if (created) { // make the new file's directory entry durable too
+      let dir = -1;
+      try {
+        dir = openSync(dirname(path), "r");
+        sync(dir);
+      } catch (e) {
+        if (e.code !== "EISDIR" && e.code !== "EPERM" && e.code !== "EACCES") throw e;
+      } finally {
+        if (dir >= 0) closeSync(dir);
+      }
+    }
+    const text = data.subarray(0, size);
+    for (let at = 0; at < text.length; ) {
+      const nl = text.indexOf(10, at);
+      replay.push(Buffer.from(text.subarray(at, nl)));
+      at = nl + 1;
+    }
+    replay.reverse(); // pop() takes the first
+  };
+  const append = (line) => {
+    const rec = Buffer.concat([line, Buffer.from("\n")]);
+    try {
+      for (let off = 0; off < rec.length; ) off += writeSync(fd, rec, off, rec.length - off, size + off);
+      fsyncSync(fd);
+    } catch (e) {
+      try {
+        ftruncateSync(fd, size);
+        fsyncSync(fd);
+      } catch {} // the restart drops the tail anyway, unless it's complete
+      throw new Error(`journal ${path}: ${e.message} (the line was not applied)`);
+    }
+    size += rec.length;
+  };
+  return (before) => {
+    if (before !== 0) return null; // nothing due at sync points
+    if (fd < 0) open();
+    if (replay.length > 0) return replay.pop();
+    const line = readLine(before);
+    if (line !== null) {
+      if (line.includes(10)) throw new Error(`journal ${path}: a line can't contain "\\n"`);
+      append(line);
+    }
+    return line;
+  };
+}
+
+const USAGE = `usage: node host/run.mjs [--journal=FILE] <file.wasm> [export [args...]] [-- program args...]
+       node host/run.mjs [--journal=FILE] [--globalreassign] [--recursion] [--test] [--descriptor_set=FILE]
                          [--compiler=FILE.wasm] [--compile] <file.star> [export [args...]] [-- program args...]
 `;
 
@@ -79,6 +176,7 @@ function main() {
   const flags = []; // the compiler's options
   let compiler = null;
   let compileOnly = false;
+  let journal = null;
   let i = 0;
   for (; i < before.length && before[i].startsWith("--"); i++) {
     const a = before[i];
@@ -87,6 +185,7 @@ function main() {
     }
     else if (a.startsWith("--compiler=")) compiler = a.slice("--compiler=".length);
     else if (a === "--compile") compileOnly = true;
+    else if (a.startsWith("--journal=") && a.length > "--journal=".length) journal = a.slice("--journal=".length);
     else {
       writeSync(2, `run.mjs: unknown option ${a}\n${USAGE}`);
       return 2;
@@ -113,7 +212,7 @@ function main() {
     progArgs,
     stdout: (bytes) => writeSync(1, bytes),
     stderr: (text) => writeSync(2, text),
-    readLine: stdinLines(),
+    readLine: journal ? journaled(journal, stdinLines()) : stdinLines(),
   });
 }
 

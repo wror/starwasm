@@ -298,6 +298,18 @@ standard input.
   reactive variable gets back its value from before the line, and the
   program carries on with the next line. Output already printed by
   observers during that update stays printed.
+- Journal: `node host/run.mjs --journal=FILE prog.star` (or `prog.wasm`)
+  appends every line of standard input to FILE (each with `\n`, synced
+  to disk before the line is applied, so nothing applied is missing from
+  it), and at the start replays FILE's lines before reading standard
+  input, so a restarted program gets back the state it had (and prints
+  again what those updates printed; `<stdin>` line numbers continue). Only
+  lines ending in `\n` are replayed: anything after the last one may be a
+  line cut short (a crash mid-write) and is removed from FILE before
+  anything is appended. If a line can't be journaled, it's cut back off
+  and the program stops (an internal error, exit status 3) without
+  applying it. Programs without reactive variables never open FILE. Code:
+  `journaled` in host/run.mjs; test: tests/journal.sh.
 - In the REPL (host/repl.mjs), an input assigning to reactive variables
   (`x = 5`, `x = f(2)`) is sent to the program as a line of standard input.
   Replay keeps it in the session as an update and delivers it right after

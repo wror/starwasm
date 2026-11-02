@@ -77,6 +77,7 @@ tests/compile_errors.sh || fail=1
 # Extensions starlark-go lacks: compared against expected output files,
 # with GlobalReassign off (the default) and on.
 tests/extensions.sh || fail=1
+tests/journal.sh || fail=1
 RUNFLAGS=--globalreassign tests/extensions.sh > out/extensions_reassign.txt || { cat out/extensions_reassign.txt; fail=1; }
 echo "extensions with --globalreassign: $(grep -c ': ok' out/extensions_reassign.txt) ok"
 
