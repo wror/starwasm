@@ -15,6 +15,9 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     host/wasmcache.mjs    .star -> __wasmcache__/*.wasm, recompiled when the
                           source, a loaded module or the compiler changes (.pyc-style)
     host/repl.mjs         interactive REPL on the self-compiled compiler
+                          (a terminal over host/repl_core.mjs, the session)
+    web/                  the REPL in a browser (web/build.mjs assembles
+                          the site; .github/workflows/pages.yml publishes it)
     lib/wasm.star         Wasm + WasmGC binary encoder (instructions as data)
     lib/dsl.star          expression-style builders: call, op, if_, while_, field...
     lib/runtime.star      add_runtime(m): value types + core rt_* functions
@@ -259,6 +262,26 @@ has warmed up the compiler.
   The incremental alternative (one small module per input, importing the
   runtime and earlier globals) would need separate compilation support.
 - Commands: :help :history :reset :quit.
+
+### In a browser
+
+https://wror.github.io/starwasm/ (README.md links it): web/index.html is a
+terminal over web/repl_worker.js, a module worker running the same session
+code as host/repl.mjs (host/repl_core.mjs; host/wasmhost.mjs uses no
+Node-only API, node:fs being only the default file access) with the
+compiler as compiler.wasm. Differences from the terminal REPL:
+
+- Files are in memory: write_file, then read_file or load() of the file.
+- No live program for reactive variables (keeping one blocked waiting for
+  input would need SharedArrayBuffer, i.e. cross-origin isolation, which
+  GitHub Pages can't turn on): each update replays the session. The output
+  is the same: tests/repl/browser_mode.mjs runs tests/repl/session.in this
+  way (test.sh, and the Pages workflow before deploying).
+- Stop terminates the worker (a long computation); the session starts over.
+  So do the dialect checkboxes (--globalreassign, --recursion).
+
+Locally: `node web/build.mjs` (into out/site; builds the compiler if
+needed), then `python3 -m http.server -d out/site`.
 
 ## The prelude: builtins written in Starlark
 

@@ -33,7 +33,22 @@
 //   test_error(ptr, len)       report a test failure (see testErrorLine)
 //   matches(plen, slen)        regexp at 0 matches the string after it
 //   floateq(x, y)              equal within 1 ULP
-import { readFileSync, writeFileSync } from "node:fs";
+// It runs in browsers too (web/): no Node-only API is used, except node:fs
+// as the default for file access, when there is one.
+const nodeFs = globalThis.process?.getBuiltinModule?.("node:fs") ?? null;
+const noFs = () => {
+  throw new Error("no file system");
+};
+const encode = (s) => new TextEncoder().encode(s);
+const concatBytes = (chunks) => {
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+};
 
 // ---- Floats (the runtime's float_fmt / float_parse imports)
 
@@ -353,9 +368,10 @@ export function loadModule(bytes) {
  *   opts.readLine(before) -> Uint8Array (a line of standard input, without
  *                    its line end) or null if none is due (see read_line
  *                    below); default: no input
- *   opts.readFile(path) -> Buffer, opts.writeFile(path, bytes): the
+ *   opts.readFile(path) -> Uint8Array, opts.writeFile(path, bytes): the
  *                    program's file access (read_file and the compiler's
- *                    output); default: node:fs, relative to the cwd
+ *                    output); default: node:fs, relative to the cwd (none
+ *                    in a browser)
  * Returns the exit status: 0 ok, 1 Starlark error or exit(1), 3 internal
  * error (a Wasm trap), 2 no such export.
  */
@@ -364,8 +380,8 @@ export function runModule(module, opts = {}) {
   const stdout = opts.stdout ?? (() => {});
   const stderr = opts.stderr ?? (() => {});
   const readLine = opts.readLine ?? (() => null);
-  const readFile = opts.readFile ?? readFileSync;
-  const writeFile = opts.writeFile ?? writeFileSync;
+  const readFile = opts.readFile ?? nodeFs?.readFileSync ?? noFs;
+  const writeFile = opts.writeFile ?? nodeFs?.writeFileSync ?? noFs;
   const utf8 = new TextDecoder();
   const encodedArgs = progArgs.map((a) => new TextEncoder().encode(a));
   let instance;
@@ -385,7 +401,7 @@ export function runModule(module, opts = {}) {
   const imports = {
     host: {
       write(fd, ptr, len) {
-        const data = Buffer.from(mem(ptr, len)); // copy: memory is reused
+        const data = mem(ptr, len).slice(); // copy: memory is reused
         if (fd === 3) outChunks.push(data);
         else if (fd === 2) stderr(utf8.decode(data));
         else stdout(data);
@@ -416,7 +432,7 @@ export function runModule(module, opts = {}) {
         outChunks = [];
       },
       out_end() {
-        writeFile(outPath, Buffer.concat(outChunks));
+        writeFile(outPath, concatBytes(outChunks));
         outChunks = [];
       },
       arg_count: () => encodedArgs.length,
@@ -425,7 +441,7 @@ export function runModule(module, opts = {}) {
         mem(ptr, encodedArgs[i].length).set(encodedArgs[i]);
       },
       float_fmt(x, conv) {
-        const b = Buffer.from(formatFloat(x, String.fromCharCode(conv)));
+        const b = encode(formatFloat(x, String.fromCharCode(conv)));
         mem(0, b.length).set(b);
         return b.length;
       },
@@ -441,7 +457,7 @@ export function runModule(module, opts = {}) {
           return -1;
         } catch (e) {
           if (!(e instanceof StarlarkError)) throw e;
-          const b = Buffer.from(e.message).subarray(0, 65536);
+          const b = encode(e.message).subarray(0, 65536);
           mem(0, b.length).set(b);
           return b.length;
         }
@@ -474,8 +490,8 @@ export function runModule(module, opts = {}) {
         return goRegExp(utf8.decode(mem(0, plen))).test(utf8.decode(mem(plen, slen))) ? 1 : 0;
       },
       floateq: (x, y) => (floatEq(x, y) ? 1 : 0),
-      print_i32: (x) => stdout(Buffer.from(String(x) + "\n")),
-      print_i64: (x) => stdout(Buffer.from(String(x) + "\n")),
+      print_i32: (x) => stdout(encode(String(x) + "\n")),
+      print_i64: (x) => stdout(encode(String(x) + "\n")),
     },
   };
 
@@ -500,7 +516,7 @@ export function runModule(module, opts = {}) {
       if (!(e instanceof TypeError) || rawArgs.length === 0) throw e;
       result = fn(...rawArgs.map(BigInt));
     }
-    if (result !== undefined) stdout(Buffer.from(String(result) + "\n"));
+    if (result !== undefined) stdout(encode(String(result) + "\n"));
     return 0;
   } catch (e) {
     if (e instanceof Exit) return e.code;
