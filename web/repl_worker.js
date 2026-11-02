@@ -91,7 +91,9 @@ onmessage = ({ data: m }) => {
       try {
         r = session ? await session.feed(m.line) : null;
       } catch (e) {
-        post({ type: "err", text: `internal error: ${e.stack || e}\n` });
+        // (Safari's stack has no message)
+        const stack = e.stack && !e.stack.includes(e.message) ? `${e}\n${e.stack}` : e.stack || e;
+        post({ type: "err", text: `internal error: ${stack}\n` });
       }
       if (r === "quit") post({ type: "out", text: "(nothing to quit in a web page: :reset starts over)\n" });
       post({ type: "prompt", more: r === "more" });

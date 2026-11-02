@@ -495,11 +495,19 @@ export function runModule(module, opts = {}) {
     },
   };
 
-  // Only supply the imports the module actually asks for.
-  const wanted = {};
-  for (const imp of WebAssembly.Module.imports(module)) {
-    wanted[imp.module] ??= {};
-    wanted[imp.module][imp.name] = imports[imp.module]?.[imp.name];
+  // Only supply the imports the module actually asks for. (Safari can't
+  // list the imports of a module importing a function with a GC reference
+  // parameter, try_call or catch: it throws. Then supply them all: the
+  // module takes just its own.)
+  let wanted = imports;
+  try {
+    wanted = {};
+    for (const imp of WebAssembly.Module.imports(module)) {
+      wanted[imp.module] ??= {};
+      wanted[imp.module][imp.name] = imports[imp.module]?.[imp.name];
+    }
+  } catch {
+    wanted = imports;
   }
   instance = new WebAssembly.Instance(module, wanted);
 
