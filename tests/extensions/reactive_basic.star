@@ -6,7 +6,7 @@ load("modules/reactive_mod.star", "area", "describe")
 calls = []
 
 def total(items, tax):
-    calls.append(len(items))
+    # (no calls.append(...) here: updates run with the module frozen)
     return sum_(items) * (100 + tax) // 100
 
 def sum_(xs):
@@ -40,4 +40,5 @@ def scale(width):
 
 doubled : scale(width)
 print("doubled", doubled)
+calls.append("done")          # the first run may still mutate
 print("calls so far", len(calls))

@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  tests/extensions/reactive_frozen.star:31:17: in <toplevel>
+Error in append: append: cannot append to frozen list
+Traceback (most recent call last):
+  tests/extensions/reactive_frozen.star:32:20: in <toplevel>
+Error in update: update: cannot insert into frozen hash table
+Traceback (most recent call last):
+  tests/extensions/reactive_frozen.star:33:15: in <toplevel>
+  tests/extensions/reactive_frozen.star:9:16: in remember
+Error in append: append: cannot append to frozen list
+Traceback (most recent call last):
+  tests/extensions/reactive_frozen.star:34:11: in <toplevel>
+  tests/extensions/reactive_frozen.star:15:12: in bump
+Error: cannot assign to element of frozen list
+Traceback (most recent call last):
+  tests/extensions/reactive_frozen.star:9:16: in remember
+Error in append: append: cannot append to frozen list
