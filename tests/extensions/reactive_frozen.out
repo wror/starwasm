@@ -1,0 +1,23 @@
+1 1
+y is 10 log ["start"]
+None
+None
+None
+None
+z is [1, 10] fresh [1, 10]
+y is 20 log ["start"]
+y is 30 log ["start"]
+None
+y is 40 log ["start"]
+None
+None
+y is 50 log ["start"]
+None
+None
+None
+y is 60 log ["start"]
+None
+None
+None
+None
+z is [6, 60] fresh [6, 60]

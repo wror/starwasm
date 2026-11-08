@@ -270,6 +270,23 @@ standard input.
     tests/repl/session.in.
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
+- Freezing: once the first run reaches the end of the top level, the main
+  module is frozen, as a loaded module is once it has run: every
+  non-reactive top-level variable and function is deep-frozen (lists,
+  dicts, sets, structs, function defaults, closures' captured variables).
+  So what updates run (definitions, observers, the functions they call,
+  input expressions) can't mutate non-reactive state: `log.append(x)` in
+  an observer fails with "append: cannot append to frozen list", like any
+  update error (reported, rolled back). The first run itself mutates
+  freely, and so may updates applied at sync points before the end (the
+  REPL's replay: an update that succeeded live, frozen, also succeeds
+  there). Reactive values aren't frozen unless they are (or hold)
+  non-reactive values, and new values made in an update are mutable.
+  Code: transform adds `%prelude._r_freeze()` before the final
+  `_reactive_input(..., 0)`; reactive.star's `direct_call` hook compiles
+  it to `rt_freeze` of each of the main module's globals and function
+  values, except the runtime's `%` variables. Test:
+  tests/extensions/reactive_frozen.star.
 - Input lines: `name = expression` (`:` also works), several separated
   by `;`; blank lines and `#` comments are ignored. The expression may be
   any Starlark expression except a lambda (literals of every kind,

@@ -28,6 +28,11 @@
 #     function, names of the reactive variables it reads, those of them
 #     that must be set for it to run: see relations), so %nodes lists
 #     what the top level has run so far, in source order;
+#   - then the main module is frozen, as a loaded module is once its top
+#     level has run (%prelude._r_freeze(), compiled by direct_call): its
+#     values are deep-frozen, so what updates run (definitions, observers
+#     and the functions they call) can't mutate non-reactive variables;
+#     the "%" variables (the runtime's state) stay mutable;
 #   - a last statement calls the prelude's _reactive_input(..., 0) (as
 #     "%prelude._reactive_input"), which
 #     applies input lines until the end of standard input;
@@ -547,7 +552,9 @@ def transform(cg, mc):
                 {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in required]},
             ]}
             out.append({"kind": "expr", "pos": p, "x": _call({"kind": "dot", "x": _name(NODES, p), "name": "append", "pos": p}, [entry], p)})
-    out.append(_input_call(0, stmts[-1]["pos"]))
+    p = stmts[-1]["pos"]
+    out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_freeze", [], p)})
+    out.append(_input_call(0, p))
     main["stmts"] = out
 
 def _if_ready(e, required, otherwise):
@@ -614,6 +621,20 @@ def _input_call(before, posn):
     statement."""
     args = [_name(VALUES, posn), _name(NODES, posn), _name(STATE, posn), _name(NAMES, posn), {"kind": "int", "val": before, "pos": posn}]
     return {"kind": "expr", "pos": posn, "x": _call(_name("%prelude._reactive_input", posn), args, posn)}
+
+def direct_call(cg, mc, fc, e, kind, w):
+    """%prelude._r_freeze() (generated, at the end of the main module's
+    top level): deep-freeze the main module's values, as codegen does for
+    a loaded module once it has run: every module variable and function
+    value, except the "%" ones (the runtime's state: %reactive, %nodes,
+    ...). Unbound variables (null) are skipped by rt_freeze."""
+    fn = e["fn"]
+    if not mc["ext"].get("reactive", False) or fn["kind"] != "name" or fn["id"] != "%prelude._r_freeze":
+        return None
+    mod = mc["mod"]
+    code = [call("rt_freeze", gget(mod["globals"][n])) for n in sorted(mod["globals"]) if not n.startswith("%")]
+    code += [call("rt_freeze", gget("fv_" + mod["funcs"][n])) for n in sorted(mod["funcs"]) if not n.startswith("%")]
+    return code + [gget("None")]
 
 def imports(mc, m):
     if not mc["ext"].get("reactive", False):
@@ -720,6 +741,11 @@ def _reactive_input(values, nodes, state, names, before):
         if not ok:
             values.clear()
             values.update(saved)
+
+def _r_freeze():
+    """A placeholder: a call of it in the main module is compiled to code
+    that freezes the module (direct_call in compiler/ext/reactive.star)."""
+    pass
 
 def _reactive_update(values, nodes, state, assigns):
     """Set the assigned variables, then go through nodes (source order is

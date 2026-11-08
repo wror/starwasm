@@ -45,13 +45,14 @@ load("ext/dir.star", dir_direct_call = "direct_call", dir_dynamic_call = "dynami
 load(
     "ext/reactive.star",
     REACTIVE_INTRINSICS = "INTRINSICS",
+    reactive_direct_call = "direct_call",
     reactive_imports = "imports",
     reactive_prelude = "prelude",
     reactive_runtime = "runtime",
     reactive_transform = "transform",
 )
 
-DIRECT_CALL = [dir_direct_call]
+DIRECT_CALL = [dir_direct_call, reactive_direct_call]
 DYNAMIC_CALL = [dir_dynamic_call]
 TRANSFORM = [reactive_transform]
 IMPORTS = [reactive_imports]
