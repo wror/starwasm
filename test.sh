@@ -78,6 +78,9 @@ tests/compile_errors.sh || fail=1
 # with GlobalReassign off (the default) and on.
 tests/extensions.sh || fail=1
 tests/journal.sh || fail=1
+# The type checker (typecheck/): expected inferred types and diagnostics,
+# with the checker interpreted and self-compiled.
+tests/types.sh || fail=1
 RUNFLAGS=--globalreassign tests/extensions.sh > out/extensions_reassign.txt || { cat out/extensions_reassign.txt; fail=1; }
 echo "extensions with --globalreassign: $(grep -c ': ok' out/extensions_reassign.txt) ok"
 
@@ -92,7 +95,7 @@ grep '^upstream: [0-9]' out/upstream.txt
 bin/starhost --recursion tests/selfhost/gen_frontend_test.star out/frontend.star
 n=0
 # (The bootstrap below checks the whole compiler; this covers the sources.)
-for f in lib/*.star compiler/*.star compiler/ext/*.star tests/*.star tests/runtime/*.star tests/selfhost/*.star examples/*.star; do
+for f in lib/*.star compiler/*.star compiler/ext/*.star typecheck/*.star tests/*.star tests/runtime/*.star tests/selfhost/*.star examples/*.star; do
   # Files in tests/compile_errors fail to lex/parse: both must fail alike.
   s1=0; bin/starhost --recursion out/frontend.star "$f" > out/fe.expect 2> out/fe.experr || s1=1
   s2=0; node host/run.mjs --recursion out/frontend.star -- "$f" > out/fe.got 2> out/fe.goterr || s2=1

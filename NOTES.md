@@ -39,6 +39,10 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     compiler/extensions.star  hook points for extensions (EXTENSIONS.md)
     compiler/ext/         one file per extension (dir.star: zero-arg dir())
     compiler/main.star    driver: starhost compiler/main.star in.star out.wasm
+    typecheck/            static type checking and inference, in Starlark (an
+                          extension: EXTENSIONS.md, "Static types"); main.star
+                          is its command line
+    host/typecheck.mjs    runs it: node host/typecheck.mjs prog.star
     examples/demo.star    milestone 1 demo (i64 factorial)
     tests/*_test.star     Starlark unit tests (encoder bytes vs. spec)
     tests/runtime/        differential test: expect.star (starlark-go) vs
@@ -52,6 +56,9 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     tests/repl/           scripted REPL session and its expected transcript
     tests/extensions/     tests of extensions (EXTENSIONS.md): <name>.star
                           must print <name>.out (tests/extensions.sh)
+    tests/types/          tests of the type checker: programs with their
+                          expected inferred types (.starit) or diagnostics
+                          (.err) (tests/types.sh)
     EXTENSIONS.md         features beyond starlark-go, one section each
     tests/compile_errors/ "# error: <text>" first line; compile must fail so;
                           when starlark-go rejects the file statically too,

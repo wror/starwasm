@@ -1,0 +1,41 @@
+# Types inferred from generic.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in generic.start instead.
+
+def size[X: Sized](x: X) -> int
+def elements[T: Iterable[U], U](x: T) -> list[U]
+def has[T: Container[U], U](c: T, x: U) -> bool
+def at[T: GetItem[U, V], U, V](c: T, i: U) -> V
+def put[T: SetItem[U, V], U, V](c: T, i: U, v: V) -> None
+def add[T: Add[U, V], U, V](a: T, b: U) -> V
+def biggest[T: Ordered](a: T, b: T) -> T
+def middle[T: Sliceable[U], U](x: T) -> U
+def drain[T: HasAttr["pop", () -> U], U](x: T) -> U
+def negate[T: (int, float)](x: T) -> T
+n1: int
+n2: int
+n3: int
+e1: list[int]
+e2: list[str]
+e3: list[int]
+h1: bool
+h2: bool
+h3: bool
+a1: float
+a2: str
+a3: str
+p1: None
+p2: None
+s1: int
+s2: float
+s3: str
+s4: list[int]
+s5: tuple[int, str, float]
+s6: struct[b: int, a: int]
+b1: int
+b2: str
+m1: list[int]
+m2: str
+d1: int
+d2: str
+g1: int
+g2: float

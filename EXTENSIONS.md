@@ -8,7 +8,8 @@ see and to check.
 ## Where things go
 
 - **Code:** one file per extension, `compiler/ext/<name>.star`, registered
-  in `compiler/extensions.star`. `codegen.star` names no extension: it
+  in `compiler/extensions.star` (the type checker, which is a program of
+  its own rather than part of the compiler, is in `typecheck/`). `codegen.star` names no extension: it
   calls the hooks in `extensions.star` at fixed points (a call of a name, a
   call through a value), and an extension either returns the code to emit
   or None to leave the call to the core. Whole-program hooks run once per
@@ -403,3 +404,283 @@ standard input.
   `<name>.in` as standard input, compares stderr with `<name>.err`, and
   treats a test starting with `# error: <text>` as a compile-error test.
   REPL updates: the end of tests/repl/session.in.
+
+## Static types
+
+    node host/typecheck.mjs prog.star          # check; writes prog.starit
+    node host/typecheck.mjs --print prog.star  # ... or prints the types
+
+A type checker for Starlark programs: it infers the type of every
+variable and function of `prog.star` without any annotation, reports the
+places where the types don't fit, and writes what it inferred to
+`prog.starit`. The programmer may state types in a third file,
+`prog.start`: the program is then checked against them. The program
+itself is never touched (it stays plain Starlark that starlark-go runs),
+and the compiler doesn't use the types: checking is a separate, optional
+step.
+
+    # inventory.star
+    def restock(item, n):
+        return item + struct(qty = item.qty + n)
+
+    def value(items):
+        total = 0.0
+        for it in items:
+            total += it.qty * it.price
+        return total
+
+    def column(table, field):
+        return [getattr(row, field) for row in table]
+
+    stock = [
+        struct(name = "bolt", qty = 100, price = 0.25),
+        struct(name = "nut", qty = 250, price = 0.1),
+    ]
+    worth = value(stock)
+    names = column(stock, "name")
+    more = restock(stock[0], 50)
+
+    # inventory.starit, as inferred
+    def restock[T: Add[U, V], U, V, **R](item: struct[qty: T, **R], n: U) -> struct[qty: V, **R]
+    def value[T: Iterable[struct[qty: U, price: V, **R]], U: Mul[V, float], V, **R](items: T) -> float:
+        total: float
+        it: struct[qty: U, price: V, **R]
+    def column[T: Iterable[struct[L: U, **R]], L: str, U, **R](table: T, field: L) -> list[U]
+    stock: list[struct[name: str, qty: int, price: float]]
+    worth: float
+    names: list[str]
+    more: struct[qty: int, name: str, price: float]
+
+    # inventory.start, optional: what the programmer wants them to be
+    type Item = struct[name: str, qty: int, price: float]
+    def value(items: list[Item]) -> float
+    stock: list[Item]
+
+With that `.start` file, `value` is `(items: list[struct[name: str, qty:
+int, price: float]]) -> float` in the `.starit` file, and its body and
+every call are checked against that. A mistake such as `column(stock,
+"prise")` is reported as
+
+    inventory.star:20:24: error: argument 'field' of column(): expected struct[prise: _, ...], got struct[name: str, qty: int, price: float]: no field 'prise' (did you mean 'price'?)
+       20 | prices = column(stock, "prise")
+          |                        ^
+    inventory.star:11:44: note: required here (comprehension over it)
+       11 |     return [getattr(row, field) for row in table]
+          |                                            ^
+    inventory.star:11:26: note: field 'prise' comes from here (field name of getattr())
+       11 |     return [getattr(row, field) for row in table]
+          |                          ^
+
+### The type system
+
+Hindley-Milner inference (unification, let-polymorphism for `def`s), with
+the record calculus of Adam Paszke and Ningning Xie, "Infix-Extensible
+Record Types for Tabular Data" (TyDe '23), for structs; Max Bernstein's
+"Adding row polymorphism to Damas-Hindley-Milner" is a gentler
+introduction to rows. Subtyping is not part of it: there are no union
+types (but see None below) and no classes; types are structural.
+
+- **Basic types**: `int float str bytes bool None`, `list[T]`, `dict[K,
+  V]`, `set[T]`, `range`, tuples `tuple[A, B]` (`tuple[()]`, and `tuple[T,
+  ...]` for any length) and functions `(A, name: B = ..., *args: C) -> R`.
+  A variable has one type in its scope, a list one element type, and so
+  on: `[1, "a"]`, or `x = 1` followed by `x = "s"`, are errors.
+- **Structs are records over rows**: `struct(x = 1, y = "a")` is a
+  `struct[x: int, y: str]`, and the order of fields with different names
+  doesn't matter. A function that reads `p.x` takes any struct with a field
+  `x`: its parameter is `struct[x: T, **R]`, where the *row variable* `R`
+  stands for the other fields, whatever they are, and comes back in the
+  result if the struct does (`restock` above): row polymorphism.
+  - *Concatenation, anywhere*: `a + b` is the struct of the fields of both
+    (starlark-go's struct `+`), and its type is the rows of both, `b`'s
+    first: `r + struct(tag = "t")` is `struct[tag: str, **R]`, and
+    `struct(id = 0) + r` is `struct[**R, id: int]`, a row variable
+    *before* a field (the paper's infix extension). Fields move past
+    fields of other names, never past a row variable.
+  - *Scoped labels*: where two fields have the same name, the first is the
+    one the struct has: in `a + b`, `b`'s. So `(point + struct(x =
+    "one")).x` is a `str`. And `(struct(id = 0) + r).id` is an error: `r`
+    may have an `id` of its own, of another type (the paper rejects it
+    likewise; the message says so). Unlike the paper, a shadowed field is
+    dropped from the type: Starlark has no way to remove a field, so it
+    can never be seen again. `struct[x: str, x: int]` is `struct[x: str]`.
+  - *Field names are values* (first-class labels): a string literal has
+    type `Literal["name"]` where a field name is wanted, and `getattr(r,
+    field)` with a `field` that is a variable gives `field` the type `L`,
+    a field name parameter, and `r` the type `struct[L: T, **R]`
+    (`column` above). `getattr(r, "name")` is `r.name`; with a string
+    that is not known (or a default: `getattr(r, name, d)`), the result
+    is `Any`. `hasattr` tells the checker nothing.
+  - The paper's first-class rows (records of labels, to project or
+    remove several fields at once) have no counterpart in Starlark.
+- **None**: a value that may be None has type `T | None`, and a `T` is
+  accepted where a `T | None` is wanted, but not the other way round: it
+  must be tested first. A variable assigned `None` somewhere, a parameter
+  with default `None`, a function that returns a value on some paths and
+  nothing on others, `d.get(k)`, and anything compared with `None` are
+  optional. Tests narrow: after `if x != None:`, `if x:`, `x != None and
+  ...`, `x if x else ...`, an early `if x == None: return` (or `fail`,
+  `break`, `continue`), or an assignment of a non-None value, `x` is a
+  `T`. Only variables are narrowed (not `p.x`), and only by these forms.
+- **Numbers**: an `int` is accepted where a `float` is wanted. An int
+  literal is an `int` unless it is put where a float is kept: after `total
+  = 0`, `total += 1.5` makes `total` a float; `[1, 2.5]` is a
+  `list[float]`.
+- **Polymorphism**: a `def`'s type is generalized over what its body
+  doesn't fix, and each use gets its own copy (`identity`, `first`).
+  Defs may be used before they are defined and may be recursive; defs
+  that call each other in a cycle are generalized together. Only defs are
+  polymorphic: a lambda or a variable has one type.
+- **Bounds**: operators and builtins work on several types (`+` on
+  numbers, strings, lists, tuples, structs; `len`; `for`; `x[i]`; `in`).
+  Where a def uses one on a value whose type is otherwise free, that
+  becomes a *bound* of the type parameter, checked at each call: `def
+  size(x): return len(x)` is `def size[X: Sized](x: X) -> int`. The
+  bounds: `Iterable[E]`, `GetItem[K, V]`, `SetItem[K, V]`, `Container[E]`
+  (`in`), `Sized`, `Sliceable[S]`, `Ordered` (`<`), `HasAttr["name", T]`
+  (a method that several builtin types have, such as `pop`), `(int,
+  float)` (one of these types), and the operators `Add[B, R]` (`x + B`
+  is an `R`; likewise `Sub Mul Div FloorDiv Mod Or And Xor LShift
+  RShift`, and `RAdd[A, R]` etc. for the right operand). One exception
+  keeps common code simple: an operand of unknown type next to a number
+  is taken to be a number of that type (`def inc(x): return x + 1` is `(x:
+  int) -> int`; `x / 2` makes `x` a float), so write `x + 1.0`, start a
+  float sum at `0.0`, or annotate, to have floats.
+- **Methods**: `x.append(1)` with an `x` of unknown type makes `x` a list
+  (`append` is only a list method); a name that no builtin type has makes
+  `x` a struct with that field.
+- **`Any`** fits everything, and nothing is learned from it. The checker
+  infers it only where it must: for values it can't type (`getattr` with
+  an unknown name, `proto`), for the arguments of an untyped `*args`
+  (which may differ in type, as `print`'s), for `a and b`/`a or b` of
+  different types, and where a type would have to contain itself (there
+  are no recursive types: a tree whose nodes are structs has `kids:
+  list[Any]` at the point where it would recur). Annotate with `Any` (e.g.
+  `dict[str, Any]`) to opt a value out of checking.
+- **Reactive variables** (above) have the type of their definition; a
+  struct block is a struct with the `id` it gets, and a relation is a
+  table, `list[struct[...]]` (its member type where a definition reads
+  it).
+- `load()`ed modules are inferred too, each with its own `.start` file if
+  it has one; a loaded def is as polymorphic as where it is defined.
+
+### The language of `.start` and `.starit` files
+
+One language for both, modelled on Python's type hints (PEP 484, and PEP
+695 for type parameters), as they are written in a stub file: the
+checker's output can be pasted into (or used as) a `.start` file.
+Comments, strings and indentation are Starlark's.
+
+    name: type                                  # a variable
+    def name[params](a: type, b: type = ..., *args: type, **kw: type) -> type
+    def name(a, b: type):                       # locals and nested defs,
+        local: type                             # in the def's block
+        def inner(x: type) -> type
+    type Name = type                            # an alias (top level only)
+    type Pair[T] = tuple[T, T]
+
+- Types: `int float str bytes bool None Any range`, `list[T]`, `dict[K,
+  V]`, `set[T]`, `tuple[A, B]`, `tuple[()]`, `tuple[T, ...]`, `T | None`,
+  `struct[name: type, ..., **R]` (`struct[]`: no fields), function types
+  `(A, B) -> R` with parameters as in a def or just types
+  (parenthesized in a union: `((int) -> int) | None`), `Literal["name"]`
+  (a field name), type parameters, and aliases. PEP 484's `List`, `Dict`,
+  `Set`, `Tuple`, `Optional[T]` and `Callable[[A, B], R]` are understood
+  too.
+- A def's type parameters go in brackets after its name, as in PEP 695:
+  `T` (any type; with bounds: `T: Iterable[E] & Sized`, `T: (int,
+  float)`), `**R` (a row: the rest of a struct's fields, as `**kwargs` is
+  the rest of the arguments), and `L: str` (a field name; in `struct[L:
+  T]`, a name that is such a parameter is the parameter, and `"L": T` is
+  the field called L). Nested defs see the enclosing def's parameters.
+- `= ...` marks a parameter that has a default; `: ...` or `: pass` may
+  end a def line, as in a stub.
+- In a `.start` file everything is optional: declare only some names,
+  leave out some parameters' types or the result (they are inferred, as
+  without the file), but the parameters must be the def's own, in order.
+  A def whose parameters and result are all declared is checked against
+  exactly that type: its type parameters are rigid in the body (`def
+  first[T](xs: list[T]) -> T` can't return an `int`), and uses rely on
+  the declared type alone.
+- What differs from PEP 484, since the files are separate from the code
+  and types are structural: no classes, protocols or `TypeVar`
+  declarations; unannotated things are inferred, not `Any`; unions only
+  with `None`; struct types (rows) and field name types are new; function
+  types are written with `->`.
+- A row parameter must end some struct type of the signature, and a field
+  name parameter must be the type of a parameter or the last field of a
+  struct type (the paper's *tail check*): otherwise how it is instantiated
+  wouldn't decide the fields after it, and the annotation is rejected.
+
+### Diagnostics
+
+`file:line:col: error: message`, then the source line with a caret; notes
+(`file:line:col: note: ...`) follow with the other places involved: where
+the expected type and the offending value come from (the literal, the
+assignment, the annotation, the operation in a called def that needs it).
+Positions in `.start` files are reported the same way: unknown names
+(with spelling hints), wrong parameter lists, unknown types and bounds. At
+most 100 are printed per program. The exit status is 1 if there are any;
+`prog.starit` is then not written. A syntax error (in the program or the
+`.start` file) is reported alone, as the compiler does.
+
+### How it is made
+
+All of it is Starlark, in `typecheck/`, run by starlark-go or compiled by
+starwasm (`node host/typecheck.mjs` runs it compiled and cached, like any
+program; it adds only what Starlark can't do: a missing `.start` file
+reads as empty, and the exit status).
+
+- `types.star`: types, rows and labels as dicts with mutable unification
+  variables (levels for generalization); printing.
+- `unify.star`: unification. Rows follow the paper's Fig. 10: a field with
+  a literal label at the head of one row is looked up in the other
+  (`_lookup`: the lookup judgment, with LUtail extending a row variable at
+  the tail), with the side condition that stops `(a: int | R) ~ (b: int |
+  R)` from looping. Beyond the figure: equal items at either end of both
+  rows are unified directly; lookup also works from the end of the rows
+  (the mirror image, for rows like `(R | id: int)`); a row variable also
+  provides a field when everything after it is fields of other names; and
+  where the paper's unification is stuck (a field whose name is a
+  variable: `(L: int | R) ~ (x: int, y: int)` has two unifiers) the
+  equation waits on the variable and is solved once it is known, e.g. by
+  the next argument of the call. `flow` is unification at a use: `T` into
+  `T | None`, `int` into `float`, tuples and structs (immutable) field by
+  field. Constraints that wait on a variable (bounds) are solved when it
+  is; a def generalizes the ones left on its type parameters.
+- `stubs.star`: the parser of the type language (on the compiler's
+  lexer), and its conversion to types; the tail check.
+- `builtins.star`: the types of the builtins and methods, in that
+  language.
+- `infer.star`: inference over the compiler's AST: scopes, defs on demand
+  (cycles of defs by Tarjan's algorithm), narrowing, calls.
+- `main.star`: the command line, diagnostics, the `.starit` writer.
+  `bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]...
+  prog.star` runs it interpreted (`--start=` names each `.start` file that
+  exists, since Starlark can't ask).
+
+### Not covered
+
+- Union types other than `T | None`, recursive types, and dicts as
+  records: a dict has one key type and one value type, so `{"name": "x",
+  "qty": 1}` is an error unless annotated `dict[str, Any]` (use a struct).
+  Programs written that way (this compiler is one) need annotations with
+  `Any` to check.
+- Flow typing other than for None: `x = int(x)` for a string `x` is an
+  error, and `type(x) == "int"` narrows nothing.
+- An accumulator that starts as an int literal and is added floats that
+  only a caller supplies (`total = 0` in a def summing its argument) is an
+  int: start it at `0.0`.
+- `struct(**d)` has an unknown row; a struct passed as `**kwargs` and the
+  count of `*args` are not checked.
+- A field that follows a row variable is taken to be visible: `struct[**R,
+  id: int]` doesn't unify with `struct[id: str]`, though `R = (id: str)`
+  would shadow the `id: int`.
+- Type errors don't stop the compiler: checking and compiling are
+  separate commands.
+
+Tests: `tests/types/` (`tests/types.sh`): programs with their expected
+`.starit`, or their expected diagnostics (`err_*.star`, `.err`), checked
+by the interpreted and by the self-compiled checker, and round trip (each
+`.starit` used as the `.start` must reproduce itself);
+`tests/types_test.star`: unification, case by case.

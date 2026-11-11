@@ -1,0 +1,49 @@
+tests/types/err_start.star:10:23: error: field name of getattr(): T vs str: 'T' is a type parameter: it stands for any type
+   10 |     return getattr(r, field)
+      |                       ^
+tests/types/err_start.star:13:13: error: cannot tell which field 'id' of struct[**R, id: int, L: str, x: int] this is: before it come other fields, which may include one named 'id', and the first field of a name is the one that counts
+   13 |     return r.id
+      |             ^
+tests/types/err_start.start:2:18: error: type alias 'Loop' is defined in terms of itself
+    2 | type Loop = list[Loop]
+      |                  ^
+tests/types/err_start.start:4:17: error: unknown type 'Shap' (did you mean 'Shape'?)
+    4 | def area(shape: Shap) -> integer
+      |                 ^
+tests/types/err_start.start:4:26: error: unknown type 'integer' (did you mean 'int'?)
+    4 | def area(shape: Shap) -> integer
+      |                          ^
+tests/types/err_start.start:5:5: error: 'scale' is declared with parameters (v, k, extra), but defined with (v, k)
+    5 | def scale(v: list[T], k, extra) -> list
+      |     ^
+tests/types/err_start.star:6:5: note: 'scale' is defined here
+    6 | def scale(v, k):
+      |     ^
+tests/types/err_start.start:6:23: error: row parameter 'R' never ends a struct type (as in struct[x: int, **R]): where it is used, fields follow it, and it may hide them
+    6 | def pick[L: str, T, **R](r: struct[**R, L: T], field: T) -> T
+      |                       ^
+tests/types/err_start.start:7:12: error: row parameter 'R' never ends a struct type (as in struct[x: int, **R]): where it is used, fields follow it, and it may hide them
+    7 | def tail[**R, X: Iterabel[int], L: str](r: struct[**R, id: int, L: str, x: int]) -> int
+      |            ^
+tests/types/err_start.start:7:18: error: unknown bound 'Iterabel' (did you mean 'Iterable'?); the bounds are Container, GetItem, Iterable, Ordered, SetItem, Sized, Sliceable, HasAttr, the operators (Add, Sub, Mul, ...) and `(type, type, ...)`
+    7 | def tail[**R, X: Iterabel[int], L: str](r: struct[**R, id: int, L: str, x: int]) -> int
+      |                  ^
+tests/types/err_start.start:7:33: error: field name parameter 'L' is neither the type of a parameter (name: L) nor the last field of a struct type: nothing says which field it is
+    7 | def tail[**R, X: Iterabel[int], L: str](r: struct[**R, id: int, L: str, x: int]) -> int
+      |                                 ^
+tests/types/err_start.start:8:5: error: tests/types/err_start.star has no function 'missing'
+    8 | def missing(x: int) -> int
+      |     ^
+tests/types/err_start.start:9:8: error: dict takes 2 type arguments: dict[K, V]
+    9 | limit: dict[str]
+      |        ^
+tests/types/err_start.start:10:1: error: tests/types/err_start.star has no variable 'nmes' (did you mean 'names'?)
+   10 | nmes: list[str]
+      | ^
+tests/types/err_start.start:11:8: error: Optional takes 1 type argument: Optional[T], which is T | None
+   11 | names: Optional[str, int]
+      |        ^
+tests/types/err_start.start:12:1: error: 'limit' is declared twice
+   12 | limit: int
+      | ^
+15 type errors in tests/types/err_start.star

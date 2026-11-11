@@ -1,0 +1,43 @@
+tests/types/err_annotated.star:4:31: error: struct has no field 'depth'; it has 'width', 'height'
+    4 |     return shape.width * shape.depth
+      |                               ^
+tests/types/err_annotated.start:1:17: note: the struct is struct[width: int, height: int] (declared here)
+    1 | def area(shape: struct[width: int, height: int]) -> int
+      |                 ^
+tests/types/err_annotated.star:7:18: error: type parameter 'T' stands for any type, but must be an operand of + here (give it a bound, or a more specific type)
+    7 |     return xs[0] + 1
+      |                  ^
+tests/types/err_annotated.star:10:12: error: return value of identity(): expected T, got str: 'T' is a type parameter: it stands for any type
+   10 |     return str(x)
+      |            ^
+tests/types/err_annotated.star:12:5: error: find() may end without returning a value (and so return None): expected T, got None: 'T' is a type parameter: it stands for any type
+   12 | def find(xs, want):
+      |     ^
+tests/types/err_annotated.star:18:5: error: assignment to 'total': expected float, got str
+   18 |     total = "0"
+      |     ^
+tests/types/err_annotated.start:6:12: note: float is expected because of this (declared here)
+    6 |     total: float
+      |            ^
+tests/types/err_annotated.star:24:22: error: type parameter 'X' stands for any type, which may have no .count
+   24 |     return len(x) + x.count
+      |                      ^
+tests/types/err_annotated.star:26:1: error: assignment to 'limit': expected int, got str
+   26 | limit = "ten"
+      | ^
+tests/types/err_annotated.start:8:8: note: int is expected because of this (declared here)
+    8 | limit: int
+      |        ^
+tests/types/err_annotated.star:27:1: error: assignment to 'names': expected list[str], got list[int] (int vs str)
+   27 | names = [1, 2]
+      | ^
+tests/types/err_annotated.start:9:13: note: str is expected because of this (declared here)
+    9 | names: list[str]
+      |             ^
+tests/types/err_annotated.star:28:10: error: argument 'shape' of area(): expected struct[width: int, height: int], got struct[width: int, height: int, depth: int]: unexpected field 'depth'
+   28 | a = area(struct(width = 1, height = 2, depth = 3))
+      |          ^
+tests/types/err_annotated.star:28:40: note: field 'depth' comes from here (field 'depth' of the struct)
+   28 | a = area(struct(width = 1, height = 2, depth = 3))
+      |                                        ^
+9 type errors in tests/types/err_annotated.star

@@ -1,0 +1,29 @@
+# Types inferred from annotated.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in annotated.start instead.
+
+def area(shape: struct[width: int, height: int]) -> int
+def first[T](xs: list[T]) -> T
+def pick[L: str, T, **R](r: struct[L: T, **R], field: L) -> T
+def mean(values: list[float], weight: float) -> float:
+    total: float
+    v: float
+def describe[**R](p: struct[name: str, age: int, **R]) -> str:
+    def show(v: Any) -> str
+def longest[X: Sized](items: list[X]) -> X | None:
+    best: X | None
+    it: X
+def count_all[T: Iterable[U], U](xs: T, start: int) -> int:
+    n: int
+    x: U
+def render(value: Any, indent: int = ..., *rest: Any, sep: str = ..., **options: Any) -> str
+def callback[A, B](f: (A) -> B, x: A) -> B
+limit: int
+names: list[str]
+cache: dict[str, tuple[int, int]]
+origin: struct[x: int, y: int]
+handler: ((str) -> None) | None
+r: int
+f: str
+p: int
+m: float
+c: int

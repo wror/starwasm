@@ -1,0 +1,38 @@
+# Annotations for annotated.star: the language is that of the .starit
+# files the checker writes.
+
+type Shape = struct[width: int, height: int]
+type Pair[T] = tuple[T, T]
+type Point = struct[x: int, y: int]
+
+# a struct type with exactly these fields
+def area(shape: Shape) -> int
+
+# type parameters go in brackets after the name
+def first[T](xs: list[T]) -> T
+
+# L: str is a field name; **R stands for the rest of a struct's fields
+def pick[L: str, T, **R](r: struct[L: T, **R], field: L) -> T
+
+# locals (and nested defs) are annotated in the def's block
+def mean(values: list[float], weight: float) -> float:
+    total: float
+
+def describe[**R](p: struct[name: str, age: int, **R]) -> str:
+    def show(v: Any) -> str
+
+# a bound says what the def needs of a type parameter
+def longest[X: Sized](items: list[X]) -> X | None
+
+# an annotation may leave types out: they are inferred
+def count_all(xs, start: int)
+
+def render(value: Any, indent: int = ..., *rest: Any, sep: str = ..., **options: Any) -> str
+
+def callback[A, B](f: (A) -> B, x: A) -> B
+
+limit: int
+names: list[str]
+cache: dict[str, Pair[int]]
+origin: Point
+handler: ((str) -> None) | None

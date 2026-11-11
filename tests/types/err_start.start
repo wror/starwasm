@@ -1,0 +1,12 @@
+type Shape = struct[width: int, height: int]
+type Loop = list[Loop]
+
+def area(shape: Shap) -> integer
+def scale(v: list[T], k, extra) -> list
+def pick[L: str, T, **R](r: struct[**R, L: T], field: T) -> T
+def tail[**R, X: Iterabel[int], L: str](r: struct[**R, id: int, L: str, x: int]) -> int
+def missing(x: int) -> int
+limit: dict[str]
+nmes: list[str]
+names: Optional[str, int]
+limit: int

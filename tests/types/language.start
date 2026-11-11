@@ -1,0 +1,27 @@
+# PEP 484's spellings are understood
+table: List[Tuple[str, int]]
+lookup: Dict[str, Optional[int]]
+maybe: Callable[[int, str], bool] | None
+unit: tuple[()]
+several: tuple[int, ...]
+
+# a def line may end as in a stub
+def pair[A, B](a: A, b: B) -> tuple[A, B]: ...
+def nothing() -> None: pass
+
+# a quoted field name is a field even if a type parameter has that name
+def field_named_l[L, **R](r: struct["L": L, **R]) -> L
+
+# function types: positional, named, optional and variadic parameters
+def apply[T, U, X: Iterable[T]](f: (T) -> U | None, xs: X, fallback: U | None = ...) -> list[U | None]
+def run(callback: ((name: str, *rest: int, **options: Any) -> int) | None = ...) -> int
+
+# nested defs see the type parameters of the enclosing def; what is not
+# annotated is inferred
+def outer[T](x: T, n: int) -> list[T]:
+    def repeat(v: T) -> list[T]
+
+# bounds
+def norm[N: (int, float) & Add[N, N], **R](v: struct[x: N, y: N, **R]) -> N
+def keys_and_sizes[K, V: Sized](d: dict[K, V]) -> list[tuple[K, int]]
+def scale[T: Mul[int, T]](x: T, k: int = ...) -> T

@@ -1,0 +1,10 @@
+# Types inferred from loads.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in loads.start instead.
+
+square: struct[width: int, height: int, name: str]
+a: float
+b: float
+big: struct[width: int, height: int, name: str]
+big_name: str
+text: str
+units: list[struct[width: int, height: int]]

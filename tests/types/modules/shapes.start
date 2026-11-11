@@ -1,0 +1,1 @@
+def area[**R](shape: struct[width: float, height: float, **R]) -> float

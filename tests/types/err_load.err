@@ -1,0 +1,13 @@
+tests/types/err_load.star:2:38: error: module modules/broken.star has no 'thrd' (did you mean 'third'?)
+    2 | load("modules/broken.star", "half", "thrd")
+      |                                      ^
+tests/types/err_load.star:5:10: error: argument 'n' of half(): expected int, got str
+    5 | y = half("four")
+      |          ^
+tests/types/modules/broken.star:2:14: note: int is expected because of this (operand of //)
+    2 |     return n // 2
+      |              ^
+tests/types/modules/broken.star:5:14: error: cannot apply // to _ and str
+    5 |     return n // "3"
+      |              ^
+3 type errors in tests/types/err_load.star

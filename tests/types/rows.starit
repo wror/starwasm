@@ -1,0 +1,41 @@
+# Types inferred from rows.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in rows.start instead.
+
+point: struct[x: int, y: int]
+named: struct[name: str, x: int, y: int]
+def norm1[T: (int, float) & Add[U, V], U: (int, float), V, **R](p: struct[x: T, y: U, **R]) -> V
+a: int
+b: int
+def moved[T: Add[U, V], U, V, **R](p: struct[x: T, **R], dx: U) -> struct[x: V, **R]
+def origin_of[**R](p: struct[**R]) -> struct[x: int, y: int, **R]
+c: struct[x: int, y: int, name: str]
+c_name: str
+def tagged[**R](r: struct[**R]) -> struct[tag: str, **R]
+def with_default_id[**R](r: struct[**R]) -> struct[**R, id: int]
+d: struct[tag: str, x: int, y: int]
+e: struct[x: int, y: int, id: int]
+e_id: int
+f: struct[x: str, y: int]
+f_x: str
+g: struct[id: str]
+g_id: str
+def join[T: Add[U, V], U, V](left: T, right: U) -> V
+h: struct[z: int, x: int, y: int]
+def get[L: str, T, **R](r: struct[L: T, **R], field: L) -> T
+def column[T: Iterable[struct[L: U, **R]], L: str, U, **R](table: T, field: L) -> list[U]
+i: str
+j: int
+key: Literal["y"]
+k: int
+table: list[struct[name: str, x: int, y: int]]
+names: list[str]
+xs: list[int]
+def where[T: Iterable[U], U, V](table: T, pred: (U) -> V) -> list[U]
+def add_column[T: Iterable[struct[**R]], **R, U](table: T, f: (struct[**R]) -> U) -> list[struct[extra: U, **R]]
+far: list[struct[name: str, x: int, y: int]]
+wide: list[struct[extra: float, name: str, x: int, y: int]]
+extras: list[float]
+maybe: int
+has_z: bool
+line: struct[start: struct[x: int, y: int], end: struct[x: int, y: int]]
+dx: int
