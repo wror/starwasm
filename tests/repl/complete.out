@@ -19,3 +19,10 @@
 "" @0: 
 "    return po" @11: point
 "    return point." @17: 
+"        b." @10: width: int | height: int | name: str
+"        total = factor * b.he" @27: height: int
+"        label.sp" @14: split: (sep: str | None = ..., maxsplit: int = ...) -> list[str] | splitlines: (keepends: bool = ...) -> list[str]
+"    return point." @17: width: T | depth: U
+"    return sizes." @17: clear: () -> None | get: (key: str, default: list[int] | None = ...) -> list[int] | None | items: () -> list[tuple[str, list[int]]] | keys: () -> list[str] | pop: (key: str, default: list[int] = ...) -> list[int] | popitem: () -> tuple[str, list[int]] | setdefault: (key: str, default: list[int] = ...) -> list[int] | update: (*args: Any, **kwargs: list[int]) -> None | values: () -> list[list[int]]
+"return box." @11: width: int | height: int | name: str
+"        box." @12: width: int | height: int | name: str

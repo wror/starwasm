@@ -5,7 +5,9 @@
 #       assigned values of different types at top level, source lines are
 #       shown without their numbers, and --only prints just NAME's type;
 #       --attrs=NAME prints what can follow "." after a value of NAME's
-#       type, and --names the names in scope (for completion)
+#       type (--attrs-probe: of the type of x in the program's call
+#       _complete_probe_(x), which may be inside a def), and --names the
+#       names in scope (for completion)
 #   node host/typecheck.mjs [--print] prog.star...        (the usual way)
 #
 # Infers the types of prog.star (and of the modules it loads), checking
@@ -139,19 +141,27 @@ def attributes(st, mod, name):
     """What can follow "." after a value of the type of the top-level name
     (for completion in the REPL): "field\ttype" for each field of a
     struct, "method\ttype" for each method of a builtin type."""
-    b = mod["scope"]["vars"].get(name)
-    if b == None or b["kind"] != "var":
-        return []
-    t = resolve(b["type"])
+    if name == None:
+        t = st.get("probe")  # the argument of the probe call (infer.star)
+        if t == None:
+            return []
+    else:
+        b = mod["scope"]["vars"].get(name)
+        if b == None or b["kind"] != "var":
+            return []
+        t = b["type"]
+    t = resolve(t)
     if t["k"] == "con" and t["name"] == "opt":
         t = resolve(t["args"][0])
     out = []
     if t["k"] == "rec":
+        nm = new_namer(True)  # (one for all the fields: unknown types get different names)
+        nm["all"] = True
         for it in flatten(t["row"]):
             if it["k"] == "f":
                 l = resolve_label(it["label"])
                 if l["k"] == "lit":
-                    out.append(l["name"] + "\t" + show(it["type"]))
+                    out.append(l["name"] + "\t" + show(it["type"], nm))
         return out
     tyname = None
     if t["k"] == "lab" or (t["k"] == "var" and t["lit"] != None):
@@ -204,6 +214,7 @@ def main():
     repl = False
     only = None
     attrs = None
+    probe = False
     listing = False
     starts = {}
     all_starts = False
@@ -221,6 +232,8 @@ def main():
             only = a[len("--only="):]
         elif a.startswith("--attrs="):
             attrs = a[len("--attrs="):]
+        elif a == "--attrs-probe":
+            probe = True
         elif a == "--names":
             listing = True
         elif a.startswith("--"):
@@ -231,9 +244,9 @@ def main():
         fail("usage: typecheck/main.star [--print] [--start=FILE]... <program.star>")
     path = files[0]
     st, mod = check(path, starts, all_starts, repl)
-    if attrs != None or listing:
+    if attrs != None or probe or listing:
         # for completion: answered whatever type errors there are
-        print("\n".join(attributes(st, mod, attrs) if attrs != None else names(st, mod)))
+        print("\n".join(attributes(st, mod, attrs) if attrs != None or probe else names(st, mod)))
         return
     if st["errors"]:
         print("\n".join(format_errors(st, path)))

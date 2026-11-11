@@ -671,10 +671,16 @@ of different types from one input to the next.
   several, what they have in common, and if that adds nothing they are
   listed, with their types if they are few (`width: int`, `append: (x:
   int) -> None`). At the start of a line Tab indents. Inside a block that
-  is still being typed, the types of its own variables aren't known yet,
-  so nothing follows their dots. Code: `Session.complete`
-  (host/repl_core.mjs), the checker's `--attrs` and `--names`, and
-  web/repl.js; test: tests/repl/complete.mjs. (The terminal REPL has no
+  is still being typed, the expression is typed where it stands, from
+  the block's lines so far: loop variables and locals have their types
+  (`for b in boxes:` then `b.`), and a parameter of the def being typed
+  has only the fields it was used with above (its callers don't exist
+  yet). Variables bound on the line being completed itself (an unfinished
+  comprehension's) are not known. Code: `Session.complete`
+  (host/repl_core.mjs; in a block, the line is replaced by a call
+  `_complete_probe_(expr)`, whose argument's type the checker notes), the
+  checker's `--attrs`, `--attrs-probe` and `--names`, and web/repl.js;
+  test: tests/repl/complete.mjs. (The terminal REPL has no
   Tab completion.)
 - Code: `Session.typecheck` in host/repl_core.mjs runs the compiled
   checker with `--repl` on the inputs as typed (expressions as `_ =

@@ -323,7 +323,17 @@ export class Session {
     if (head.endsWith(".")) {
       const recv = receiverBefore(head.slice(0, -1));
       if (recv === "") return none;
-      const r = await this.typecheck(this.history, ["--attrs=_"], { num: "?", code: `_ = (\n${recv}\n)`, offset: 1 });
+      let r = { ok: false };
+      if (this.buffer.length > 0) {
+        // in a block being typed: its lines so far, then in place of this
+        // line a call that tells the checker to note the expression's
+        // type there (so loop variables and locals have their types)
+        const indent = /^[ \t]*/.exec(text)[0];
+        const code = [...this.buffer, `${indent}_complete_probe_(${recv})`].join("\n");
+        r = await this.typecheck(this.history, ["--attrs-probe"], { num: "?", code, offset: 0 });
+      }
+      // (else, or if those lines don't parse yet, e.g. an open bracket)
+      if (!r.ok) r = await this.typecheck(this.history, ["--attrs=_"], { num: "?", code: `_ = (\n${recv}\n)`, offset: 1 });
       if (!r.ok) return none;
       return pick(from, word, r.stdout.split("\n").filter((l) => l !== "").map((l) => {
         const [name, detail = ""] = l.split("\t");

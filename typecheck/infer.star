@@ -1099,9 +1099,17 @@ def _callee_name(f):
         return "." + f["name"] + "()"
     return "this"
 
+# A call of this name with one argument records the argument's type in
+# st["probe"]: how the REPL asks for the type of an expression inside a
+# block that is still being typed (--attrs-probe in main.star).
+PROBE = "_complete_probe_"
+
 def infer_call(st, fc, e):
     f = e["fn"]
     pos = e["pos"]
+    if f["kind"] == "name" and f["id"] == PROBE and len(e["args"]) == 1:
+        st["probe"] = infer_expr(st, fc, e["args"][0]["value"])
+        return T_ANY
     if f["kind"] == "name" and f["id"] in SPECIAL and _special(fc, f["id"]):
         t = SPECIAL[f["id"]](st, fc, e)
         if t != None:
