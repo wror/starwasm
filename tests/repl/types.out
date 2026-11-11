@@ -1,0 +1,51 @@
+6
+def area[T: Mul[U, V], U, V, **R](shape: struct[width: T, height: U, **R]) -> V
+box: struct[width: int, height: int, name: str]
+float
+list[str]
+[**R](r: struct[**R]) -> struct[id: int, **R]
+[X: Sized](x: X) -> int
+int
+"text"
+str
+<input ?>:1:4: error: struct has no field 'depth'; it has 'width', 'height', 'name'
+      | box.depth
+      |    ^
+<input 2>:1:7: note: the struct is struct[width: int, height: int, name: str] (a struct made here)
+      | box = struct(width = 2, height = 3, name = "box")
+      |       ^
+<input ?>:1:1: error: undefined: nosuch
+      | nosuch
+      | ^
+<input ?>:2:1: got end of file, want ')'
+def area[T: Mul[U, V], U, V, **R](shape: struct[width: T, height: U, **R]) -> V
+box: struct[width: int, height: int, name: str]
+_: str
+type checking of inputs is off
+Traceback (most recent call last):
+  <input 5>:1:5: in <toplevel>
+  <input 1>:2:17: in area
+Error: string has no .width field or method
+type checking of inputs is on
+<input 6>:1:6: error: argument 'shape' of area(): expected struct[width: _, height: _, ...], got str
+      | area("box")
+      |      ^
+<input 1>:2:17: note: struct[width: _, height: _, ...] is expected because of this (.width is used here)
+      |     return shape.width * shape.height
+      |                 ^
+<input 7>:1:4: error: struct has no field 'nme' (did you mean 'name'?); it has 'width', 'height', 'name'
+      | box.nme
+      |    ^
+<input 2>:1:7: note: the struct is struct[width: int, height: int, name: str] (a struct made here)
+      | box = struct(width = 2, height = 3, name = "box")
+      |       ^
+<input 8>:1:11: error: cannot apply + to int and str
+      | total = 1 + "one"
+      |           ^
+7
+<input 11>:2:22: error: cannot apply + to str and int
+      |     return x.upper() + 1
+      |                      ^
+type checking of inputs is off
+n: int
+usage: :check on|off

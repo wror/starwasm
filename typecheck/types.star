@@ -227,6 +227,8 @@ def _named(nm, v):
     only the variables named so far do."""
     if nm.get("closed", False):
         return v["id"] in nm["names"]
+    if nm.get("all", False):
+        return v["lit"] == None and not v["num"]  # every unknown gets a name
     return v["rigid"] or v["level"] == GENERIC or v["id"] in nm["names"]
 
 def show(t, nm = None):
@@ -381,7 +383,7 @@ def collect_generic(t, nm):
 def _collect(t, nm, seen):
     k = t["k"]
     if k == "var":
-        if t["level"] == GENERIC or t["rigid"]:
+        if t["level"] == GENERIC or t["rigid"] or (nm.get("all", False) and t["lit"] == None and not t["num"]):
             if t["id"] in seen:
                 return
             seen[t["id"]] = True

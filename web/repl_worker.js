@@ -63,6 +63,12 @@ async function init(flags, journal) {
     writeFile: (p, data) => files.set(p.replace(/^\.\//, ""), data.slice()),
     out: (text) => text && post({ type: "out", text }),
     err: (text) => text && post({ type: "err", text }),
+    // the type checker (typecheck/main.star compiled), when first needed
+    async checker() {
+      const res = await fetch("typecheck.wasm");
+      if (!res.ok) throw new Error(`typecheck.wasm: HTTP ${res.status}`);
+      return WebAssembly.compile(await res.arrayBuffer());
+    },
     onChange() {
       const saved = {};
       for (const [p, data] of files) if (!SESSION_FILES.has(p)) saved[p] = toBase64(data);

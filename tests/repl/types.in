@@ -1,0 +1,32 @@
+def area(shape):
+    return shape.width * shape.height
+
+box = struct(width = 2, height = 3, name = "box")
+area(box)
+:type area
+:type box
+:type area(box) / 2
+:type [b.name for b in [box]]
+:type lambda r: r + struct(id = 1)
+:type len
+:type _
+"text"
+:type _
+:type box.depth
+:type nosuch
+:type (
+:types
+:check
+area("box")
+:check on
+area("box")
+box.nme
+total = 1 + "one"
+n = area(box) + 1
+n
+def bad(x):
+    return x.upper() + 1
+
+:check off
+:type n
+:check maybe

@@ -8,7 +8,8 @@
 //   node tests/repl/browser_mode.mjs [compiler.wasm] < tests/repl/session.in
 import { readFileSync } from "node:fs";
 import { loadModule } from "../../host/wasmhost.mjs";
-import { defaultCompiler } from "../../host/wasmcache.mjs";
+import { fileURLToPath } from "node:url";
+import { compileStar, defaultCompiler } from "../../host/wasmcache.mjs";
 import { Session } from "../../host/repl_core.mjs";
 
 const files = new Map();
@@ -21,6 +22,8 @@ const session = new Session({
   writeFile: (p, data) => files.set(p, data),
   out: (t) => process.stdout.write(t),
   err: (t) => process.stdout.write(t),
+  checker: () => loadModule(compileStar(fileURLToPath(new URL("../../typecheck/main.star", import.meta.url)), ["--recursion"],
+    process.argv[2] ? readFileSync(process.argv[2]) : null)),
 });
 const lines = readFileSync(0, "utf8").replace(/\n$/, "").split("\n");
 for (const line of lines) if ((await session.feed(line)) === "quit") break;

@@ -793,6 +793,10 @@ def assign_target(st, fc, target, t, what):
         ctx = _ctx(fc, pos, role)
         if name in fc["narrow"]:
             fc["narrow"].pop(name)
+        if name == "_" and st.get("repl", False) and fc["def"] == None and fc["scope"]["level"] == 0:
+            # the REPL's last value: each input gives it a new type
+            b["type"] = t
+            return
         if flow_report(st, t, b["type"], ctx):
             # x = <not None> makes an optional x not None from here on
             r = resolve(t)
