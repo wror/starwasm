@@ -107,6 +107,7 @@ function start(note) {
     } else if (m.type === "journal") {
       save("journal", m.journal.history.length ? { flags: flags(), journal: m.journal } : null);
     } else if (m.type === "clear") clearScreen();
+    else if (m.type === "completions") completed(m);
     else if (m.type === "echo") write(m.text, "echo");
     else if (m.type === "out") write(m.text);
     else if (m.type === "err") write(m.text, "err");
@@ -136,8 +137,51 @@ function send(line) {
   worker.postMessage({ type: "line", line });
 }
 
+// ---- Tab completion: the worker asks the session (Session.complete in
+// host/repl_core.mjs: after a "." the fields and methods that the type
+// checker finds for the expression before it, else the names in scope).
+// One candidate is inserted; of several, what they have in common, and if
+// that adds nothing they are listed (with their types, if few).
+
+let asked = null; // the completion requested: {id, text, cursor}
+function complete() {
+  if (!worker || loading) return;
+  const text = input.value, cursor = input.selectionStart ?? text.length;
+  if (/^\s*$/.test(text.slice(0, cursor))) {
+    // at the start of a line Tab indents (a block's lines)
+    input.setRangeText("    ", cursor, input.selectionEnd ?? cursor, "end");
+    return;
+  }
+  asked = { id: (asked?.id ?? 0) + 1, text, cursor };
+  worker.postMessage({ type: "complete", ...asked });
+}
+function completed(m) {
+  // (not if the line changed since)
+  if (!asked || m.id !== asked.id || input.value !== asked.text || m.items.length === 0) return;
+  const names = m.items.map((it) => it.name);
+  let common = names[0];
+  for (const n of names) while (!n.startsWith(common)) common = common.slice(0, -1);
+  if (common.length > m.to - m.from) {
+    input.setRangeText(common, m.from, m.to, "end");
+    return;
+  }
+  const detailed = m.items.length <= 12 && m.items.some((it) => it.detail);
+  const list = detailed
+    ? m.items.map((it) => `  ${it.name}${it.detail ? ": " + it.detail : ""}\n`).join("")
+    : "  " + names.join("  ") + "\n";
+  write(list, "note", false);
+}
+$("tab").addEventListener("pointerdown", (e) => e.preventDefault()); // keep the input's focus and cursor
+$("tab").addEventListener("click", () => {
+  complete();
+  input.focus();
+});
+
 input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
+  if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    e.preventDefault();
+    complete();
+  } else if (e.key === "Enter") {
     e.preventDefault();
     const line = input.value;
     input.value = "";

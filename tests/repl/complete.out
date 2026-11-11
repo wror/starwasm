@@ -1,0 +1,21 @@
+"box." @4: width: int | height: int | name: str
+"box.w" @4: width: int
+"box.name.up" @9: upper: () -> str
+"boxes[0].he" @9: height: int
+"print(box.na" @10: name: str
+"x = 1 + box." @12: width: int | height: int | name: str
+"sizes.get(\"k\")." @15: append: (x: int) -> None | clear: () -> None | extend: (x: X) -> None | index: (x: int, start: int | None = ..., end: int | None = ...) -> int | insert: (i: int, x: int) -> None | pop: (i: int = ...) -> int | remove: (x: int) -> None
+"\"x\".st" @4: startswith: (prefix: Any, start: int | None = ..., end: int | None = ...) -> bool | strip: (chars: str | None = ...) -> str
+":type box.h" @10: height: int
+"bo" @0: bool | box | boxes
+"ar" @0: area | argv
+"ret" @0: return
+":t" @0: :type | :types
+"area(box)." @10: 
+"zz" @0: 
+"1." @2: 
+"nosuch." @7: 
+"box.width" @4: 
+"" @0: 
+"    return po" @11: point
+"    return point." @17: 

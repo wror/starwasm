@@ -66,6 +66,7 @@
     <label><input type="checkbox" data-flag="--globalreassign"> globalreassign</label>
     <label><input type="checkbox" data-flag="--recursion"> recursion</label>
     <button id="stop" title="Stop the running input (the rest of the session is kept)">Stop</button>
+    <button id="tab" title="Complete the name, field or method being typed (the Tab key)">Tab ⇥</button>
     <span id="status"></span>
   </div>
   <div class="opts">
@@ -83,7 +84,7 @@ Each input recompiles and replays the session. :help for help.
 </div>
 <footer>
   Blocks and open brackets continue on <code>...</code> lines; end a block with an empty line.
-  ↑/↓ history, Ctrl-L clears. Files (<code>read_file</code>, <code>write_file</code>, <code>load</code>) live in memory.
+  ↑/↓ history, Ctrl-L clears, Tab completes names, and after a <code>.</code> the fields or methods of the value's type. Files (<code>read_file</code>, <code>write_file</code>, <code>load</code>) live in memory.
   The session is saved in this browser and restored when you come back; <code>:reset</code> clears it and the screen.
   <a href="https://github.com/wror/starwasm">Source</a>
 </footer>

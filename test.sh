@@ -164,6 +164,13 @@ if node host/repl.mjs out/stage2.wasm < tests/repl/types.in > out/repl_types.out
 else
   echo "repl types: MISMATCH"; fail=1
 fi
+# Tab completion (the browser REPL's; Session.complete).
+if node tests/repl/complete.mjs out/stage2.wasm > out/repl_complete.out 2>&1 &&
+   diff -u tests/repl/complete.out out/repl_complete.out; then
+  echo "repl completion: ok"
+else
+  echo "repl completion: MISMATCH"; fail=1
+fi
 
 # Independent validation, if wasm-tools is installed.
 if command -v wasm-tools > /dev/null; then
