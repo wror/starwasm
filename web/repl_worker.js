@@ -4,7 +4,9 @@
 //
 // Messages from the page: {type: "init", flags: [...], journal}, journal
 // being a saved session (host/repl_core.mjs's Session.journal()) or null,
-// then {type: "line", line} for each line typed. To the page:
+// then {type: "line", line} for each line typed, and {type: "complete", id,
+// text, cursor} for Tab, answered with {type: "completions", id, from, to,
+// items: [{name, detail}]} (Session.complete). To the page:
 // {type: "restored", count, error} after restoring the journal (error:
 // null, or why the session couldn't be restored), {type: "ready"},
 // {type: "echo", text} (the line, after its prompt) before running it,
@@ -90,6 +92,16 @@ async function init(flags, journal) {
 
 onmessage = ({ data: m }) => {
   if (m.type === "init") busy = busy.then(() => init(m.flags, m.journal));
+  else if (m.type === "complete") {
+    // (after the lines being run: it completes in the session they make)
+    busy = busy.then(async () => {
+      let r = { from: m.cursor, to: m.cursor, items: [] };
+      try {
+        if (session) r = await session.complete(m.text, m.cursor);
+      } catch {}
+      post({ type: "completions", id: m.id, ...r });
+    });
+  }
   else if (m.type === "line") {
     busy = busy.then(async () => {
       let r = null;

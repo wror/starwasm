@@ -3,7 +3,9 @@
 #   bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]... prog.star
 #   ... --repl [--only=NAME]: for the REPL (host/repl_core.mjs): `_` may be
 #       assigned values of different types at top level, source lines are
-#       shown without their numbers, and --only prints just NAME's type
+#       shown without their numbers, and --only prints just NAME's type;
+#       --attrs=NAME prints what can follow "." after a value of NAME's
+#       type, and --names the names in scope (for completion)
 #   node host/typecheck.mjs [--print] prog.star...        (the usual way)
 #
 # Infers the types of prog.star (and of the modules it loads), checking
@@ -25,7 +27,8 @@
 
 load("builtins.star", "load_builtins")
 load("infer.star", "check_module", "new_scope")
-load("types.star", "collect_generic", "new_namer", "resolve", "show", "show_params", "show_tparams")
+load("unify.star", "method_type")
+load("types.star", "collect_generic", "con", "flatten", "new_namer", "resolve", "resolve_label", "show", "show_params", "show_tparams")
 
 MAX_SHOWN = 100  # diagnostics printed for one program
 
@@ -132,6 +135,45 @@ def render_one(mod, name):
     _render_scope(mod["scope"], "", nm, out, False, name)
     return "\n".join(out)
 
+def attributes(st, mod, name):
+    """What can follow "." after a value of the type of the top-level name
+    (for completion in the REPL): "field\ttype" for each field of a
+    struct, "method\ttype" for each method of a builtin type."""
+    b = mod["scope"]["vars"].get(name)
+    if b == None or b["kind"] != "var":
+        return []
+    t = resolve(b["type"])
+    if t["k"] == "con" and t["name"] == "opt":
+        t = resolve(t["args"][0])
+    out = []
+    if t["k"] == "rec":
+        for it in flatten(t["row"]):
+            if it["k"] == "f":
+                l = resolve_label(it["label"])
+                if l["k"] == "lit":
+                    out.append(l["name"] + "\t" + show(it["type"]))
+        return out
+    tyname = None
+    if t["k"] == "lab" or (t["k"] == "var" and t["lit"] != None):
+        tyname = "str"
+    elif t["k"] == "con":
+        tyname = t["name"]
+    for m in sorted(st["methods"].get(tyname, {})):
+        # the method's type for this receiver (a list[int]'s append takes an int)
+        recv = t if t["k"] == "con" else con("str")
+        nm = new_namer(True)
+        nm["all"] = True
+        out.append(m + "\t" + show(method_type(st, recv, tyname, m, {"file": mod["path"], "pos": (0, 0), "role": None}, 0), nm))
+    return out
+
+def names(st, mod):
+    """The names an expression at the end of the module can use."""
+    out = list(mod["scope"]["order"])
+    for n in st["builtins"]["vars"]:
+        if n not in mod["scope"]["vars"]:
+            out.append(n)
+    return out
+
 def check(path, starts, all_starts, repl = False):
     """Check the program at path. Returns (st, module record)."""
     st = {
@@ -161,6 +203,8 @@ def main():
     printing = False
     repl = False
     only = None
+    attrs = None
+    listing = False
     starts = {}
     all_starts = False
     files = []
@@ -175,6 +219,10 @@ def main():
             repl = True
         elif a.startswith("--only="):
             only = a[len("--only="):]
+        elif a.startswith("--attrs="):
+            attrs = a[len("--attrs="):]
+        elif a == "--names":
+            listing = True
         elif a.startswith("--"):
             fail("typecheck: unknown option " + a)
         else:
@@ -183,6 +231,10 @@ def main():
         fail("usage: typecheck/main.star [--print] [--start=FILE]... <program.star>")
     path = files[0]
     st, mod = check(path, starts, all_starts, repl)
+    if attrs != None or listing:
+        # for completion: answered whatever type errors there are
+        print("\n".join(attributes(st, mod, attrs) if attrs != None else names(st, mod)))
+        return
     if st["errors"]:
         print("\n".join(format_errors(st, path)))
         n = len(st["errors"])

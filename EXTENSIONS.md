@@ -661,6 +661,21 @@ of different types from one input to the next.
   checked.
 - Modules that the session `load()`s are checked with their `.start`
   files, if they have any; the session itself has none.
+- Tab completion, in the browser REPL (the Tab key, or the Tab button on
+  a touch screen): after a `.`, the fields of a struct or the methods of
+  a builtin type, found from the *type* of the expression before the dot
+  (`box.`, `boxes[0].name.up`, `d.get("k").`), which is inferred, not
+  evaluated; anywhere else, the names of the session, builtins and
+  keywords (and the names in the lines of a block being typed), and at
+  the start of a line the commands. One candidate is inserted; of
+  several, what they have in common, and if that adds nothing they are
+  listed, with their types if they are few (`width: int`, `append: (x:
+  int) -> None`). At the start of a line Tab indents. Inside a block that
+  is still being typed, the types of its own variables aren't known yet,
+  so nothing follows their dots. Code: `Session.complete`
+  (host/repl_core.mjs), the checker's `--attrs` and `--names`, and
+  web/repl.js; test: tests/repl/complete.mjs. (The terminal REPL has no
+  Tab completion.)
 - Code: `Session.typecheck` in host/repl_core.mjs runs the compiled
   checker with `--repl` on the inputs as typed (expressions as `_ =
   (...)`), and maps positions back to `<input N>:line:col`. The checker

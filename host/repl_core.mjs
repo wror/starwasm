@@ -183,6 +183,40 @@ function typedEntries(entries) {
   });
 }
 
+// ---- completion
+
+const KEYWORDS = ["and", "break", "continue", "def", "elif", "else", "for", "if", "in", "lambda", "load", "not", "or",
+  "pass", "return", "while", "None", "True", "False"];
+const COMMANDS = [":help", ":history", ":type", ":types", ":check", ":reset", ":quit"];
+
+// The expression that ends s (the text before a "."), to complete its
+// attributes: names, attributes, calls, indexes, brackets and string
+// literals, back to the first character that can't be part of one ("" if
+// there is none).
+function receiverBefore(s) {
+  let i = s.length;
+  while (i > 0) {
+    const c = s[i - 1];
+    if (/[\w.]/.test(c)) i--;
+    else if (")]}".includes(c)) {
+      let depth = 0, j = i - 1;
+      for (; j >= 0; j--) {
+        if (")]}".includes(s[j])) depth++;
+        else if ("([{".includes(s[j]) && --depth === 0) break;
+      }
+      if (j < 0) return "";
+      i = j;
+    } else if (c === '"' || c === "'") {
+      let j = i - 2;
+      while (j >= 0 && (s[j] !== c || s[j - 1] === "\\")) j--;
+      if (j < 0) return "";
+      i = j;
+    } else break;
+  }
+  const r = s.slice(i);
+  return /^[.\d]/.test(r) && !/^\d+$/.test(r) ? "" : r;
+}
+
 // ---- the session
 
 /**
@@ -261,6 +295,47 @@ export class Session {
     const mapped = this.mapPositions(text, typed, path).replace(/<repl>:\d+:(\d+)/g,
       (all, col) => last ? `<input ${last.num}>:${last.code.split("\n").length - last.offset}:${col}` : all);
     return { ok: false, stdout: "", error: mapped };
+  }
+
+  /**
+   * Completions for the input line `text` at `cursor`: {from, to, items},
+   * where each item {name, detail} may replace text[from:to]. After a "."
+   * they are the fields or methods of the type of the expression before
+   * it (from the type checker, without evaluating anything; detail: their
+   * types); else the names in scope, keywords, the names in the lines of
+   * the input being typed, and at the start of a line the commands.
+   */
+  async complete(text, cursor = text.length) {
+    const before = text.slice(0, cursor);
+    const none = { from: cursor, to: cursor, items: [] };
+    const pick = (from, word, items) => {
+      const seen = new Set();
+      items = items.filter((it) => it.name.startsWith(word) && it.name !== word && !seen.has(it.name) && seen.add(it.name));
+      return { from, to: cursor, items };
+    };
+    if (this.buffer.length === 0 && /^\s*:\w*$/.test(before)) {
+      const from = before.indexOf(":");
+      return pick(from, before.slice(from), COMMANDS.map((name) => ({ name, detail: "" })));
+    }
+    const word = /[A-Za-z_]\w*$/.exec(before)?.[0] ?? "";
+    const from = cursor - word.length;
+    const head = before.slice(0, from);
+    if (head.endsWith(".")) {
+      const recv = receiverBefore(head.slice(0, -1));
+      if (recv === "") return none;
+      const r = await this.typecheck(this.history, ["--attrs=_"], { num: "?", code: `_ = (\n${recv}\n)`, offset: 1 });
+      if (!r.ok) return none;
+      return pick(from, word, r.stdout.split("\n").filter((l) => l !== "").map((l) => {
+        const [name, detail = ""] = l.split("\t");
+        return { name, detail };
+      }));
+    }
+    if (word === "") return none;
+    const r = await this.typecheck(this.history, ["--names"]);
+    const typed = [...this.buffer, text].join("\n").match(/[A-Za-z_]\w*/g) ?? [];
+    const names = [...(r.ok ? r.stdout.split("\n").filter((n) => n !== "" && (!n.startsWith("_") || word.startsWith("_"))) : []),
+      ...typed, ...KEYWORDS];
+    return pick(from, word, names.sort().map((name) => ({ name, detail: "" })));
   }
 
   // :type <expr>: the type of an expression (or the declaration of a name).
