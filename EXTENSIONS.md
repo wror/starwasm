@@ -624,6 +624,50 @@ most 100 are printed per program. The exit status is 1 if there are any;
 `prog.starit` is then not written. A syntax error (in the program or the
 `.start` file) is reported alone, as the compiler does.
 
+### In the REPL
+
+The REPL (`node host/repl.mjs`, and the one in the browser) has the
+checker too. It checks the session as typed, in which `_` may hold values
+of different types from one input to the next.
+
+    >>> def area(shape):
+    ...     return shape.width * shape.height
+    ...
+    >>> box = struct(width = 2, height = 3, name = "box")
+    >>> :type area
+    def area[T: Mul[U, V], U, V, **R](shape: struct[width: T, height: U, **R]) -> V
+    >>> :type area(box) / 2
+    float
+    >>> :type lambda r: r + struct(id = 1)
+    [**R](r: struct[**R]) -> struct[id: int, **R]
+    >>> :check on
+    type checking of inputs is on
+    >>> area("box")
+    <input 3>:1:6: error: argument 'shape' of area(): expected struct[width: _, height: _, ...], got str
+          | area("box")
+          |      ^
+    <input 1>:2:17: note: struct[width: _, height: _, ...] is expected because of this (.width is used here)
+          |     return shape.width * shape.height
+          |                 ^
+
+- `:type expr` prints the type of an expression without evaluating it
+  (what is still unknown in it is shown as type parameters, as for a
+  def); `:type name` prints the declaration of a name of the session.
+- `:types` prints the types of everything defined so far, as a `.starit`
+  file would have them.
+- `:check on` checks each input before it runs: one with type errors is
+  reported and not run (so not kept). `:check off` (the default) runs
+  everything, as before. Updates of reactive variables (`x = 5`) are not
+  checked.
+- Modules that the session `load()`s are checked with their `.start`
+  files, if they have any; the session itself has none.
+- Code: `Session.typecheck` in host/repl_core.mjs runs the compiled
+  checker with `--repl` on the inputs as typed (expressions as `_ =
+  (...)`), and maps positions back to `<input N>:line:col`. The checker
+  is compiled when first needed (the terminal REPL; cached), or fetched
+  as `typecheck.wasm` (the browser; web/build.mjs puts it in the site).
+  Test: tests/repl/types.in, with both REPLs.
+
 ### How it is made
 
 All of it is Starlark, in `typecheck/`, run by starlark-go or compiled by

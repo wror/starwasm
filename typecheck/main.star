@@ -1,6 +1,9 @@
 # main.star — the type checker's command line.
 #
 #   bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]... prog.star
+#   ... --repl [--only=NAME]: for the REPL (host/repl_core.mjs): `_` may be
+#       assigned values of different types at top level, source lines are
+#       shown without their numbers, and --only prints just NAME's type
 #   node host/typecheck.mjs [--print] prog.star...        (the usual way)
 #
 # Infers the types of prog.star (and of the modules it loads), checking
@@ -40,6 +43,8 @@ def _excerpt(st, file, pos):
         return []
     text = lines[line - 1]
     num = str(line)
+    if st["repl"]:
+        num = ""  # (line numbers of the session file mean nothing to the user)
     gutter = " " * (5 - len(num)) + num + " | "
     pad = "".join(["\t" if c == "\t" else " " for c in text.codepoints()][:col - 1])
     return [gutter + text, " " * 5 + " | " + pad + "^"]
@@ -69,11 +74,11 @@ def _child_namer(nm):
         c["n"] = dict(nm["n"])
     return c
 
-def _render_scope(scope, indent, nm, out, skip_params):
+def _render_scope(scope, indent, nm, out, skip_params, only = None):
     for name in scope["order"]:
         b = scope["vars"][name]
         k = b["kind"]
-        if b.get("loaded", False) or (skip_params and b.get("param", False)):
+        if b.get("loaded", False) or (skip_params and b.get("param", False)) or (only != None and name != only):
             continue
         if k == "var":
             out.append(indent + name + ": " + show(b["type"], nm))
@@ -110,9 +115,27 @@ def render_types(mod):
     _render_scope(mod["scope"], "", nm, out, False)
     return "\n".join(out) + "\n"
 
-def check(path, starts, all_starts):
+def render_one(mod, name):
+    """The declaration of the top-level name alone ("" if there is none)."""
+    b = mod["scope"]["vars"].get(name)
+    if b != None and b["kind"] == "var" and not b.get("loaded", False):
+        # a variable: what is still unknown in its type is shown as type
+        # parameters, as for a def ("[T](x: T) -> T" for an identity lambda)
+        nm = new_namer(True)
+        nm["all"] = True
+        collect_generic(b["type"], nm)
+        tparams = show_tparams(nm)
+        return name + ": " + tparams + show(b["type"], nm)
+    nm = new_namer(True)
+    nm["closed"] = True
+    out = []
+    _render_scope(mod["scope"], "", nm, out, False, name)
+    return "\n".join(out)
+
+def check(path, starts, all_starts, repl = False):
     """Check the program at path. Returns (st, module record)."""
     st = {
+        "repl": repl,
         "next": 0,
         "errors": [],
         "seen": {},
@@ -136,6 +159,8 @@ def check(path, starts, all_starts):
 
 def main():
     printing = False
+    repl = False
+    only = None
     starts = {}
     all_starts = False
     files = []
@@ -146,6 +171,10 @@ def main():
             all_starts = True
         elif a.startswith("--start="):
             starts[a[len("--start="):]] = True
+        elif a == "--repl":
+            repl = True
+        elif a.startswith("--only="):
+            only = a[len("--only="):]
         elif a.startswith("--"):
             fail("typecheck: unknown option " + a)
         else:
@@ -153,11 +182,14 @@ def main():
     if len(files) != 1:
         fail("usage: typecheck/main.star [--print] [--start=FILE]... <program.star>")
     path = files[0]
-    st, mod = check(path, starts, all_starts)
+    st, mod = check(path, starts, all_starts, repl)
     if st["errors"]:
         print("\n".join(format_errors(st, path)))
         n = len(st["errors"])
         fail("typecheck: " + str(n) + " type error" + ("" if n == 1 else "s") + " in " + path)
+    if only != None:
+        print(render_one(mod, only))
+        return
     text = render_types(mod)
     if printing:
         print(text[:-1])

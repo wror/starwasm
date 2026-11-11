@@ -39,7 +39,13 @@
 //   variable computed from others is recomputed (to a new value), it is
 //   printed as "name = value". An expression that reads reactive variables
 //   is evaluated once, like any other.
-// - Commands: :help :history :reset :quit (or end of input).
+// - Types (typecheck/, EXTENSIONS.md "Static types"): `:type expr` prints
+//   the type of an expression or name without evaluating it, `:types` the
+//   types of everything defined, and after `:check on` an input with type
+//   errors is reported and not run. The checker (typecheck/main.star) is
+//   compiled when first needed, and cached like any program.
+// - Commands: :help :history :type :types :check :reset :quit (or end of
+//   input).
 //
 // The session itself is host/repl_core.mjs, shared with the browser REPL
 // (web/); this file is its terminal, files and worker threads.
@@ -49,7 +55,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { MessageChannel, Worker } from "node:worker_threads";
 import { loadModule } from "./wasmhost.mjs";
-import { defaultCompiler } from "./wasmcache.mjs";
+import { fileURLToPath } from "node:url";
+import { compileStar, defaultCompiler } from "./wasmcache.mjs";
 import { Session } from "./repl_core.mjs";
 
 const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion"]);
@@ -134,6 +141,9 @@ const session = new Session({
   out: say,
   err: (t) => process.stderr.write(t),
   startProgram,
+  // the type checker, compiled by the compiler the REPL uses
+  checker: () => loadModule(compileStar(fileURLToPath(new URL("../typecheck/main.star", import.meta.url)), ["--recursion"],
+    otherArgs[0] !== undefined ? readFileSync(compilerPath) : null)),
 });
 
 // ---- input loop

@@ -155,6 +155,15 @@ if node tests/repl/browser_mode.mjs out/stage2.wasm < tests/repl/session.in > ou
 else
   echo "repl (browser mode): MISMATCH"; fail=1
 fi
+# The type checker in the REPL (:type, :types, :check), both ways.
+if node host/repl.mjs out/stage2.wasm < tests/repl/types.in > out/repl_types.out 2>&1 &&
+   diff -u tests/repl/types.out out/repl_types.out &&
+   node tests/repl/browser_mode.mjs out/stage2.wasm < tests/repl/types.in > out/repl_types_browser.out 2>&1 &&
+   diff -u tests/repl/types.out out/repl_types_browser.out; then
+  echo "repl types: ok"
+else
+  echo "repl types: MISMATCH"; fail=1
+fi
 
 # Independent validation, if wasm-tools is installed.
 if command -v wasm-tools > /dev/null; then

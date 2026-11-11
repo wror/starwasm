@@ -20,6 +20,9 @@ export const HELP = `Starlark REPL on the starwasm compiler. Each input recompil
 session (Starlark is deterministic, so the state is exactly reproduced).
   expression      prints its repr and sets _
   :history        show the inputs so far
+  :type expr      the type of an expression, or of a name (not evaluated)
+  :types          the types of everything defined so far
+  :check on|off   check the types of each input before running it (off)
   :reset          start over
   :quit           exit (or end of input)
   x = 5           with x reactive (x : ...): sent to the program as input
@@ -166,6 +169,20 @@ function onceCode(src, num) {
   };
 }
 
+// ---- types (the type checker: typecheck/, EXTENSIONS.md "Static types")
+
+// The session as the type checker sees it: what was typed, without the
+// code added to print values. An expression is `_ = (expr)`, so that `_`
+// has its type. Updates of reactive variables are left out. Returns
+// entries {num, code, offset} as mapPositions wants them.
+function typedEntries(entries) {
+  return codeOf(entries).map((c) => {
+    const expr = c.offset > 0; // compiled by echoCode or onceCode
+    return expr ? { num: c.num, code: `_ = (\n${c.src}\n)`, offset: 1 }
+      : { num: c.num, code: c.src.replace(/\s+$/, ""), offset: 0 };
+  });
+}
+
 // ---- the session
 
 /**
@@ -184,6 +201,9 @@ function onceCode(src, num) {
  *                 session.
  *   onChange()    (optional): called when the inputs accepted change, e.g.
  *                 to save journal() (web/: in the browser's localStorage)
+ *   checker()     (optional): the type checker (typecheck/main.star
+ *                 compiled; a WebAssembly.Module, or a promise of one), for
+ *                 :type, :types and :check; loaded when first needed
  */
 export class Session {
   constructor(opts) {
@@ -194,6 +214,71 @@ export class Session {
     this.live = null; // the program of the session, alive (see startProgram)
     this.inputNum = 0;
     this.buffer = []; // lines of an unfinished input
+    this.checking = false; // :check on
+    this.checkerModule = null;
+  }
+
+  // Run the type checker on entries (accepted inputs, plus `extra`: more
+  // text, e.g. an expression to type). args: more options for it. Returns
+  // {ok, stdout, error}: error is the diagnostics (or why it can't run),
+  // with positions as "<input N>:line:col".
+  async typecheck(entries, args = [], extra = null) {
+    if (!this.checker) return { ok: false, stdout: "", error: "the type checker is not available here\n" };
+    try {
+      this.checkerModule ??= await this.checker();
+    } catch (e) {
+      return { ok: false, stdout: "", error: `can't load the type checker: ${e.message}\n` };
+    }
+    const typed = typedEntries(entries);
+    if (extra) typed.push(extra);
+    // the checker reads the session from a file that only it sees
+    const path = this.sessionPath.replace(/(\.star)?$/, ".types.star");
+    const code = encoder.encode(typed.map((c) => c.code).join("\n") + "\n");
+    const out = [];
+    let err = "";
+    const status = runModule(this.checkerModule, {
+      progArgs: ["--repl", "--print", "--start=*", ...args, path],
+      stdout: (b) => out.push(b.slice()),
+      stderr: (t) => (err += t),
+      readFile: (p) => {
+        if (p === path) return code;
+        try {
+          return this.readFile(p);
+        } catch (e) {
+          if (p.endsWith(".start")) return new Uint8Array(0); // no annotations for that module
+          throw e;
+        }
+      },
+    });
+    const stdout = concatText(out);
+    if (status === 0) return { ok: true, stdout, error: "" };
+    // diagnostics on stdout, then fail("typecheck: N type errors in ...");
+    // a syntax error is a fail("file:line:col: message") alone
+    const m = /Error(?: in fail)?: (?:fail: )?(.*)$/.exec(err.trimEnd().split("\n").pop() ?? "");
+    const text = status === 1 && m ? (/^typecheck: \d+ type error/.test(m[1]) ? stdout : stdout + m[1] + "\n") : stdout + err;
+    // (a position past the last input, e.g. an unclosed bracket: at its end)
+    const last = typed[typed.length - 1];
+    const mapped = this.mapPositions(text, typed, path).replace(/<repl>:\d+:(\d+)/g,
+      (all, col) => last ? `<input ${last.num}>:${last.code.split("\n").length - last.offset}:${col}` : all);
+    return { ok: false, stdout: "", error: mapped };
+  }
+
+  // :type <expr>: the type of an expression (or the declaration of a name).
+  async showType(expr) {
+    if (expr === "") return this.out("usage: :type <expression>\n");
+    const name = /^[A-Za-z_]\w*$/.test(expr) && expr !== "_" ? expr : null;
+    const num = "?"; // (not an input of the session: errors say "<input ?>")
+    const r = name
+      ? await this.typecheck(this.history, [`--only=${name}`])
+      : await this.typecheck(this.history, ["--only=_"], { num, code: `_ = (\n${expr}\n)`, offset: 1 });
+    if (!r.ok) return this.err(r.error);
+    const decl = r.stdout.replace(/\n$/, "");
+    if (name && decl === "") {
+      // not defined in the session: a builtin, or undefined (says the checker)
+      const b = await this.typecheck(this.history, ["--only=_"], { num, code: `_ = (\n${expr}\n)`, offset: 1 });
+      return b.ok ? this.out(b.stdout.replace(/^_: /, "")) : this.err(b.error);
+    }
+    this.out((name ? decl : decl.replace(/^_: /, "")) + "\n");
   }
 
   // Accepted inputs: code {src: as typed, code: as compiled, offset: line in
@@ -201,12 +286,12 @@ export class Session {
   // {src, update: true}, sent as standard input.
 
   // Map a position in the session file back to "<input N>:line:col".
-  mapPositions(text, entries) {
+  mapPositions(text, entries, path = this.sessionPath) {
     const chunks = codeOf(entries);
     const updates = entries.filter((c) => c.update);
     text = text.replace(/<stdin>:(\d+):(\d+)/g, (all, n, col) =>
       updates[n - 1] ? `<input ${updates[n - 1].num}>:1:${col}` : all);
-    const re = new RegExp(`${this.sessionPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:(\\d+):(\\d+)`, "g");
+    const re = new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:(\\d+):(\\d+)`, "g");
     return text.replace(re, (_, ln, col) => {
       let line = Number(ln);
       for (let i = 0; i < chunks.length; i++) {
@@ -306,6 +391,15 @@ export class Session {
     }
     if (!candidates.length || !candidates[0].update) candidates.push({ src, num, ...statementCode(src, num, reactiveNames(history)) });
 
+    if (this.checking && !candidates[0].update) {
+      // :check on: an input with type errors is not run
+      const expr = !looksLikeStatement(src);
+      const t = await this.typecheck(history, [], expr
+        ? { num, code: `_ = (\n${src}\n)`, offset: 1 }
+        : { num, code: src.replace(/\s+$/, ""), offset: 0 });
+      if (!t.ok) return this.err(t.error);
+    }
+
     let result;
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i];
@@ -376,6 +470,16 @@ export class Session {
       this.printed = "";
       this.onChange?.();
       this.out("session cleared\n");
+    } else if (cmd === ":types") {
+      return this.typecheck(this.history).then((r) =>
+        r.ok ? this.out(r.stdout.replace(/^(#.*\n|\n)*/, "")) : this.err(r.error)).then(() => null);
+    } else if (/^:type(\s|$)/.test(cmd)) {
+      return this.showType(cmd.slice(5).trim()).then(() => null);
+    } else if (/^:check(\s|$)/.test(cmd)) {
+      const arg = cmd.slice(6).trim();
+      if (arg === "on" || arg === "off") this.checking = arg === "on";
+      this.out(arg === "on" || arg === "off" || arg === ""
+        ? `type checking of inputs is ${this.checking ? "on" : "off"}\n` : "usage: :check on|off\n");
     } else if (cmd === ":history") {
       for (const c of this.history) this.out(`# <input ${c.num}>${c.update ? " (update)" : ""}\n${c.src.replace(/\s+$/, "")}\n`);
     } else {
