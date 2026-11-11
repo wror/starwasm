@@ -1,0 +1,1 @@
+tests/types/err_syntax.start:2:7: got identifier after limit, want ':' and its type (`limit: type`)

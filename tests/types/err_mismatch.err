@@ -1,0 +1,52 @@
+tests/types/err_mismatch.star:13:12: error: return value of parse(): expected int, got str
+   13 |     return "zero"
+      |            ^
+tests/types/err_mismatch.star:12:16: note: int is expected because of this (return value of parse())
+   12 |         return 0
+      |                ^
+tests/types/err_mismatch.star:15:18: error: argument 'name' of greet(): expected str, got int
+   15 | greeting = greet(42)
+      |                  ^
+tests/types/err_mismatch.star:5:21: note: str is expected because of this (operand of +)
+    5 |     return "hello " + name
+      |                     ^
+tests/types/err_mismatch.star:17:1: error: assignment to 'count': expected int, got str
+   17 | count = "none"
+      | ^
+tests/types/err_mismatch.star:16:1: note: int is expected because of this (assignment to 'count')
+   16 | count = 0
+      | ^
+tests/types/err_mismatch.star:18:17: error: list elements have different types: int vs str
+   18 | scores = [1, 2, "three"]
+      |                 ^
+tests/types/err_mismatch.star:19:23: error: dict values have different types: int vs str
+   19 | table = {"a": 1, "b": "two"}
+      |                       ^
+tests/types/err_mismatch.star:20:11: error: cannot apply + to int and str
+   20 | total = 1 + "1"
+      |           ^
+tests/types/err_mismatch.star:21:12: error: argument 'x' of len(): int has no len()
+   21 | size = len(5)
+      |            ^
+tests/types/err_mismatch.star:22:16: error: argument 'n' of double(): expected int, got str
+   22 | limit = double("x") + 1
+      |                ^
+tests/types/err_mismatch.star:8:14: note: int is expected because of this (operand of *)
+    8 |     return n * 2
+      |              ^
+tests/types/err_mismatch.star:23:16: error: cannot add lists of different types: list[bool] + list[str]
+   23 | flags = [True] + ["yes"]
+      |                ^
+tests/types/err_mismatch.star:23:10: note: bool comes from here (True)
+   23 | flags = [True] + ["yes"]
+      |          ^
+tests/types/err_mismatch.star:24:14: error: index of list[Any]: expected int, got str
+   24 | item = scores["first"]
+      |              ^
+tests/types/err_mismatch.star:25:11: error: str is not iterable (use .elems() or .codepoints())
+   25 | for ch in "abc":
+      |           ^
+tests/types/err_mismatch.star:27:1: error: cannot unpack tuple[int, int, int] (3 elements) into 2 variables
+   27 | first, second = (1, 2, 3)
+      | ^
+12 type errors in tests/types/err_mismatch.star

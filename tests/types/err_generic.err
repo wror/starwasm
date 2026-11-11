@@ -1,0 +1,70 @@
+tests/types/err_generic.star:25:6: error: argument 'x' of size(): int has no len()
+   25 | size(3)
+      |      ^
+tests/types/err_generic.star:26:7: error: argument 'xs' of total(): int is not iterable
+   26 | total(7)
+      |       ^
+tests/types/err_generic.star:9:14: note: required here (for loop over it)
+    9 |     for x in xs:
+      |              ^
+tests/types/err_generic.star:27:7: error: argument 'xs' of total(): expected int, got str
+   27 | total(["a", "b"])
+      |       ^
+tests/types/err_generic.star:9:14: note: required here (for loop over it)
+    9 |     for x in xs:
+      |              ^
+tests/types/err_generic.star:8:9: note: int is expected because of this (an int literal)
+    8 |     t = 0
+      |         ^
+tests/types/err_generic.star:28:9: error: argument 'a' of biggest(): None values cannot be ordered with < or >
+   28 | biggest(None, None)
+      |         ^
+tests/types/err_generic.star:14:19: note: required here (operand of >)
+   14 |     return a if a > b else b
+      |                   ^
+tests/types/err_generic.star:29:12: error: argument 'b' of biggest(): expected int, got str
+   29 | biggest(1, "a")
+      |            ^
+tests/types/err_generic.star:29:9: note: int is expected because of this (an int literal)
+   29 | biggest(1, "a")
+      |         ^
+tests/types/err_generic.star:30:8: error: argument 'b' of add(): cannot apply + to int and str
+   30 | add(1, "a")
+      |        ^
+tests/types/err_generic.star:17:14: note: required here (operand of +)
+   17 |     return a + b
+      |              ^
+tests/types/err_generic.star:31:10: error: argument 'b' of add(): expected list[int], got tuple[int]
+   31 | add([1], (2,))
+      |          ^
+tests/types/err_generic.star:17:14: note: list[int] is expected because of this (operand of +)
+   17 |     return a + b
+      |              ^
+tests/types/err_generic.star:32:12: error: argument 'i' of at(): expected int, got str
+   32 | at([1, 2], "zero")
+      |            ^
+tests/types/err_generic.star:20:13: note: int is expected because of this (indexing)
+   20 |     return c[i]
+      |             ^
+tests/types/err_generic.star:33:4: error: argument 'c' of at(): int is not indexable
+   33 | at(5, 0)
+      |    ^
+tests/types/err_generic.star:20:13: note: required here (indexing)
+   20 |     return c[i]
+      |             ^
+tests/types/err_generic.star:34:22: error: argument 'field' of keyed(): expected struct[b: _, ...], got struct[a: int]: no field 'b'
+   34 | keyed(struct(a = 1), "b")
+      |                      ^
+tests/types/err_generic.star:34:7: note: required here (argument 'r' of keyed())
+   34 | keyed(struct(a = 1), "b")
+      |       ^
+tests/types/err_generic.star:23:23: note: field 'b' comes from here (field name of getattr())
+   23 |     return getattr(r, field)
+      |                       ^
+tests/types/err_generic.star:35:7: error: argument 'r' of keyed(): expected struct[_: _, ...], got list[int]
+   35 | keyed([1], "a")
+      |       ^
+tests/types/err_generic.star:23:23: note: struct[_: _, ...] is expected because of this (field name of getattr())
+   23 |     return getattr(r, field)
+      |                       ^
+11 type errors in tests/types/err_generic.star

@@ -1,0 +1,22 @@
+# Types inferred from language.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in language.start instead.
+
+def pair[A, B](a: A, b: B) -> tuple[A, B]
+def field_named_l[L, **R](r: struct["L": L, **R]) -> L
+def apply[T, U, X: Iterable[T]](f: (T) -> U | None, xs: X, fallback: U | None = ...) -> list[U | None]:
+    out: list[U | None]
+    x: T
+    v: U | None
+def outer[T](x: T, n: int) -> list[T]:
+    def repeat(v: T) -> list[T]
+    def unannotated(v: T) -> list[T]
+def norm[N: (int, float) & Add[N, N], **R](v: struct[x: N, y: N, **R]) -> N
+def keys_and_sizes[K, V: Sized](d: dict[K, V]) -> list[tuple[K, int]]
+def run(callback: ((name: str, *rest: int, **options: Any) -> int) | None = ...) -> int
+def scale[T: Mul[int, T]](x: T, k: int = ...) -> T
+def nothing() -> None
+table: list[tuple[str, int]]
+lookup: dict[str, int | None]
+maybe: ((int, str) -> bool) | None
+unit: tuple[()]
+several: tuple[int, ...]

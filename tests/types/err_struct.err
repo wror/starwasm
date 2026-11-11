@@ -1,0 +1,61 @@
+tests/types/err_struct.star:10:12: error: struct has no field 'z'; it has 'x', 'y'
+   10 | print(point.z)
+      |            ^
+tests/types/err_struct.star:9:9: note: the struct is struct[x: int, y: int] (a struct made here)
+    9 | point = struct(x = 1, y = 2)
+      |         ^
+tests/types/err_struct.star:11:12: error: struct has no field 'X' (did you mean 'x'?); it has 'x', 'y'
+   11 | print(point.X)
+      |            ^
+tests/types/err_struct.star:9:9: note: the struct is struct[x: int, y: int] (a struct made here)
+    9 | point = struct(x = 1, y = 2)
+      |         ^
+tests/types/err_struct.star:12:10: error: argument 'shape' of area(): expected struct[width: _, height: _, ...], got struct[width: int, hieght: int]: no field 'height' (did you mean 'hieght'?)
+   12 | a = area(struct(width = 3, hieght = 4))
+      |          ^
+tests/types/err_struct.star:4:31: note: field 'height' comes from here (.height is used here)
+    4 |     return shape.width * shape.height
+      |                               ^
+tests/types/err_struct.star:13:13: error: argument 'x' of name_of(): expected struct[name: _, ...], got struct[x: int, y: int]: no field 'name'
+   13 | b = name_of(point)
+      |             ^
+tests/types/err_struct.star:7:13: note: field 'name' comes from here (.name is used here)
+    7 |     return x.name
+      |             ^
+tests/types/err_struct.star:14:13: error: argument 'x' of name_of(): expected struct[name: _, ...], got str
+   14 | c = name_of("text")
+      |             ^
+tests/types/err_struct.star:7:13: note: struct[name: _, ...] is expected because of this (.name is used here)
+    7 |     return x.name
+      |             ^
+tests/types/err_struct.star:15:6: error: cannot assign to field 'x' of struct[x: int, y: int]: structs are immutable (make a new one: s + struct(x = ...))
+   15 | point.x = 5
+      |      ^
+tests/types/err_struct.star:16:10: error: a struct is not indexable: use .name, or getattr(x, "name")
+   16 | d = point["x"]
+      |          ^
+tests/types/err_struct.star:19:32: error: cannot tell which field 'id' of struct[..., id: int] this is: before it come other fields, which may include one named 'id', and the first field of a name is the one that counts
+   19 |     return (struct(id = 0) + r).id
+      |                                ^
+tests/types/err_struct.star:24:16: error: argument 'field' of get(): expected struct[w: _, ...], got struct[x: int, y: int]: no field 'w'
+   24 | e = get(point, "w")
+      |                ^
+tests/types/err_struct.star:24:9: note: required here (argument 'r' of get())
+   24 | e = get(point, "w")
+      |         ^
+tests/types/err_struct.star:22:23: note: field 'w' comes from here (field name of getattr())
+   22 |     return getattr(r, field)
+      |                       ^
+tests/types/err_struct.star:25:20: error: struct has no field 'q'; it has 'x', 'y'
+   25 | f = getattr(point, "q")
+      |                    ^
+tests/types/err_struct.star:9:9: note: the struct is struct[x: int, y: int] (a struct made here)
+    9 | point = struct(x = 1, y = 2)
+      |         ^
+tests/types/err_struct.star:26:19: error: field 'a' is given twice
+   26 | g = struct(a = 1, a = 2)
+      |                   ^
+tests/types/err_struct.star:27:11: error: cannot apply + to struct[x: int, y: int] and int
+   27 | h = point + 1
+      |           ^
+12 type errors in tests/types/err_struct.star

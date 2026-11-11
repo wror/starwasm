@@ -1,0 +1,57 @@
+# Types inferred from infer.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in infer.start instead.
+
+count: int
+ratio: float
+name: str
+raw: bytes
+flag: bool
+nothing: None
+numbers: list[int]
+mixed_numbers: list[float]
+pair: tuple[int, str]
+ages: dict[str, int]
+empty: list[Any]
+nested: list[list[int]]
+seen: set[int]
+def identity[T](x: T) -> T
+def twice[T](f: (T) -> T, x: T) -> T
+def inc(x: int) -> int
+def half(x: float) -> float
+def greet(name: str, punctuation: str = ...) -> str
+def first[T: GetItem[int, U], U](xs: T) -> U
+def total[T: Iterable[int]](xs: T) -> int:
+    t: int
+    x: int
+def swap[T, U](p: tuple[T, U]) -> tuple[U, T]:
+    a: T
+    b: U
+def compose[T, U, V](f: (T) -> U, g: (V) -> T) -> (x: V) -> U
+def apply_all[T: Iterable[(U) -> V], U, V](fs: T, x: U) -> list[V]
+def describe[T, U](*args: T, sep: str = ..., **kwargs: U) -> str
+def nothing_much() -> None
+i: int
+s: str
+four: int
+quarter: float
+hello: str
+head: int
+initial: str
+sum_: int
+sum_ages: int
+swapped: tuple[str, int]
+length_plus_one: (x: str) -> int
+n: int
+results: list[int]
+text: str
+squares: list[int]
+by_length: dict[str, int]
+upper: str
+ordered: list[tuple[str, int]]
+longest: int
+zipped: list[tuple[int, str]]
+indexed: list[tuple[int, int]]
+last: int
+tail: list[int]
+found: int | None
+found_or_zero: int

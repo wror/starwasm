@@ -1,0 +1,33 @@
+# Types inferred from optional.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in optional.start instead.
+
+def find[T: Iterable[U], U, V](xs: T, want: V) -> U | None:
+    x: U
+def after_test[T: Iterable[int]](xs: T) -> int:
+    r: int | None
+def in_conditional[T: Iterable[int]](xs: T) -> int:
+    r: int | None
+def reassigned(d: dict[str, int]) -> int:
+    v: int | None
+def or_default(d: dict[str, int]) -> int:
+    v: int | None
+def and_test[T: Container[U] & GetItem[U, int], U](d: T, k: U) -> int:
+    v: int | None
+def best_of[T, U: Ordered](d: dict[T, U]) -> U | None:
+    best: U | None
+    k: T
+    v: U
+def greet(name: str | None = ...) -> str
+def length[X: Sized](s: X | None) -> int
+def previous[T: Iterable[U], U: Sub[U, V], V](xs: T) -> list[V]:
+    prev: U | None
+    out: list[V]
+    x: U
+def lookup[T: Container[U] & GetItem[U, V | None], U, V](d: T, key: U, default: V | None = ...) -> V | None
+top: int | None
+hi: str
+hi_bob: str
+zero: int
+three: int
+steps: list[int]
+hit: int | None

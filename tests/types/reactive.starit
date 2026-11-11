@@ -1,0 +1,11 @@
+# Types inferred from reactive.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in reactive.start instead.
+
+width: int
+height: int
+size: float
+total: float
+request: struct[id: int, name: str, qty: int]
+order: list[struct[id: int, product: str, size: int]]
+line: list[struct[product: str, count: int, id: int]]
+summary: struct[id: int, last: str, lines: int]

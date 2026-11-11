@@ -1,0 +1,22 @@
+tests/types/err_none.star:11:13: error: the value may be None (it is _ | None): test it against None before using .upper
+   11 |     return v.upper()
+      |             ^
+tests/types/err_none.star:15:14: error: left operand of + may be None (it is _ | None): test it against None first
+   15 |     return r + 1
+      |              ^
+tests/types/err_none.star:18:18: error: argument 'start_or_stop' of range(): expected int, got _ | None: the value may be None
+   18 |     return range(n)
+      |                  ^
+tests/types/err_none.star:24:23: error: argument 'n' of takes_int(): expected int, got _ | None: the value may be None
+   24 |     return takes_int(d.get("a"))
+      |                       ^
+tests/types/err_none.star:21:14: note: int is expected because of this (operand of +)
+   21 |     return n + 1
+      |              ^
+tests/types/err_none.star:27:13: error: the value may be None (it is _ | None): test it against None before using .name
+   27 |     return p.name
+      |             ^
+tests/types/err_none.star:31:11: error: left operand of + may be None (it is _ | None): test it against None first
+   31 |     w = v + 1
+      |           ^
+6 type errors in tests/types/err_none.star

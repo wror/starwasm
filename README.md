@@ -12,6 +12,7 @@ From a checkout, with Go and Node ≥ 22:
     (cd host && go build -o ../bin/starhost .)
     node host/repl.mjs                 # the REPL in a terminal
     node host/run.mjs prog.star        # run a program
+    node host/typecheck.mjs prog.star  # check its types (infers them into prog.starit)
     ./test.sh                          # everything
 
 See [NOTES.md](NOTES.md) for the design and layout, and

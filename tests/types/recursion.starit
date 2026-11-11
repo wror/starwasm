@@ -1,0 +1,41 @@
+# Types inferred from recursion.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in recursion.start instead.
+
+def fact(n: int) -> int
+def is_even(n: int) -> bool
+def is_odd(n: int) -> bool
+def depth[T: Iterable[struct[children: T, **R]], **R](tree: struct[children: T, **R]) -> int
+def flatten[T: Iterable[U], U](xs: T, out: list[U]) -> list[U]:
+    x: U
+def uses_later() -> list[int]
+def later(n: int) -> list[int]
+def counter[T: Add[U, T], U](start: T) -> (by: U) -> T:
+    state: list[T]
+    def bump(by: U) -> T
+def pairs[T: Iterable[U], U](xs: T) -> list[tuple[U, U]]:
+    def pair[V](x: V) -> tuple[V, V]
+def outer[T](k: T) -> list[T]:
+    def middle(v: T) -> (w: T) -> list[T]:
+        def inner(w: T) -> list[T]
+def ping[T](x: T, n: int) -> T
+def pong[T](x: T, n: int) -> T
+def tree_sum[T: Add[T, T], U: Iterable[struct[value: T, kids: U, **R]], **R](t: struct[value: T, kids: U, **R]) -> T:
+    def go[V: Add[V, V], W: Iterable[struct[value: V, kids: W, **R2]], **R2](n: struct[value: V, kids: W, **R2]) -> V:
+        s: V
+        c: struct[value: V, kids: W, **R2]
+def choose[T](flag: T) -> int:
+    pick: (a: int, b: int) -> int
+leaf: struct[value: int, kids: list[Any]]
+tree: struct[value: int, kids: list[struct[value: int, kids: list[Any]]]]
+sum_: int
+levels: int
+ping_int: int
+ping_str: str
+six: int
+even: bool
+c: (by: int) -> int
+eleven: int
+twins: list[tuple[str, str]]
+numbers: list[tuple[int, int]]
+triple: list[str]
+later_list: list[int]
