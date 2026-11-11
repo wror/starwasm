@@ -60,4 +60,18 @@ for (const text of [
 // in a block being typed: also the names in its lines
 await session.feed("def scaled(point, factor):");
 await show("    return po");
-await show("    return point."); // (its type is not known before the block ends)
+await show("    return point."); // a parameter: nothing is known of it yet
+
+// ... and after a ".", what the checker knows at that point of the block:
+// loop variables, locals, and the fields a parameter was used with so far
+await session.feed("    for b in boxes:");
+await show("        b.");
+await show("        total = factor * b.he");
+await session.feed("        label = b.name");
+await show("        label.sp");
+await session.feed("        w = point.width + point.depth");
+await show("    return point.");
+await show("    return sizes.");
+await show("return box."); // (a line that doesn't fit the block: as at top level)
+await session.feed("    return (label,");
+await show("        box."); // (in an open bracket: as at top level)
