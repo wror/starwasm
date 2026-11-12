@@ -525,10 +525,10 @@ and a None knows where it comes from.
 - Not covered:
   - A None *inside* a container handed to a builtin is the builtin's
     business, with the usual errors: `sorted([1, None])`,
-    `",".join(["a", None])`, `"%d" % (None,)`, `[None] < [1]`. And inside
-    the prelude all Nones are equal: `[x] == [None]` is True, `x in [None]`
-    isn't reached (None), but `[None].index(x)`... is None too; `{x: 1}`
-    has the one key None.
+    `",".join(["a", None])`, `"%d" % (None,)`, `[None] < [1]`.
+    Inside containers all Nones are equal: `[x] == [None]` is True (its
+    operands are lists), and a dict display with two keys that are both
+    None fails as a repeated key.
   - Arguments for which starlark-go reads None as "not given"
     (`s.split(None)`, `s.find(t, None)`, a slice bound) are operations
     here: the result is None.
