@@ -80,7 +80,7 @@ def iter_obj(v):
 
 def _absent(v):
     """i32: optional argument omitted (null) or None."""
-    return or_(is_null(v), ref_eq(v, gget("None")))
+    return or_(is_null(v), is_("NoneType", v))
 
 def _items(v):
     return field("Tuple", "items", v)
@@ -1317,7 +1317,7 @@ def _intrinsics(m):
             set("t", _items(as_("Tuple", get("x")))),
             for_i32("i", i32(0), arr_len(get("t")), [
                 set("r", call("rt_unhashable", arr_get("Vals", get("t"), get("i")))),
-                if_(eqz(ref_eq(get("r"), gget("None"))), ret(get("r"))),
+                if_(eqz(is_("NoneType", get("r"))), ret(get("r"))),
             ]),
             ret(gget("None")),
         ]),
@@ -1325,7 +1325,7 @@ def _intrinsics(m):
             set("t", _items(call("rt_iter", call("rt_m_values", field("Struct", "d", as_("Struct", get("x"))))))),
             for_i32("i", i32(0), arr_len(get("t")), [
                 set("r", call("rt_unhashable", arr_get("Vals", get("t"), get("i")))),
-                if_(eqz(ref_eq(get("r"), gget("None"))), ret(get("r"))),
+                if_(eqz(is_("NoneType", get("r"))), ret(get("r"))),
             ]),
             ret(gget("None")),
         ]),
@@ -1651,7 +1651,7 @@ def _objects(m):
     add_global(m, "callname_depth", I32, True, [i32(0)])
     add_func(m, "rt_obj_call", [("f", V), ("args", VALS), ("kw", V)], [V], locals = [("name", V), ("na", VALS), ("r", V)], body = [
         set("name", obj_op(OBJ_CALLNAME, get("f"))),
-        if_(ref_eq(get("name"), gget("None")), type_err1(m, "invalid call of non-function (", get("f"), ")")),
+        if_(is_("NoneType", get("name")), type_err1(m, "invalid call of non-function (", get("f"), ")")),
         if_(is_null(gget("callnames")), gset("callnames", arr_new_default("Vals", i32(8)))),
         if_(op("i32.eq", gget("callname_depth"), arr_len(non_null(gget("callnames")))), [
             set("na", arr_new_default("Vals", op("i32.shl", gget("callname_depth"), i32(1)))),

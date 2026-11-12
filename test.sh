@@ -126,7 +126,7 @@ fi
 n=0
 nerr=0
 for src in tests/compile/*.star tests/compile_errors/*.star tests/extensions/*.star; do
-  gr="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign' || true)$(grep -q '^# option:recursion' "$src" && printf ' --recursion' || true)"
+  gr="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign' || true)$(grep -q '^# option:recursion' "$src" && printf ' --recursion' || true)$(grep -q '^# option:contagiousnone' "$src" && printf ' --contagiousnone' || true)$(grep -q '^# option:nocontagiousnone' "$src" && printf ' --nocontagiousnone' || true)"
   s1=0; bin/starhost --recursion compiler/main.star $gr "$src" out/bs_interp.wasm 2> out/bs_interp.err || s1=1
   s2=0; node host/run.mjs out/stage2.wasm -- $gr "$src" out/bs_self.wasm 2> out/bs_self.err || s2=1
   if [ $s1 = 0 ] && [ $s2 = 0 ] && cmp -s out/bs_interp.wasm out/bs_self.wasm; then

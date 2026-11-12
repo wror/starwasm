@@ -11,6 +11,10 @@
 #   temp(fc, type)               a fresh Wasm local
 #   free_cell(idx)               the $Cell of captured variable idx
 #   callat(mc, posn, f, *args)   call f, with a source marker for tracebacks
+#   gen(mc, fc, e)               code for expression e (a value)
+#   gen_cond(mc, fc, e)          code for e as an i32 truth value
+#   gen_assign(mc, fc, t, value, posn)   code assigning code `value` to target t
+#   aug_fn(op)                   the runtime function of `x op= y`
 # plus the codegen contexts mc (module) and fc (function).
 #
 # Hook points:
@@ -19,6 +23,21 @@
 #       is the name's lookup result.
 #   dynamic_call(cg, mc, fc, callee, e)
 #       a call through a value; callee is the code computing the function.
+#   expr(cg, mc, fc, e)
+#       any expression e, before codegen compiles it (gen).
+#   cond(cg, mc, fc, e)
+#       an expression compiled as a condition (gen_cond): i32 code.
+#   assign(cg, mc, fc, t, value, posn)
+#       an assignment of code `value` to target t (gen_assign).
+#   stmt(cg, mc, fc, s)
+#       any statement s (gen_stmt).
+# A hook that wants codegen's own code for a node it changed (say, with its
+# operands evaluated beforehand) calls cg["gen"] and so on with a copy of
+# the node, marked so that it passes it the second time; an operand already
+# evaluated is a node {"kind": "%code", "code": ..., "pos": ..., "orig": the
+# node it stands for}. A node with "hooked": True is one a hook means to
+# compile: codegen takes no shortcut past gen for it (a for loop over a
+# range(...) call doesn't become a counted loop).
 #
 # Whole-program hook points, in the order compile_program calls them (every
 # extension's hook is called; mc["ext"] is a dict for their state):
@@ -52,14 +71,31 @@ load(
     reactive_transform = "transform",
 )
 
+load(
+    "ext/none.star",
+    NONE_INTRINSICS = "INTRINSICS",
+    none_assign = "assign",
+    none_cond = "cond",
+    none_expr = "expr",
+    none_prelude = "prelude",
+    none_runtime = "runtime",
+    none_stmt = "stmt",
+    none_transform = "transform",
+)
+
 DIRECT_CALL = [dir_direct_call, reactive_direct_call]
 DYNAMIC_CALL = [dir_dynamic_call]
-TRANSFORM = [reactive_transform]
+EXPR = [none_expr]
+COND = [none_cond]
+ASSIGN = [none_assign]
+STMT = [none_stmt]
+TRANSFORM = [reactive_transform, none_transform]  # none: on by default if reactive is in use
 IMPORTS = [reactive_imports]
-RUNTIME = [reactive_runtime]
-PRELUDE = [reactive_prelude]
+RUNTIME = [reactive_runtime, none_runtime]
+PRELUDE = [reactive_prelude, none_prelude]
 
 EXT_INTRINSICS = dict(REACTIVE_INTRINSICS)
+EXT_INTRINSICS.update(NONE_INTRINSICS)
 
 def ext_transform(cg, mc):
     for hook in TRANSFORM:
@@ -92,6 +128,34 @@ def ext_direct_call(cg, mc, fc, e, kind, w):
 def ext_dynamic_call(cg, mc, fc, callee, e):
     for hook in DYNAMIC_CALL:
         code = hook(cg, mc, fc, callee, e)
+        if code != None:
+            return code
+    return None
+
+def ext_expr(cg, mc, fc, e):
+    for hook in EXPR:
+        code = hook(cg, mc, fc, e)
+        if code != None:
+            return code
+    return None
+
+def ext_cond(cg, mc, fc, e):
+    for hook in COND:
+        code = hook(cg, mc, fc, e)
+        if code != None:
+            return code
+    return None
+
+def ext_assign(cg, mc, fc, t, value, posn):
+    for hook in ASSIGN:
+        code = hook(cg, mc, fc, t, value, posn)
+        if code != None:
+            return code
+    return None
+
+def ext_stmt(cg, mc, fc, s):
+    for hook in STMT:
+        code = hook(cg, mc, fc, s)
         if code != None:
             return code
     return None

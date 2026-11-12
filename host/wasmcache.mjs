@@ -212,7 +212,7 @@ const compilers = new Map(); // compiler bytes' hash -> WebAssembly.Module
 /**
  * The Wasm bytes of src (a .star path, as the user gave it) compiled with
  * the compiler options flags (--test, --globalreassign, --recursion,
- * --descriptor_set=FILE): from the cache if fresh, else compiled (by the
+ * --contagiousnone, --nocontagiousnone, --descriptor_set=FILE): from the cache if fresh, else compiled (by the
  * compiler Wasm compilerBytes, default defaultCompiler()) and cached.
  * Throws CompileError on a compile error.
  */

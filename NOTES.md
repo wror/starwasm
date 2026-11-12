@@ -37,7 +37,9 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     compiler/resolve.star scope analysis: which variables closures capture (cells)
     compiler/codegen.star AST -> Wasm module (scopes, calls, loops, closures)
     compiler/extensions.star  hook points for extensions (EXTENSIONS.md)
-    compiler/ext/         one file per extension (dir.star: zero-arg dir())
+    compiler/ext/         one file per extension (dir.star: zero-arg dir();
+                          reactive.star: reactive variables; none.star:
+                          contagious None with provenance)
     compiler/main.star    driver: starhost compiler/main.star in.star out.wasm
     typecheck/            static type checking and inference, in Starlark (an
                           extension: EXTENSIONS.md, "Static types"); main.star
@@ -100,7 +102,8 @@ Every Starlark value is an `eqref`:
 | Starlark | Wasm |
 |---|---|
 | int | `i31ref` if −2^30 ≤ n < 2^30, else `$Int {i64}`, else `$Big {neg, mag: $I32A}`; always normalized |
-| None / True / False | singleton structs in immutable globals |
+| None | `$NoneType {via, prev}`; the plain one is a global, and the only one unless the contagious-None extension gives Nones a provenance (EXTENSIONS.md). Tested by type, not identity |
+| True / False | singleton structs in immutable globals |
 | string | `$Str {mut hash i32, b: $U8}`, UTF-8, byte-indexed like starlark-go |
 | tuple | `$Tuple {items: $Vals}` |
 | list | `$List {mut len, mut items: $Vals}`, doubling growth |

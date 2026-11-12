@@ -1,13 +1,15 @@
 // repl.mjs — an interactive Starlark session on top of the compiler.
 //
-//   node host/repl.mjs [--globalreassign] [--recursion] [compiler.wasm]
+//   node host/repl.mjs [--globalreassign] [--recursion] [--contagiousnone | --nocontagiousnone] [compiler.wasm]
 //                       (default: compiler/main.star, compiled when needed
 //                        by host/wasmcache.mjs, as host/run.mjs does)
 //
 // The session is compiled in starlark-go's default dialect, as files are:
 // no rebinding a top-level name in a later input (but `_`), no while
 // loops, no if/for at top level, no recursion; the flags turn on the
-// compiler's options of the same name.
+// compiler's options of the same name (--contagiousnone and
+// --nocontagiousnone: the "contagious None" extension, on by default once
+// the session has reactive variables; EXTENSIONS.md).
 //
 // How it works: "replay". The session is the list of inputs accepted so far.
 // Each new input is appended, the whole session is recompiled (by the
@@ -59,7 +61,7 @@ import { fileURLToPath } from "node:url";
 import { compileStar, defaultCompiler } from "./wasmcache.mjs";
 import { Session } from "./repl_core.mjs";
 
-const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion"]);
+const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion", "--contagiousnone", "--nocontagiousnone"]);
 const dialectFlags = process.argv.slice(2).filter((a) => DIALECT_FLAGS.has(a));
 const otherArgs = process.argv.slice(2).filter((a) => !DIALECT_FLAGS.has(a));
 const compilerPath = otherArgs[0] ?? "compiler/main.star";

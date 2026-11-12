@@ -266,6 +266,7 @@ def parse_struct_block(p, t):
     n["lparen"] = pos(colon)
     n["fn"] = fn
     n["args"] = args
+    n["block"] = True  # written as a struct block
     return n
 
 def parse_def(p):
