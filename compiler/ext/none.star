@@ -26,6 +26,11 @@
 #    and calls through values run in a Wasm `try` (_protect) that turns a
 #    failure whose message mentions NoneType into a None.
 #
+#    While a reactive program is updated (rt_none_try, used by the reactive
+#    runtime), the same `try`s catch every error, and the error becomes a
+#    None whose trace starts with ("error", message, file, line): after its
+#    first run, such a program doesn't stop on an error.
+#
 # 2. Provenance. A None is a $NoneType struct {via, prev} (lib/runtime.star):
 #    `via` is an entry (kind, id, file, line), a tuple, and `prev` the None
 #    it was before. transform marks the places a None passes through
@@ -50,6 +55,7 @@ load(
     "arr_get",
     "arr_len",
     "arr_new",
+    "arr_new_default",
     "as_",
     "call",
     "eqz",
@@ -89,7 +95,10 @@ NONET = ref("NoneType", True)
 #   _none_skip(f, pos, kw)    calling f(*pos, **kw) is an operation on None
 #                             (f is a builtin and an argument it doesn't
 #                             just store is None): that None; else False
+#   _none_try(f)              f(), with every error caught: a None whose
+#                             trace starts with the error
 INTRINSICS = {
+    "_none_try": ("rt_none_try", 1, 1),
     "_none_via": ("rt_none_via", 2, 2),
     "_none_trace": ("rt_none_trace", 1, 1),
     "_none_skip": ("rt_none_skip_v", 3, 3),
@@ -328,22 +337,21 @@ def _guard(cg, mc, fc, e, keys):
         setup.append(set(t, cg["gen"](mc, fc, e[key])))
         temps.append(t)
         changes[key] = _code(t, e[key])
-    code = cg["gen"](mc, fc, _core(e, **changes))
-    if e["kind"] == "binop":
-        code = _protect(cg, mc, fc, code, ("operator", e["op"], e["pos"][0]))
-    return [setup, _first_none(temps, code)]
+    return [setup, _first_none(temps, _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, **changes))))]
 
-def _protect(cg, mc, fc, code, entry, marked = [], result = V):
-    """code (an operation on values that aren't None), not failing because
-    of a None further in, among a list's elements, say: a failure whose
-    message mentions NoneType (rt_fail_ex throws those while catch_depth
-    is up) makes the result a None that starts here, at entry (for a
-    condition, result I32: false). What the unwinding skipped is put
-    right: the call depth, and the iteration counts of the values in the
-    locals `marked` (the operation's arguments), which a builtin looping
-    over them had raised."""
+def _protect(cg, mc, fc, code, marked = [], result = V):
+    """code (an operation on values that aren't None), not failing: an
+    error that rt_fail_ex throws while catch_depth is up (one whose message
+    mentions NoneType, so the doing of a None further in, among a list's
+    elements, say; or any error at all while a reactive program is
+    updated: catch_all) makes the result a None whose trace starts with
+    the error, ("error", message, file, line) (for a condition, result
+    I32: false). What the unwinding skipped is put right: the call depth,
+    and the iteration counts of the values in the locals `marked` (the
+    operation's arguments), which a builtin looping over them had raised."""
     d = cg["temp"](fc, I32)
     cd = cg["temp"](fc, I32)
+    err = cg["temp"](fc, V)
     saves = []
     restores = []
     for t in marked:
@@ -358,10 +366,10 @@ def _protect(cg, mc, fc, code, entry, marked = [], result = V):
         ("try", result),
         code,
         ("catch", "caught"),
-        "drop",
+        set(err, []),
         gset("call_depth", get(cd)),
         restores,
-        _origin(mc, entry) if result == V else i32(0),
+        new("NoneType", get(err), NONE) if result == V else i32(0),
         "end",
         gset("catch_depth", get(d)),
     ]
@@ -438,7 +446,7 @@ def cond(cg, mc, fc, e):
             set(tx, cg["gen"](mc, fc, e["x"])),
             set(ty, cg["gen"](mc, fc, e["y"])),
             if_(or_(_is_none(tx), _is_none(ty)), i32(0),
-                _protect(cg, mc, fc, cg["gen_cond"](mc, fc, e2), None, result = I32), result = I32),
+                _protect(cg, mc, fc, cg["gen_cond"](mc, fc, e2), result = I32), result = I32),
         ]
     if k == "unop" and e["op"] == "not":
         t = cg["temp"](fc, V)
@@ -507,8 +515,7 @@ def stmt(cg, mc, fc, s):
     value = [
         set(a, cur),
         set(b, cg["gen"](mc, fc, s["rhs"])),
-        _first_none([a, b], _protect(cg, mc, fc, cg["callat"](mc, s["oppos"], cg["aug_fn"](s["op"]), get(a), get(b)),
-                                     ("operator", s["op"], s["oppos"][0]))),
+        _first_none([a, b], _protect(cg, mc, fc, cg["callat"](mc, s["oppos"], cg["aug_fn"](s["op"]), get(a), get(b)))),
     ]
     return [setup, cg["gen_assign"](mc, fc, target, value, s["oppos"])]
 
@@ -564,7 +571,7 @@ def _dynamic(cg, mc, fc, e, f, args2, pairs):
     (rt_none_skip); else the call."""
     fn = {"kind": "%code", "code": get(f), "pos": e["fn"]["pos"]}
     code = cg["gen"](mc, fc, _core(e, fn = fn, args = [dict(a) for a in args2]))
-    code = _protect(cg, mc, fc, code, ("call", "", e["lparen"][0]), [t for _, t in pairs])
+    code = _protect(cg, mc, fc, code, [t for _, t in pairs])
     stars = [t for a, t in pairs if a["star"] != ""]
     pos = [get(t) for a, t in pairs if a["star"] == "" and a["name"] == None]
     named = [get(t) for a, t in pairs if a["star"] == "" and a["name"] != None]
@@ -594,16 +601,19 @@ def _call(cg, mc, fc, e):
             if mc["allfuncs"][w].get("prelude", False):
                 builtin = name
             else:
-                # a def: None is an argument like any other (but not *None)
-                if len([a for a in e["args"] if a["star"] != ""]) == 0:
-                    return None
+                # a def: None is an argument like any other (but not *None);
+                # an error it doesn't catch itself is the call's
+                if name.startswith("%"):
+                    return None  # generated
                 setup, args2, pairs = _args(cg, mc, fc, e)
-                return [setup, _first_none([t for a, t in pairs if a["star"] != ""], cg["gen"](mc, fc, _core(e, args = args2)))]
+                code = _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, args = args2)))
+                stars = [t for a, t in pairs if a["star"] != ""]
+                return [setup, _first_none(stars, code) if stars else code]
     if builtin != None:
         setup, args2, pairs = _args(cg, mc, fc, e)
         code = cg["gen"](mc, fc, _core(e, args = args2))
         if builtin != "fail":
-            code = _protect(cg, mc, fc, code, ("builtin", builtin, e["lparen"][0]), [t for _, t in pairs])
+            code = _protect(cg, mc, fc, code, [t for _, t in pairs])
         code = _result(mc, e, builtin, code)
         return [setup, _first_none(_builtin_guards(builtin, pairs), code)]
 
@@ -639,7 +649,7 @@ def _method_call(cg, mc, fc, e):
         code = through_value()
     else:
         code = cg["gen"](mc, fc, _core(e, fn = fn2, args = [dict(a) for a in args2]))
-        code = _result(mc, e, name, _protect(cg, mc, fc, code, ("builtin", name, e["lparen"][0]), [recv] + [t for _, t in pairs]))
+        code = _result(mc, e, name, _protect(cg, mc, fc, code, [recv] + [t for _, t in pairs]))
         guards = _builtin_guards(name, pairs)
         if guards:
             code = _first_none(guards, code)
@@ -677,7 +687,7 @@ def _reactive_op(cg, mc, fc, e, name):
             if i in idxs:
                 temps.append(t)
         args2.append(a2)
-    code = _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, args = args2)), ("operator", name, e["pos"][0]))
+    code = _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, args = args2)))
     return [setup, _first_none(temps, code)]
 
 # ---------------------------------------------------------------- runtime
@@ -712,6 +722,25 @@ def runtime(mc, m):
             ]),
         ]),
         get("out"),
+    ])
+
+    # f(), every error in it caught (catch_all): the error as a None. The
+    # host prints each error's traceback as it is caught.
+    add_func(m, "rt_none_try", [("f", V)], [V], locals = [("d", I32), ("all", I32), ("cd", I32), ("r", V)], body = [
+        set("d", gget("catch_depth")),
+        set("all", gget("catch_all")),
+        set("cd", gget("call_depth")),
+        gset("catch_depth", op("i32.add", get("d"), i32(1))),
+        gset("catch_all", i32(1)),
+        ("try", V),
+        call("rt_call", get("f"), arr_new_default("Vals", i32(0)), null("eq")),
+        ("catch", "caught"),
+        set("r", []),
+        gset("call_depth", get("cd")),
+        new("NoneType", get("r"), NONE),
+        "end",
+        gset("catch_depth", get("d")),
+        gset("catch_all", get("all")),
     ])
 
     # for unpacking v into n targets: if it is None, n of it
@@ -804,6 +833,20 @@ def _n_none(x):
 def _n_skip(f, pos, kw):
     return _none_skip(f, pos, kw)
 
+def _n_try(f):
+    """f(); an error in it gives a None that carries it (and is printed)."""
+    return _none_try(f)
+
+def _n_try_at(f, file, line):
+    """_n_try(f) for code with no place of its own (an expression on
+    standard input): an error with no place is at file:line."""
+    v = _none_try(f)
+    if v == None:
+        t = _none_trace(v)
+        if len(t) == 1 and t[0][0] == "error" and t[0][2] == "":
+            return _none_via(None, ("error", t[0][1], file, line))
+    return v
+
 def _n_changed(old, new):
     """Two Nones that came different ways are different values."""
     return old == None and new == None and _none_trace(old) != _none_trace(new)
@@ -815,6 +858,12 @@ def _n_none(x):
 
 def _n_skip(f, pos, kw):
     return False
+
+def _n_try(f):
+    return f()
+
+def _n_try_at(f, file, line):
+    return f()
 
 def _n_changed(old, new):
     return False

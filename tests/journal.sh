@@ -12,13 +12,13 @@ in=tests/extensions/reactive_basic.in
 j=out/journal.log
 rm -f $j
 fail=0
-head -15 $in | node host/run.mjs $RUNFLAGS --journal=$j $src > /dev/null 2>&1 || fail=1
+head -15 $in | node host/run.mjs $RUNFLAGS --nocontagiousnone --journal=$j $src > /dev/null 2>&1 || fail=1
 printf 'width = 99' >> $j
-tail -n +16 $in | node host/run.mjs $RUNFLAGS --journal=$j $src > out/journal.got 2> out/journal.goterr || fail=1
+tail -n +16 $in | node host/run.mjs $RUNFLAGS --nocontagiousnone --journal=$j $src > out/journal.got 2> out/journal.goterr || fail=1
 cmp -s out/journal.got tests/extensions/reactive_basic.out || fail=1
 cmp -s out/journal.goterr tests/extensions/reactive_basic.err || fail=1
 cmp -s $j $in || fail=1
-node host/run.mjs $RUNFLAGS --journal=$j $src < /dev/null 2> /dev/null | cmp -s - tests/extensions/reactive_basic.out || fail=1
+node host/run.mjs $RUNFLAGS --nocontagiousnone --journal=$j $src < /dev/null 2> /dev/null | cmp -s - tests/extensions/reactive_basic.out || fail=1
 cmp -s $j $in || fail=1
 if [ $fail = 0 ]; then echo "journal: ok"; else echo "journal: MISMATCH (see out/journal.*)"; fi
 exit $fail

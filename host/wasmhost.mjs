@@ -24,6 +24,9 @@
 //                              (before 0: at the end of the program's top
 //                              level; else at a sync point before source
 //                              line `before`, see compiler/ext/reactive.star)
+//   caught(ptr, len, plain, report) / caught_file()
+//                              an error the program catches (contagious
+//                              None): its line and file; printed if report
 //   try_call(f)                call f() via the reactive_call0 export; on a
 //                              Starlark error print its traceback (only the
 //                              frames inside f) and return 1
@@ -398,6 +401,8 @@ export function runModule(module, opts = {}) {
     return names;
   };
 
+  let tryDepth = 0; // inside try_call: the stack's length at its entry
+  let caughtFile = new Uint8Array(0);
   const imports = {
     host: {
       write(fd, ptr, len) {
@@ -415,6 +420,27 @@ export function runModule(module, opts = {}) {
         e.plain = plain;
         e.callnames = callNames();
         throw e;
+      },
+      caught(ptr, len, plain, report) {
+        // an error that the program is about to catch (contagious None):
+        // where it happened, for the program; the traceback, if asked
+        const message = utf8.decode(mem(ptr, len));
+        let stack = new Error().stack;
+        if (tryDepth) {
+          // inside try_call: the traceback starts in the function called
+          const lines = stack.split("\n");
+          stack = lines.slice(0, Math.max(1, lines.length - (tryDepth - 2))).join("\n");
+        }
+        const debug = readDebugInfo(module);
+        const frames = debug ? starlarkFrames(debug, stack, plain, callNames()) : [];
+        if (report) stderr(formatError(module, message, stack, plain, callNames()));
+        const m = frames.length ? /^(.*):(\d+):\d+$/.exec(frames[frames.length - 1].where) : null;
+        caughtFile = encode(m ? m[1] : "");
+        return m ? Number(m[2]) : 0;
+      },
+      caught_file() {
+        loaded = caughtFile; // read with file_chunk, like a file
+        return loaded.length;
       },
       file_size(ptr, len) {
         try {
@@ -470,10 +496,14 @@ export function runModule(module, opts = {}) {
       },
       try_call(f) {
         const outer = new Error().stack.split("\n").length; // header, try_call, its callers
+        const saved = tryDepth;
+        tryDepth = outer;
         try {
           instance.exports.reactive_call0(f);
+          tryDepth = saved;
           return 0;
         } catch (e) {
+          tryDepth = saved;
           if (!(e instanceof StarlarkError)) throw e;
           // drop the frames of try_call's callers (the program's top level
           // at a sync point): the traceback starts in f

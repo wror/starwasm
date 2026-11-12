@@ -752,7 +752,7 @@ def _reactive_input(values, nodes, state, names, before):
         # (_n_tag, _n_none, _n_skip: ext/none.star; a None assigned here
         # passed through the variable, at this line)
         ok = _try(lambda: _reactive_update(values, nodes, state, [
-            (n, _n_tag(_r_eval(e, {}, names), "reactive", n, "<stdin>", state["lineno"]))
+            (n, _n_tag(_n_try_at(lambda: _r_eval(e, {}, names), "<stdin>", state["lineno"]), "reactive", n, "<stdin>", state["lineno"]))
             for n, e in assigns
         ]))
         state["changed"] = {}
@@ -795,10 +795,15 @@ def _reactive_update(values, nodes, state, assigns):
                 break
         if not hit or not _r_ready(values, required):
             continue
+        # (_n_try: with contagious None, an error in f is printed and gives
+        # None, and the update goes on; without, it is plain f(), and the
+        # error ends the update)
         if name == None:
-            f()
+            _n_try(f)
             continue
-        v = f()
+        v = _n_try(f)
+        if _n_none(v) and rels.get(name, False):
+            continue  # a relation's member that failed: none is added
         if state["whens"].get(name, False):
             if v:  # _r_when updated it
                 changed[name] = True

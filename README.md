@@ -17,3 +17,7 @@ From a checkout, with Go and Node ≥ 22:
 
 See [NOTES.md](NOTES.md) for the design and layout, and
 [EXTENSIONS.md](EXTENSIONS.md) for features beyond starlark-go.
+Among them: reactive variables (`total : price * qty`, recomputed as
+standard input assigns new values), and contagious None, which makes a
+running reactive program keep going through errors: what fails becomes a
+None that carries the error.
