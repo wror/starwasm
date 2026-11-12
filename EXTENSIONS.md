@@ -670,7 +670,14 @@ of different types from one input to the next.
   the start of a line the commands. One candidate is inserted; of
   several, what they have in common, and if that adds nothing they are
   listed, with their types if they are few (`width: int`, `append: (x:
-  int) -> None`). At the start of a line Tab indents. Inside a block that
+  int) -> None`). Where an argument of a call starts (after its `(` or a
+  `,`), the parameters the call can name come first, as `name = `, from
+  the type of what is called: `greet("a", pu` becomes `greet("a",
+  punctuation = `, and `greet(` lists them all with their types; those
+  already given, by name or by position, are left out. For a builtin
+  only its keyword-only parameters are offered (`sorted(xs, ` gives `key
+  = ` and `reverse = `), since the others are positional in starlark-go;
+  a call may go on over several lines. At the start of a line Tab indents. Inside a block that
   is still being typed, the expression is typed where it stands, from
   the block's lines so far: loop variables and locals have their types
   (`for b in boxes:` then `b.`), and a parameter of the def being typed
@@ -679,7 +686,8 @@ of different types from one input to the next.
   comprehension's) are not known. Code: `Session.complete`
   (host/repl_core.mjs; in a block, the line is replaced by a call
   `_complete_probe_(expr)`, whose argument's type the checker notes), the
-  checker's `--attrs`, `--attrs-probe` and `--names`, and web/repl.js;
+  checker's `--attrs`, `--params` (and `--attrs-probe`, `--params-probe`)
+  and `--names`, and web/repl.js;
   test: tests/repl/complete.mjs. (The terminal REPL has no
   Tab completion.)
 - Code: `Session.typecheck` in host/repl_core.mjs runs the compiled

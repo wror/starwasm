@@ -217,6 +217,54 @@ function receiverBefore(s) {
   return /^[.\d]/.test(r) && !/^\d+$/.test(r) ? "" : r;
 }
 
+// If position `at` of s is where an argument of a call starts (after the
+// call's "(" or a "," of it): {callee, given, positional}: the expression
+// called, the keyword arguments given so far, and how many arguments are
+// given by position. Else null.
+function callAt(s, at) {
+  let depth = 0, open = -1;
+  for (let j = at - 1; j >= 0; j--) {
+    const c = s[j];
+    if (c === '"' || c === "'") { // skip a string literal
+      let k = j - 1;
+      while (k >= 0 && (s[k] !== c || s[k - 1] === "\\")) k--;
+      if (k < 0) return null;
+      j = k;
+    } else if (")]}".includes(c)) depth++;
+    else if ("([{".includes(c)) {
+      if (depth === 0) {
+        open = c === "(" ? j : -1;
+        break;
+      }
+      depth--;
+    }
+  }
+  if (open < 0) return null;
+  // the arguments so far, without what is nested in them
+  let args = "", d = 0, quote = null;
+  for (let j = open + 1; j < at; j++) {
+    const c = s[j];
+    if (quote) {
+      if (c === "\\") j++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") quote = c;
+    else if ("([{".includes(c)) d++;
+    else if (")]}".includes(c)) d--;
+    else if (d === 0) args += c;
+  }
+  if (!/(^|,)\s*$/.test(args)) return null; // not at the start of an argument
+  const callee = receiverBefore(s.slice(0, open).replace(/[ \t]+$/, ""));
+  if (callee === "" || KEYWORDS.includes(callee)) return null;
+  const given = [];
+  let positional = 0; // arguments given by position
+  for (const a of args.split(",").slice(0, -1)) {
+    const m = /^\s*([A-Za-z_]\w*)\s*=(?!=)/.exec(a);
+    if (m) given.push(m[1]);
+    else if (!/^\s*\*/.test(a)) positional++;
+  }
+  return { callee, given, positional };
+}
+
 // ---- the session
 
 /**
@@ -303,7 +351,9 @@ export class Session {
    * they are the fields or methods of the type of the expression before
    * it (from the type checker, without evaluating anything; detail: their
    * types); else the names in scope, keywords, the names in the lines of
-   * the input being typed, and at the start of a line the commands.
+   * the input being typed, and at the start of a line the commands; where
+   * an argument of a call starts, first the parameters the call can name,
+   * as "name = " (label: how to list it, "name =", before its type).
    */
   async complete(text, cursor = text.length) {
     const before = text.slice(0, cursor);
@@ -320,32 +370,48 @@ export class Session {
     const word = /[A-Za-z_]\w*$/.exec(before)?.[0] ?? "";
     const from = cursor - word.length;
     const head = before.slice(0, from);
-    if (head.endsWith(".")) {
-      const recv = receiverBefore(head.slice(0, -1));
-      if (recv === "") return none;
+    // Ask the checker about the type of expression expr where the line
+    // stands (what: "attrs" or "params"): [{name, detail}].
+    const ask = async (what, expr) => {
       let r = { ok: false };
       if (this.buffer.length > 0) {
         // in a block being typed: its lines so far, then in place of this
         // line a call that tells the checker to note the expression's
         // type there (so loop variables and locals have their types)
         const indent = /^[ \t]*/.exec(text)[0];
-        const code = [...this.buffer, `${indent}_complete_probe_(${recv})`].join("\n");
-        r = await this.typecheck(this.history, ["--attrs-probe"], { num: "?", code, offset: 0 });
+        const code = [...this.buffer, `${indent}_complete_probe_(${expr})`].join("\n");
+        r = await this.typecheck(this.history, [`--${what}-probe`], { num: "?", code, offset: 0 });
       }
       // (else, or if those lines don't parse yet, e.g. an open bracket)
-      if (!r.ok) r = await this.typecheck(this.history, ["--attrs=_"], { num: "?", code: `_ = (\n${recv}\n)`, offset: 1 });
-      if (!r.ok) return none;
-      return pick(from, word, r.stdout.split("\n").filter((l) => l !== "").map((l) => {
-        const [name, detail = ""] = l.split("\t");
-        return { name, detail };
-      }));
+      if (!r.ok) r = await this.typecheck(this.history, [`--${what}=_`], { num: "?", code: `_ = (\n${expr}\n)`, offset: 1 });
+      if (!r.ok) return [];
+      return r.stdout.split("\n").filter((l) => l !== "").map((l) => {
+        const [name, detail = "", flag = ""] = l.split("\t");
+        return { name, detail, flag };
+      });
+    };
+    if (head.endsWith(".")) {
+      const recv = receiverBefore(head.slice(0, -1));
+      if (recv === "") return none;
+      return pick(from, word, await ask("attrs", recv));
     }
-    if (word === "") return none;
+    // at the start of an argument of a call: the parameters it can name
+    // (the lines before count: a call may go on over several)
+    const lead = this.buffer.map((l) => l + "\n").join("");
+    const call = callAt(lead + head, lead.length + head.length);
+    let kwargs = [];
+    if (call) {
+      // (not those given already, by name or by position)
+      let left = call.positional;
+      kwargs = (await ask("params", call.callee)).filter((p) => !(p.flag !== "kw" && left-- > 0) && !call.given.includes(p.name))
+        .map((p) => ({ name: p.name + " = ", label: p.name + " =", detail: p.detail }));
+    }
+    if (word === "") return pick(from, word, kwargs);
     const r = await this.typecheck(this.history, ["--names"]);
     const typed = [...this.buffer, text].join("\n").match(/[A-Za-z_]\w*/g) ?? [];
     const names = [...(r.ok ? r.stdout.split("\n").filter((n) => n !== "" && (!n.startsWith("_") || word.startsWith("_"))) : []),
       ...typed, ...KEYWORDS];
-    return pick(from, word, names.sort().map((name) => ({ name, detail: "" })));
+    return pick(from, word, [...kwargs, ...names.sort().map((name) => ({ name, detail: "" }))]);
   }
 
   // :type <expr>: the type of an expression (or the declaration of a name).

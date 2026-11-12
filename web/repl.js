@@ -167,8 +167,8 @@ function completed(m) {
   }
   const detailed = m.items.length <= 12 && m.items.some((it) => it.detail);
   const list = detailed
-    ? m.items.map((it) => `  ${it.name}${it.detail ? ": " + it.detail : ""}\n`).join("")
-    : "  " + names.join("  ") + "\n";
+    ? m.items.map((it) => `  ${it.label ?? it.name}${it.detail ? (it.label ? " " : ": ") + it.detail : ""}\n`).join("")
+    : "  " + m.items.map((it) => it.label ?? it.name).join("  ") + "\n";
   write(list, "note", false);
 }
 $("tab").addEventListener("pointerdown", (e) => e.preventDefault()); // keep the input's focus and cursor

@@ -26,3 +26,20 @@
 "    return sizes." @17: clear: () -> None | get: (key: str, default: list[int] | None = ...) -> list[int] | None | items: () -> list[tuple[str, list[int]]] | keys: () -> list[str] | pop: (key: str, default: list[int] = ...) -> list[int] | popitem: () -> tuple[str, list[int]] | setdefault: (key: str, default: list[int] = ...) -> list[int] | update: (*args: Any, **kwargs: list[int]) -> None | values: () -> list[list[int]]
 "return box." @11: width: int | height: int | name: str
 "        box." @12: width: int | height: int | name: str
+"greet(" @6: name = : str | punctuation = : str | loud = : bool
+"greet(\"a\", pu" @11: punctuation = : str
+"greet(\"a\", punctuation = \"?\", " @30: loud = : bool
+"greet(name = box.name, l" @23: loud = : bool | lambda | len | list | load
+"x = [greet(n" @11: name = : str | not
+"greet(\"a\" + n" @12: not
+"greet(len(boxes), " @18: punctuation = : str | loud = : bool
+"sorted(boxes, " @14: key = : (T) -> Any | reverse = : bool
+"sorted(boxes, key = lambda b: b.width, r" @39: reverse = : bool | range | read_file | repr | return | reversed
+"(lambda first, second: first)(" @30: first = : T | second = : U
+"box.name.split(" @15: 
+"print(greet(" @12: name = : str | punctuation = : str | loud = : bool
+"len(" @4: 
+"    " @4: punctuation = : str | loud = : bool
+"    lo" @4: loud = : bool | load
+"    inner(" @10: text = : T | width = : int
+"    return inner(prefix, w" @25: width = : int | while | width | write_file
