@@ -1,0 +1,28 @@
+half 25 []
+entry 2 []
+pair 3 []
+ok 4 []
+both 27 []
+safe 25 []
+row []
+observer 1
+n is 4 half is 25
+half None ["error | floored division by zero | tests/extensions/none_reactive_rollback.star:10", "function | ratio | tests/extensions/none_reactive_rollback.star:10", "reactive | half | tests/extensions/none_reactive_rollback.star:25"]
+pair None ["error | list index -4 out of range [-3:2] | tests/extensions/none_reactive_rollback.star:13", "function | pick | tests/extensions/none_reactive_rollback.star:14", "reactive | pair | tests/extensions/none_reactive_rollback.star:27"]
+ok 0 []
+both None ["error | floored division by zero | tests/extensions/none_reactive_rollback.star:10", "function | ratio | tests/extensions/none_reactive_rollback.star:10", "reactive | half | tests/extensions/none_reactive_rollback.star:25", "reactive | both | tests/extensions/none_reactive_rollback.star:29"]
+safe -1 []
+observer None
+n is 0 half is None
+pair 11 []
+observer 5
+entry None ["error | key \"zz\" not in dict | tests/extensions/none_reactive_rollback.star:26", "reactive | entry | tests/extensions/none_reactive_rollback.star:26"]
+both None ["error | key \"zz\" not in dict | tests/extensions/none_reactive_rollback.star:26", "reactive | entry | tests/extensions/none_reactive_rollback.star:26", "reactive | both | tests/extensions/none_reactive_rollback.star:29"]
+half 12 []
+pair None ["error | list index 4 out of range [-3:2] | tests/extensions/none_reactive_rollback.star:13", "function | pick | tests/extensions/none_reactive_rollback.star:14", "reactive | pair | tests/extensions/none_reactive_rollback.star:27"]
+ok 8 []
+both 14 []
+safe 12 []
+row [struct(id = 1, n = 8, r = 12)]
+observer None
+n is 8 half is 12

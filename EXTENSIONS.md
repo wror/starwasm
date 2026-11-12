@@ -479,9 +479,23 @@ and `n = 5` prints `half is 20`.
     or condition: no member is added or replaced;
   - an expression on standard input: the variable is assigned None.
 
-  So nothing is rolled back: the variables that could be computed have
+  So nothing is rolled back (unless `--rollback` says so, below): the variables that could be computed have
   their new values, and the ones that couldn't are None until an update
   makes them computable again.
+- Rollback, if asked for: with the compiler option `--rollback`
+  (compiler/main.star, host/run.mjs, host/repl.mjs; a test's
+  `# option:rollback`), an update in which any error was caught is undone
+  once it has run: every reactive variable gets back the value it had
+  before the input line, so the program's state is that of the last
+  update without errors. The update still runs to its end first: every
+  error is printed, and the observers that ran saw the Nones (what they
+  printed stays printed); only the values are put back. Without the
+  option (the default) nothing is undone. `--rollback` does nothing
+  without contagious None (`--nocontagiousnone` always undoes a failed
+  update, at its first error). Code: the runtime counts the errors
+  caught during updates (`catch_count`), and `_reactive_input` restores
+  its saved values if the count moved (`_n_failed`). Test:
+  tests/extensions/none_reactive_rollback.star.
 - The original error, for the programmer, in two places:
   - on stderr, when it happens: the same traceback and message as if it
     had ended the program (above);

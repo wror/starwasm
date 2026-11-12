@@ -97,7 +97,10 @@ NONET = ref("NoneType", True)
 #                             just store is None): that None; else False
 #   _none_try(f)              f(), with every error caught: a None whose
 #                             trace starts with the error
+#   _none_errors()            how many errors were caught so far while every
+#                             error is (during updates)
 INTRINSICS = {
+    "_none_errors": ("rt_none_errors", 0, 0),
     "_none_try": ("rt_none_try", 1, 1),
     "_none_via": ("rt_none_via", 2, 2),
     "_none_trace": ("rt_none_trace", 1, 1),
@@ -743,6 +746,8 @@ def runtime(mc, m):
         gset("catch_all", get("all")),
     ])
 
+    add_func(m, "rt_none_errors", [], [V], [call("rt_int", op("i64.extend_i32_s", gget("catch_count")))])
+
     # for unpacking v into n targets: if it is None, n of it
     add_func(m, "rt_none_spread", [("v", V), ("n", I32)], [V], [
         if_(is_("NoneType", v), ret(new("Tuple", arr_new("Vals", v, get("n"))))),
@@ -810,6 +815,7 @@ def prelude(mc):
         return [], []
     on = mc["ext"].get("none", False)
     src = RUNTIME + (RUNTIME_ON if on else RUNTIME_OFF)
+    src += ROLLBACK_ON if on and mc.get("rollback", False) else ROLLBACK_OFF
     return parse_file(src, "compiler/ext/none.star"), []
 
 # Added to the prelude. _n_iter... are called by generated code; the
@@ -866,5 +872,23 @@ def _n_try_at(f, file, line):
     return f()
 
 def _n_changed(old, new):
+    return False
+'''
+
+# --rollback: has an error been caught since _n_errors() was `before`?
+# (Then the reactive runtime undoes the update.)
+ROLLBACK_ON = r'''
+def _n_errors():
+    return _none_errors()
+
+def _n_failed(before):
+    return _none_errors() != before
+'''
+
+ROLLBACK_OFF = r'''
+def _n_errors():
+    return 0
+
+def _n_failed(before):
     return False
 '''
