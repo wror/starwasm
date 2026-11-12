@@ -6,7 +6,9 @@
 #       shown without their numbers, and --only prints just NAME's type;
 #       --attrs=NAME prints what can follow "." after a value of NAME's
 #       type (--attrs-probe: of the type of x in the program's call
-#       _complete_probe_(x), which may be inside a def), and --names the
+#       _complete_probe_(x), which may be inside a def), --params=NAME
+#       and --params-probe likewise the parameters a call can name, and
+#       --names the
 #       names in scope (for completion)
 #   node host/typecheck.mjs [--print] prog.star...        (the usual way)
 #
@@ -137,20 +139,42 @@ def render_one(mod, name):
     _render_scope(mod["scope"], "", nm, out, False, name)
     return "\n".join(out)
 
+def _queried(st, mod, name):
+    """The type a completion asks about: of the top-level variable `name`,
+    or (None) of the argument of the probe call (infer.star)."""
+    if name == None:
+        t = st.get("probe")
+    else:
+        b = mod["scope"]["vars"].get(name)
+        t = b["type"] if b != None and b["kind"] == "var" else None
+    return resolve(t) if t != None else None
+
+def parameters(st, mod, name):
+    """The parameters that a call of a value of the queried type can name
+    (for completion of keyword arguments): "name\ttype" for each, in order
+    (and "\tkw" if it is keyword-only). Of a
+    builtin, only the keyword-only ones (the others are positional in
+    starlark-go)."""
+    t = _queried(st, mod, name)
+    if t == None or t["k"] != "fn":
+        return []
+    role = (t.get("at") or {}).get("role") or ""
+    named = role.startswith("definition of") or role == "declared here" or role == "a lambda"
+    nm = new_namer(True)
+    nm["all"] = True
+    out = []
+    for p in t["params"]:
+        if p["star"] == "" and p["name"] != None and (named or p["kw"]):
+            out.append(p["name"] + "\t" + show(p["type"], nm) + ("\tkw" if p["kw"] else ""))
+    return out
+
 def attributes(st, mod, name):
     """What can follow "." after a value of the type of the top-level name
     (for completion in the REPL): "field\ttype" for each field of a
     struct, "method\ttype" for each method of a builtin type."""
-    if name == None:
-        t = st.get("probe")  # the argument of the probe call (infer.star)
-        if t == None:
-            return []
-    else:
-        b = mod["scope"]["vars"].get(name)
-        if b == None or b["kind"] != "var":
-            return []
-        t = b["type"]
-    t = resolve(t)
+    t = _queried(st, mod, name)
+    if t == None:
+        return []
     if t["k"] == "con" and t["name"] == "opt":
         t = resolve(t["args"][0])
     out = []
@@ -214,7 +238,8 @@ def main():
     repl = False
     only = None
     attrs = None
-    probe = False
+    params = None
+    probe = None
     listing = False
     starts = {}
     all_starts = False
@@ -232,8 +257,10 @@ def main():
             only = a[len("--only="):]
         elif a.startswith("--attrs="):
             attrs = a[len("--attrs="):]
-        elif a == "--attrs-probe":
-            probe = True
+        elif a == "--attrs-probe" or a == "--params-probe":
+            probe = a
+        elif a.startswith("--params="):
+            params = a[len("--params="):]
         elif a == "--names":
             listing = True
         elif a.startswith("--"):
@@ -244,9 +271,15 @@ def main():
         fail("usage: typecheck/main.star [--print] [--start=FILE]... <program.star>")
     path = files[0]
     st, mod = check(path, starts, all_starts, repl)
-    if attrs != None or probe or listing:
+    if attrs != None or params != None or probe != None or listing:
         # for completion: answered whatever type errors there are
-        print("\n".join(attributes(st, mod, attrs) if attrs != None or probe else names(st, mod)))
+        if params != None or probe == "--params-probe":
+            lines = parameters(st, mod, params)
+        elif attrs != None or probe != None:
+            lines = attributes(st, mod, attrs)
+        else:
+            lines = names(st, mod)
+        print("\n".join(lines))
         return
     if st["errors"]:
         print("\n".join(format_errors(st, path)))
