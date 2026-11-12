@@ -21,6 +21,11 @@
 #    reading the locals, marked "%core" so that the hooks pass it. So the
 #    operation itself, its errors and their positions are codegen's.
 #
+#    A None further in (sorted([1, None]), [None] < [1]) fails inside the
+#    runtime, where there is no test: so binary operations, builtin calls
+#    and calls through values run in a Wasm `try` (_protect) that turns a
+#    failure whose message mentions NoneType into a None.
+#
 # 2. Provenance. A None is a $NoneType struct {via, prev} (lib/runtime.star):
 #    `via` is an entry (kind, id, file, line), a tuple, and `prev` the None
 #    it was before. transform marks the places a None passes through
@@ -64,6 +69,7 @@ load(
     "or_",
     "ret",
     "set",
+    "setfield",
     "while_",
 )
 load("../../lib/builtins.star", "METHODS")
@@ -322,7 +328,43 @@ def _guard(cg, mc, fc, e, keys):
         setup.append(set(t, cg["gen"](mc, fc, e[key])))
         temps.append(t)
         changes[key] = _code(t, e[key])
-    return [setup, _first_none(temps, cg["gen"](mc, fc, _core(e, **changes)))]
+    code = cg["gen"](mc, fc, _core(e, **changes))
+    if e["kind"] == "binop":
+        code = _protect(cg, mc, fc, code, ("operator", e["op"], e["pos"][0]))
+    return [setup, _first_none(temps, code)]
+
+def _protect(cg, mc, fc, code, entry, marked = [], result = V):
+    """code (an operation on values that aren't None), not failing because
+    of a None further in, among a list's elements, say: a failure whose
+    message mentions NoneType (rt_fail_ex throws those while catch_depth
+    is up) makes the result a None that starts here, at entry (for a
+    condition, result I32: false). What the unwinding skipped is put
+    right: the call depth, and the iteration counts of the values in the
+    locals `marked` (the operation's arguments), which a builtin looping
+    over them had raised."""
+    d = cg["temp"](fc, I32)
+    cd = cg["temp"](fc, I32)
+    saves = []
+    restores = []
+    for t in marked:
+        ft = cg["temp"](fc, I32)
+        saves.append(set(ft, call("rt_none_mark", get(t))))
+        restores.append(call("rt_none_unmark", get(t), get(ft)))
+    return [
+        set(d, gget("catch_depth")),
+        set(cd, gget("call_depth")),
+        saves,
+        gset("catch_depth", op("i32.add", get(d), i32(1))),
+        ("try", result),
+        code,
+        ("catch", "caught"),
+        "drop",
+        gset("call_depth", get(cd)),
+        restores,
+        _origin(mc, entry) if result == V else i32(0),
+        "end",
+        gset("catch_depth", get(d)),
+    ]
 
 def _plain(cg, mc, fc, e, sides):
     """An == or != with None written out: the comparison as ever (the None
@@ -395,7 +437,8 @@ def cond(cg, mc, fc, e):
         return [
             set(tx, cg["gen"](mc, fc, e["x"])),
             set(ty, cg["gen"](mc, fc, e["y"])),
-            if_(or_(_is_none(tx), _is_none(ty)), i32(0), cg["gen_cond"](mc, fc, e2), result = I32),
+            if_(or_(_is_none(tx), _is_none(ty)), i32(0),
+                _protect(cg, mc, fc, cg["gen_cond"](mc, fc, e2), None, result = I32), result = I32),
         ]
     if k == "unop" and e["op"] == "not":
         t = cg["temp"](fc, V)
@@ -464,7 +507,8 @@ def stmt(cg, mc, fc, s):
     value = [
         set(a, cur),
         set(b, cg["gen"](mc, fc, s["rhs"])),
-        _first_none([a, b], cg["callat"](mc, s["oppos"], cg["aug_fn"](s["op"]), get(a), get(b))),
+        _first_none([a, b], _protect(cg, mc, fc, cg["callat"](mc, s["oppos"], cg["aug_fn"](s["op"]), get(a), get(b)),
+                                     ("operator", s["op"], s["oppos"][0]))),
     ]
     return [setup, cg["gen_assign"](mc, fc, target, value, s["oppos"])]
 
@@ -520,6 +564,7 @@ def _dynamic(cg, mc, fc, e, f, args2, pairs):
     (rt_none_skip); else the call."""
     fn = {"kind": "%code", "code": get(f), "pos": e["fn"]["pos"]}
     code = cg["gen"](mc, fc, _core(e, fn = fn, args = [dict(a) for a in args2]))
+    code = _protect(cg, mc, fc, code, ("call", "", e["lparen"][0]), [t for _, t in pairs])
     stars = [t for a, t in pairs if a["star"] != ""]
     pos = [get(t) for a, t in pairs if a["star"] == "" and a["name"] == None]
     named = [get(t) for a, t in pairs if a["star"] == "" and a["name"] != None]
@@ -556,7 +601,10 @@ def _call(cg, mc, fc, e):
                 return [setup, _first_none([t for a, t in pairs if a["star"] != ""], cg["gen"](mc, fc, _core(e, args = args2)))]
     if builtin != None:
         setup, args2, pairs = _args(cg, mc, fc, e)
-        code = _result(mc, e, builtin, cg["gen"](mc, fc, _core(e, args = args2)))
+        code = cg["gen"](mc, fc, _core(e, args = args2))
+        if builtin != "fail":
+            code = _protect(cg, mc, fc, code, ("builtin", builtin, e["lparen"][0]), [t for _, t in pairs])
+        code = _result(mc, e, builtin, code)
         return [setup, _first_none(_builtin_guards(builtin, pairs), code)]
 
     # through a value
@@ -590,7 +638,8 @@ def _method_call(cg, mc, fc, e):
     if not known:
         code = through_value()
     else:
-        code = _result(mc, e, name, cg["gen"](mc, fc, _core(e, fn = fn2, args = [dict(a) for a in args2])))
+        code = cg["gen"](mc, fc, _core(e, fn = fn2, args = [dict(a) for a in args2]))
+        code = _result(mc, e, name, _protect(cg, mc, fc, code, ("builtin", name, e["lparen"][0]), [recv] + [t for _, t in pairs]))
         guards = _builtin_guards(name, pairs)
         if guards:
             code = _first_none(guards, code)
@@ -628,7 +677,8 @@ def _reactive_op(cg, mc, fc, e, name):
             if i in idxs:
                 temps.append(t)
         args2.append(a2)
-    return [setup, _first_none(temps, cg["gen"](mc, fc, _core(e, args = args2)))]
+    code = _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, args = args2)), ("operator", name, e["pos"][0]))
+    return [setup, _first_none(temps, code)]
 
 # ---------------------------------------------------------------- runtime
 
@@ -668,6 +718,20 @@ def runtime(mc, m):
     add_func(m, "rt_none_spread", [("v", V), ("n", I32)], [V], [
         if_(is_("NoneType", v), ret(new("Tuple", arr_new("Vals", v, get("n"))))),
         v,
+    ])
+
+    # The iteration count (and frozen flag) of a list, dict or set, to put
+    # back after a failure cut short a loop over it (_protect).
+    add_func(m, "rt_none_mark", [("v", V)], [I32], [
+        if_(is_("List", v), ret(field("List", "frozen", as_("List", v)))),
+        if_(is_("Set", v), ret(field("Dict", "frozen", field("Set", "d", as_("Set", v))))),
+        if_(is_("Dict", v), ret(field("Dict", "frozen", as_("Dict", v)))),
+        i32(0),
+    ])
+    add_func(m, "rt_none_unmark", [("v", V), ("n", I32)], [], [
+        if_(is_("List", v), setfield("List", "frozen", as_("List", v), get("n"))),
+        if_(is_("Set", v), setfield("Dict", "frozen", field("Set", "d", as_("Set", v)), get("n"))),
+        if_(is_("Dict", v), setfield("Dict", "frozen", as_("Dict", v), get("n"))),
     ])
 
     # Is f(*pos, **named) an operation on None: f a builtin function or a

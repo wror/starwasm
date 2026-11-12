@@ -463,6 +463,13 @@ and a None knows where it comes from.
     `x.name = v` do nothing when x is None, nor does `l[x] = v` (but
     `d[x] = v` stores under the key None, in a dict); `y += x` makes y
     None.
+- None further in: a None inside a container handed to a builtin or an
+  operator doesn't stop the program either. `sorted([1, None])`,
+  `max(l)`, `",".join(["a", None])`, `"%d" % (None,)`, `[None] < [1]`,
+  `abs(*[None])`, also through a value (`f = sorted; f(l)`): what would
+  fail because of the None gives None instead (false, in a condition).
+  The builtin does run, up to the failure: a callback (`key = f`) may
+  have been called, and a list it was changing may be half changed.
 - Provenance: `provenance(v)` returns what a None passed through, oldest
   first, as a list of tuples `(kind, id, file, line)`; `[]` for anything
   that isn't None. The kinds:
@@ -475,6 +482,10 @@ and a None knows where it comes from.
   - `"builtin"`, id the builtin function's or method's name: the line of
     the call that returned it (`d.get(k)` with no such key, `l.append(1)`,
     or a None that was stored and is given back);
+  - `"operator"`, id the operator (`"<"`, `"%"`, `"+="`), and `"call"`
+    (a call through a value, id `""`): where a failure because of a None
+    further in was turned into a None (for a builtin called by name, that
+    is a `"builtin"` entry);
   - `"reactive"`, id the reactive variable: the line of its definition,
     each time it is computed to None; for a field of a struct block,
     `"order.cost"` and the field's line; and file `<stdin>` with the input
@@ -518,17 +529,34 @@ and a None knows where it comes from.
     all Nones are equal to each other in the prelude and inside
     containers. `rt_none_via(v, entry)` makes the new None; entries and
     the Nones that start at a place are created once, in globals.
+  - Catching: each binary operation, builtin call and call through a
+    value in the user's modules runs in a Wasm `try` (`_protect`), with
+    the global `catch_depth` raised. While it is, `rt_fail_ex`, where
+    every runtime error ends up, throws the message (exception tag
+    `$caught`) instead of ending the program if the message mentions
+    `NoneType`, as every error about a None does; the `catch` gives the
+    None, and puts back the call depth and the iteration counts of the
+    arguments (a builtin cut out of a loop over a list would leave it
+    unchangeable). Nothing is caught outside such a `try`, and no other
+    message is, so other errors and their tracebacks are as ever. The
+    encoder (lib/wasm.star) gained tags and `try`/`catch`/`throw` (the
+    legacy exception-handling opcodes, which Node 22 and current
+    browsers run).
   - Calls through values ask `rt_none_skip` whether the callee is a
     builtin given a None it doesn't just store. The reactive runtime's
     input evaluator calls the prelude's `_n_none`, `_n_skip`, `_n_tag`
     and `_n_changed`, which do nothing when the extension is off.
 - Not covered:
-  - A None *inside* a container handed to a builtin is the builtin's
-    business, with the usual errors: `sorted([1, None])`,
-    `",".join(["a", None])`, `"%d" % (None,)`, `[None] < [1]`.
-    Inside containers all Nones are equal: `[x] == [None]` is True (its
-    operands are lists), and a dict display with two keys that are both
-    None fails as a repeated key.
+  - A failure that is caught (below) gives a None whose trace starts at
+    the builtin or operator, not at the None that caused it. Inside
+    containers all Nones are equal: `[x] == [None]` is True (its operands
+    are lists), and a dict display with two keys that are both None fails
+    as a repeated key.
+  - Errors that aren't None's doing are errors still, also when a None
+    is around: `sorted([1, "a", None])` may fail on `int < string`, and
+    `[1, 2].index(x)` with x None is "value not in list". An expression
+    on a reactive program's standard input that fails inside a builtin
+    is reported and ignored, as any failing input.
   - Arguments for which starlark-go reads None as "not given"
     (`s.split(None)`, `s.find(t, None)`, a slice bound) are operations
     here: the result is None.
@@ -542,7 +570,7 @@ and a None knows where it comes from.
 - Tests: tests/extensions/none_basic.star (contagion),
   none_provenance.star (+ modules/none_mod.star), none_reactive.star
   (the default, with reactive variables and standard input),
-  none_reactive_off.star (`--nocontagiousnone`), none_err_provenance.star;
+  none_nested.star (None inside containers), none_reactive_off.star (`--nocontagiousnone`), none_err_provenance.star;
   tests take the options from `# option:contagiousnone` /
   `# option:nocontagiousnone` lines.
 

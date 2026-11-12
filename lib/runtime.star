@@ -70,6 +70,7 @@ load(
     "add_func",
     "add_global",
     "add_memory",
+    "add_tag",
     "add_type",
     "array_type",
     "import_func",
@@ -359,6 +360,13 @@ def _declare(m, test = False):
     add_global(m, "None", ref("NoneType"), False, [("ref.null", "eq"), ("ref.null", "NoneType"), ("struct.new", "NoneType")])
     add_global(m, "True", ref("Bool"), False, [i32(1), ("struct.new", "Bool")])
     add_global(m, "False", ref("Bool"), False, [i32(0), ("struct.new", "Bool")])
+    # Catching failures (for the "contagious None" extension, EXTENSIONS.md):
+    # while catch_depth > 0, a failure whose message mentions NoneType
+    # doesn't end the program: rt_fail_ex throws the message with tag
+    # $caught, for the `try` that counted itself in catch_depth. Nothing
+    # else raises catch_depth, so otherwise failures are as ever.
+    add_tag(m, "caught", [V])
+    add_global(m, "catch_depth", I32, True, [i32(0)])
     # second results of rt_mag_divsmall / rt_mag_divmod (the remainder)
     add_global(m, "big_rem", I64, True, [i64(0)])
     add_global(m, "big_remm", ref("I32A", True), True, [null("I32A")])
@@ -465,8 +473,21 @@ def _buffers(m):
     ])
 
     # Stage the message (first 64 KiB) in linear memory and hand it to the host.
+    # i32: do bytes a contain "NoneType"?
+    word = list("NoneType".elem_ords())
+    add_func(m, "rt_mentions_none", [("a", U8A)], [I32], locals = [("i", I32), ("n", I32)], body = [
+        set("n", op("i32.sub", arr_len(get("a")), i32(len(word) - 1))),
+        for_i32("i", i32(0), get("n"), [
+            ("block", None, "no"),
+            [br_if("no", op("i32.ne", arr_get_u("U8", get("a"), op("i32.add", get("i"), i32(k))), i32(c))) for k, c in enumerate(word)],
+            ret(i32(1)),
+            "end",
+        ]),
+        i32(0),
+    ])
     add_func(m, "rt_fail_ex", [("msg", STR), ("plain", I32)], [], locals = [("a", U8A), ("n", I32), ("i", I32)], body = [
         set("a", field("Str", "b", get("msg"))),
+        if_(gget("catch_depth"), if_(call("rt_mentions_none", get("a")), [get("msg"), ("throw", "caught")])),
         set("n", arr_len(get("a"))),
         if_(op("i32.gt_s", get("n"), i32(65536)), set("n", i32(65536))),
         for_i32("i", i32(0), get("n"), [get("i"), arr_get_u("U8", get("a"), get("i")), ("i32.store8", 0)]),

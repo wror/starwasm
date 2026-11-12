@@ -69,6 +69,7 @@ _SEC_ELEM = 9
 _SEC_CODE = 10
 _SEC_DATA = 11
 _SEC_DATACOUNT = 12
+_SEC_TAG = 13
 
 _MAGIC = [0x00, 0x61, 0x73, 0x6d]  # "\0asm"
 _VERSION = [0x01, 0x00, 0x00, 0x00]
@@ -182,6 +183,10 @@ OPS = {
     "if": ([0x04], ["block"]),
     "else": ([0x05], []),
     "end": ([0x0b], []),
+    # exception handling (the legacy try/catch form): tags are add_tag's
+    "try": ([0x06], ["block"]),
+    "catch": ([0x07], ["tag"]),
+    "throw": ([0x08], ["tag"]),
     "br": ([0x0c], ["label"]),
     "br_if": ([0x0d], ["label"]),
     "br_table": ([0x0e], ["table"]),
@@ -325,7 +330,7 @@ OPS = {
     "i31.get_u": (_gc(30), []),
 }
 
-_BLOCK_OPS = ("block", "loop", "if")
+_BLOCK_OPS = ("block", "loop", "if", "try")
 
 # ---------------------------------------------------------------- module
 
@@ -345,6 +350,8 @@ def new_module():
         "memory": None,  # (min pages,) or None
         "exports": [],  # list of (export name, kind, index)
         "customs": [],  # extra custom sections: (name, bytes)
+        "tags": [],  # exception tags: function type indices
+        "tag_index": {},  # tag name -> index
     }
 
 def add_type(m, tname, comp, supers = [], final = True):
@@ -424,6 +431,13 @@ def add_data(m, dname, data):
         fail("data segment %r declared twice" % dname)
     m["data_index"][dname] = len(m["data"])
     m["data"].append((dname, data))
+
+def add_tag(m, tname, params):
+    """Declare an exception tag carrying values of types params."""
+    if tname in m["tag_index"]:
+        fail("tag %r declared twice" % tname)
+    m["tag_index"][tname] = len(m["tags"])
+    m["tags"].append(func_type(m, params, []))
 
 def add_memory(m, min_pages, export = None):
     m["memory"] = (min_pages,)
@@ -569,6 +583,10 @@ def _encode_instrs(m, ctx, instrs):
                 out.extend(uleb(m["data_index"][imm]))
             elif kind == "heap":
                 out.extend(_heaptype(m, imm, what))
+            elif kind == "tag":
+                if imm not in m["tag_index"]:
+                    fail("%s: %s of unknown tag %r" % (what, op, imm))
+                out.extend(uleb(m["tag_index"][imm]))
             elif kind == "label":
                 out.extend(uleb(_resolve_label(ctx, imm, op)))
             elif kind == "table":
@@ -692,6 +710,8 @@ def encode(m, names = True):
         out += section(_SEC_FUNCTION, vec([uleb(f["type"]) for f in m["funcs"]]))
     if m["memory"]:
         out += section(_SEC_MEMORY, vec([[0x00] + uleb(m["memory"][0])]))
+    if m["tags"]:
+        out += section(_SEC_TAG, vec([[0x00] + uleb(t) for t in m["tags"]]))
     if m["globals"]:
         out += section(_SEC_GLOBAL, globals_)
     if m["exports"]:

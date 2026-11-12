@@ -120,6 +120,8 @@ Every Starlark value is an `eqref`:
   getter function; use `S(m, "text")` to emit one.
 - `vi(n)` emits an int constant already normalized.
 - Errors: `rt_fail(str)` prints `Error: msg` to stderr, calls host.exit(1).
+  (With the contagious-None extension, inside one of its `try` blocks, an
+  error about a NoneType is thrown as a Wasm exception instead: EXTENSIONS.md.)
 - Output: bytes copied into a 64 KiB linear memory, then host.write(fd, ptr, n).
 - Hashes: FNV-1a for strings (cached), murmur3 finalizer for ints,
   multiplicative combine for tuples. Lists/dicts are unhashable.
