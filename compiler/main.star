@@ -1,6 +1,6 @@
 # Compiler driver.
 #
-#   bin/starhost compiler/main.star [--test] [--globalreassign] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone]
+#   bin/starhost compiler/main.star [--test] [--globalreassign] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone] [--rollback]
 #                                   [--descriptor_set=FILE] input.star output.wasm
 #   node host/run.mjs output.wasm        # runs the module's top level
 #   node host/run.mjs [options] input.star   # both: compiles only when needed (host/wasmcache.mjs)
@@ -22,6 +22,10 @@
 # on or off (EXTENSIONS.md: operations on None give None, and a None knows
 # where it comes from). With neither, it is on in programs with reactive
 # variables and off in others.
+# --rollback: in a reactive program with contagious None, undo an update
+# in which an error was caught (the errors are still printed, and what
+# observers printed stays): every reactive variable gets back its value
+# from before the line. Without it, the errors' Nones stay.
 # --descriptor_set=FILE: the binary FileDescriptorSet (as written by
 # `protoc --include_imports --descriptor_set_out`) whose files the proto
 # module finds; it is compiled into programs that use proto.
@@ -34,6 +38,7 @@ def main():
     repl = False
     recursion = False
     contagious_none = None
+    rollback = False
     fds = None
     args = []
     for a in argv:
@@ -49,12 +54,14 @@ def main():
             contagious_none = True
         elif a == "--nocontagiousnone":
             contagious_none = False
+        elif a == "--rollback":
+            rollback = True
         elif a.startswith("--descriptor_set="):
             fds = read_file(a[len("--descriptor_set="):])
         else:
             args.append(a)
     if len(args) != 2:
-        fail("usage: starhost compiler/main.star [--test] [--globalreassign] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone] [--descriptor_set=FILE] <input.star> <output.wasm>")
-    write_file(args[1], compile(read_file(args[0]), args[0], test, fds, reassign, repl, recursion, contagious_none))
+        fail("usage: starhost compiler/main.star [--test] [--globalreassign] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone] [--rollback] [--descriptor_set=FILE] <input.star> <output.wasm>")
+    write_file(args[1], compile(read_file(args[0]), args[0], test, fds, reassign, repl, recursion, contagious_none, rollback))
 
 main()

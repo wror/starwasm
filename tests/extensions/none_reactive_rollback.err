@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  tests/extensions/none_reactive_rollback.star:25:13: in <toplevel>
+  tests/extensions/none_reactive_rollback.star:10:14: in ratio
+Error: floored division by zero
+Traceback (most recent call last):
+  tests/extensions/none_reactive_rollback.star:27:12: in <toplevel>
+  tests/extensions/none_reactive_rollback.star:13:14: in pick
+Error: list index -4 out of range [-3:2]
+Traceback (most recent call last):
+  tests/extensions/none_reactive_rollback.star:41:24: in <toplevel>
+Error: list index -4 out of range [-3:2]
+Traceback (most recent call last):
+  tests/extensions/none_reactive_rollback.star:26:14: in <toplevel>
+Error: key "zz" not in dict
+Traceback (most recent call last):
+  tests/extensions/none_reactive_rollback.star:27:12: in <toplevel>
+  tests/extensions/none_reactive_rollback.star:13:14: in pick
+Error: list index 4 out of range [-3:2]
+Traceback (most recent call last):
+  tests/extensions/none_reactive_rollback.star:27:12: in <toplevel>
+  tests/extensions/none_reactive_rollback.star:13:21: in pick
+Error: list index 5 out of range [-3:2]
+Traceback (most recent call last):
+  tests/extensions/none_reactive_rollback.star:41:24: in <toplevel>
+Error: list index 4 out of range [-3:2]

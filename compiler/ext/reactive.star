@@ -749,6 +749,7 @@ def _reactive_input(values, nodes, state, names, before):
         if not assigns:
             continue
         saved = dict(values)
+        errors = _n_errors()  # (ext/none.star: with --rollback, caught errors undo the update)
         # (_n_tag, _n_none, _n_skip: ext/none.star; a None assigned here
         # passed through the variable, at this line)
         ok = _try(lambda: _reactive_update(values, nodes, state, [
@@ -758,7 +759,7 @@ def _reactive_input(values, nodes, state, names, before):
         state["changed"] = {}
         state["tid"] = None
         state["wself"] = None
-        if not ok:
+        if not ok or _n_failed(errors):
             values.clear()
             values.update(saved)
 

@@ -376,6 +376,7 @@ def _declare(m, test = False):
     add_tag(m, "caught", [V])
     add_global(m, "catch_depth", I32, True, [i32(0)])
     add_global(m, "catch_all", I32, True, [i32(0)])
+    add_global(m, "catch_count", I32, True, [i32(0)])  # errors caught while catch_all
     # second results of rt_mag_divsmall / rt_mag_divmod (the remainder)
     add_global(m, "big_rem", I64, True, [i64(0)])
     add_global(m, "big_remm", ref("I32A", True), True, [null("I32A")])
@@ -506,6 +507,7 @@ def _buffers(m):
         if_(op("i32.gt_s", get("n"), i32(65536)), set("n", i32(65536))),
         for_i32("i", i32(0), get("n"), [get("i"), arr_get_u("U8", get("a"), get("i")), ("i32.store8", 0)]),
         if_(gget("catch_depth"), if_(or_(gget("catch_all"), call("rt_mentions_none", get("a"))), [
+            if_(gget("catch_all"), gset("catch_count", op("i32.add", gget("catch_count"), i32(1)))),
             set("line", call("host_caught", i32(0), get("n"), get("plain"), gget("catch_all"))),
             set("n", call("host_caught_file")),
             if_(op("i32.gt_s", get("n"), i32(65536)), set("n", i32(65536))),

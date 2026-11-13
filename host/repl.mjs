@@ -61,7 +61,7 @@ import { fileURLToPath } from "node:url";
 import { compileStar, defaultCompiler } from "./wasmcache.mjs";
 import { Session } from "./repl_core.mjs";
 
-const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion", "--contagiousnone", "--nocontagiousnone"]);
+const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion", "--contagiousnone", "--nocontagiousnone", "--rollback"]);
 const dialectFlags = process.argv.slice(2).filter((a) => DIALECT_FLAGS.has(a));
 const otherArgs = process.argv.slice(2).filter((a) => !DIALECT_FLAGS.has(a));
 const compilerPath = otherArgs[0] ?? "compiler/main.star";

@@ -2047,8 +2047,11 @@ def add_prelude(mc):
     mc["order"] = [mod] + mc["order"]
 
 def compile_program(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False,
-                    contagious_none = None):
+                    contagious_none = None, rollback = False):
     mc = {
+        # with contagious None, in a reactive program: an update in which
+        # an error was caught is rolled back (ext/none.star)
+        "rollback": rollback,
         # the "contagious None" extension (ext/none.star): True, False, or
         # None for its default (on in programs with reactive variables)
         "contagious_none": contagious_none,
@@ -2165,7 +2168,7 @@ def debug_section(mc):
     return list(text.elem_ords())
 
 def compile(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False,
-            contagious_none = None):
+            contagious_none = None, rollback = False):
     """Compile a Starlark program (and the modules it loads, read relative
     to filename) to Wasm bytes (a list of ints). test: make the test-only
     builtins (TEST_BUILTINS) visible. descriptor_set: the contents of a
@@ -2178,5 +2181,6 @@ def compile(src, filename, test = False, descriptor_set = None, globalreassign =
     functions may call themselves, directly or not (recursion.star).
     contagious_none: the "contagious None" extension (EXTENSIONS.md): True
     or False, or None for its default (on in programs with reactive
-    variables)."""
-    return encode(compile_program(src, filename, test, descriptor_set, globalreassign, repl, recursion, contagious_none))
+    variables). rollback: with it, in a reactive program, an update in
+    which an error was turned into None is undone."""
+    return encode(compile_program(src, filename, test, descriptor_set, globalreassign, repl, recursion, contagious_none, rollback))

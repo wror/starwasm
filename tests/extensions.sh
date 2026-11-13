@@ -18,7 +18,7 @@ nerr=0
 for src in tests/extensions/*.star; do
   name=$(basename "$src" .star)
   want=$(head -1 "$src" | sed -n 's/^# error: //p')
-  opts="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:recursion' "$src" && printf ' --recursion')$(grep -q '^# option:contagiousnone' "$src" && printf ' --contagiousnone')$(grep -q '^# option:nocontagiousnone' "$src" && printf ' --nocontagiousnone')"
+  opts="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:recursion' "$src" && printf ' --recursion')$(grep -q '^# option:contagiousnone' "$src" && printf ' --contagiousnone')$(grep -q '^# option:nocontagiousnone' "$src" && printf ' --nocontagiousnone')$(grep -q '^# option:rollback' "$src" && printf ' --rollback')"
   if [ -n "$want" ]; then
     if node host/run.mjs --compile $RUNFLAGS $opts "$src" 2> "out/ext_$name.cerr"; then
       echo "extensions/$name: compiled, but expected error: $want"; fail=1
