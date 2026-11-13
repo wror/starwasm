@@ -63,5 +63,17 @@ def augmented():
 
 print(augmented(), sorted([3, 1, 2], key = lambda v: -v), sorted(l, key = lambda v: v or 0), [k for k in sorted({"b": n, "a": 1})])
 
+# a comparison written here that meets a None among its operands' elements
+# is that None, as if the None were an operand
+x = None
+show("eq", [x] == [None])
+show("eq 2", [n] == [x])
+show("ne", (1, x) != (1, 2))
+show("deep", {"a": [1, (x,)]} == {"a": [1, (2,)]})
+show("in", 1 in [x, 1])
+show("not in", 3 not in (1, x))
+show("lt", [1, x] < [1, 2])
+print([1, 2] == [1, 2], 2 in [1, 2], [x] == [None] or "no", [x][0] == None, "a" in {"a": x, None: 1}, {None: 1}.get(None))
+
 # everything else is as ever
 print(sorted([2, 1]), max(1, 2), len("abc"), "%d" % 3, [1] < [2], ",".join(["a", "b"]))
