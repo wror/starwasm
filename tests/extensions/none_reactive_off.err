@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  tests/extensions/none_reactive_off.star:6:13: in <toplevel>
+Error: unknown binary op: NoneType * int
+Error: unknown binary op: NoneType + int

@@ -11,7 +11,12 @@
 #              else (ref $Big) = {neg, mag: $I32A limbs} (unbounded; see
 #              "big ints"). Always normalized, so equal ints have equal
 #              representations.
-#   None       the single (ref $NoneType) in global $None
+#   None       (ref $NoneType) = {via, prev}; global $None is the plain one
+#              (both fields null), the only one unless the "contagious
+#              None" extension gives Nones a provenance (EXTENSIONS.md,
+#              compiler/ext/none.star): via is what a None passed through
+#              last, prev the None it was before. So "is None" is a type
+#              test (is_("NoneType", v)), never ref.eq with $None.
 #   bool       (ref $Bool); exactly two instances, globals $True / $False
 #   float      (ref $Float) = {v: f64}; operations follow starlark-go
 #              (ints and floats compare exactly; NaN == NaN, NaN > +inf).
@@ -65,6 +70,7 @@ load(
     "add_func",
     "add_global",
     "add_memory",
+    "add_tag",
     "add_type",
     "array_type",
     "import_func",
@@ -249,7 +255,7 @@ def _declare(m, test = False):
     add_type(m, "U8", array_type(I8, True))
     add_type(m, "I32A", array_type(I32, True))
     add_type(m, "Vals", array_type(V, True))
-    add_type(m, "NoneType", struct_type([]))
+    add_type(m, "NoneType", struct_type([("via", V, False), ("prev", ref("NoneType", True), False)]))
     add_type(m, "Bool", struct_type([("v", I32, False)]))
     add_type(m, "Int", struct_type([("v", I64, False)]))
     add_type(m, "Float", struct_type([("v", F64, False)]))
@@ -312,6 +318,12 @@ def _declare(m, test = False):
     # starwasm.marks) and exits with status 1. Never returns. plain=1: never
     # say "Error in <builtin>" (e.g. attribute errors).
     import_func(m, "host", "fail", [I32, I32, I32], [], as_name = "host_fail")
+    # caught(ptr, len, plain, report) -> line: the same error, about to be
+    # caught (see catch_depth): the line of the innermost Starlark frame (0
+    # if none); if report, the traceback is printed as fail would.
+    # caught_file() -> size: that frame's file name, to fetch with file_chunk.
+    import_func(m, "host", "caught", [I32, I32, I32, I32], [I32], as_name = "host_caught")
+    import_func(m, "host", "caught_file", [], [I32], as_name = "host_caught_file")
     # Files and arguments (used by builtins.star). Strings cross the
     # boundary through the same linear-memory staging buffer:
     #   file_size(ptr, len) -> size or -1   loads the file named by the bytes
@@ -351,9 +363,20 @@ def _declare(m, test = False):
     m["strpool"] = {"bytes": [], "consts": {}}
     add_data(m, "strings", m["strpool"]["bytes"])
 
-    add_global(m, "None", ref("NoneType"), False, [("struct.new", "NoneType")])
+    add_global(m, "None", ref("NoneType"), False, [("ref.null", "eq"), ("ref.null", "NoneType"), ("struct.new", "NoneType")])
     add_global(m, "True", ref("Bool"), False, [i32(1), ("struct.new", "Bool")])
     add_global(m, "False", ref("Bool"), False, [i32(0), ("struct.new", "Bool")])
+    # Catching failures (for the "contagious None" extension, EXTENSIONS.md):
+    # while catch_depth > 0, a failure doesn't end the program if its
+    # message mentions NoneType, or if catch_all is set (as it is while a
+    # reactive program is updated): rt_fail_ex throws it with tag $caught,
+    # for the `try` that counted itself in catch_depth, as the tuple
+    # ("error", message, file, line). Nothing else raises catch_depth, so
+    # otherwise failures are as ever.
+    add_tag(m, "caught", [V])
+    add_global(m, "catch_depth", I32, True, [i32(0)])
+    add_global(m, "catch_all", I32, True, [i32(0)])
+    add_global(m, "catch_count", I32, True, [i32(0)])  # errors caught while catch_all
     # second results of rt_mag_divsmall / rt_mag_divmod (the remainder)
     add_global(m, "big_rem", I64, True, [i64(0)])
     add_global(m, "big_remm", ref("I32A", True), True, [null("I32A")])
@@ -460,11 +483,41 @@ def _buffers(m):
     ])
 
     # Stage the message (first 64 KiB) in linear memory and hand it to the host.
-    add_func(m, "rt_fail_ex", [("msg", STR), ("plain", I32)], [], locals = [("a", U8A), ("n", I32), ("i", I32)], body = [
+    # i32: do bytes a contain "NoneType"?
+    word = list("NoneType".elem_ords())
+    add_func(m, "rt_mentions_none", [("a", U8A)], [I32], locals = [("i", I32), ("n", I32)], body = [
+        set("n", op("i32.sub", arr_len(get("a")), i32(len(word) - 1))),
+        for_i32("i", i32(0), get("n"), [
+            ("block", None, "no"),
+            [br_if("no", op("i32.ne", arr_get_u("U8", get("a"), op("i32.add", get("i"), i32(k))), i32(c))) for k, c in enumerate(word)],
+            ret(i32(1)),
+            "end",
+        ]),
+        i32(0),
+    ])
+    add_func(m, "rt_fail_ex", [("msg", STR), ("plain", I32)], [], locals = [
+        ("a", U8A),
+        ("n", I32),
+        ("i", I32),
+        ("line", I32),
+        ("f", ref("U8", True)),
+    ], body = [
         set("a", field("Str", "b", get("msg"))),
         set("n", arr_len(get("a"))),
         if_(op("i32.gt_s", get("n"), i32(65536)), set("n", i32(65536))),
         for_i32("i", i32(0), get("n"), [get("i"), arr_get_u("U8", get("a"), get("i")), ("i32.store8", 0)]),
+        if_(gget("catch_depth"), if_(or_(gget("catch_all"), call("rt_mentions_none", get("a"))), [
+            if_(gget("catch_all"), gset("catch_count", op("i32.add", gget("catch_count"), i32(1)))),
+            set("line", call("host_caught", i32(0), get("n"), get("plain"), gget("catch_all"))),
+            set("n", call("host_caught_file")),
+            if_(op("i32.gt_s", get("n"), i32(65536)), set("n", i32(65536))),
+            call("host_file_chunk", i32(0), i32(0), get("n")),
+            set("f", arr_new_default("U8", get("n"))),
+            for_i32("i", i32(0), get("n"), arr_set("U8", non_null(get("f")), get("i"), [get("i"), ("i32.load8_u", 0)]), label = "copy"),
+            new("Tuple", arr_fixed("Vals", S(m, "error"), get("msg"), new("Str", i32(0), non_null(get("f"))),
+                                 call("rt_int", op("i64.extend_i32_s", get("line"))))),
+            ("throw", "caught"),
+        ])),
         call("host_fail", i32(0), get("n"), get("plain")),
         "unreachable",
     ])
@@ -525,7 +578,7 @@ def _basics(m):
     add_func(m, "rt_bool", [("x", I32)], [V], [select_(get("x"), gget("True"), gget("False"), V)])
 
     add_func(m, "rt_truth", [("v", V)], [I32], [
-        if_(ref_eq(get("v"), gget("None")), ret(i32(0))),
+        if_(is_("NoneType", get("v")), ret(i32(0))),
         if_(is_("Bool", get("v")), ret(field("Bool", "v", as_("Bool", get("v"))))),
         if_(is_("i31", get("v")), ret(op("i32.ne", op("i31.get_s", as_("i31", get("v"))), i32(0)))),
         if_(is_("Str", get("v")), ret(op("i32.ne", arr_len(field("Str", "b", as_("Str", get("v")))), i32(0)))),
@@ -1895,6 +1948,7 @@ def _compare(m):
         too_deep,
         if_(eqz(or_(or_(is_("List", a), is_("Tuple", a)), or_(is_("Dict", a), is_("Struct", a)))),
             if_(ref_eq(a, b), ret(i32(1)))),  # containers: no identity shortcut (as starlark-go)
+        if_(both("NoneType", a, b), ret(i32(1))),
         if_(mixed_num(a, b), ret(eqz(call("rt_num_cmp", a, b)))),
         if_(both("Int", a, b), ret(op("i64.eq", field("Int", "v", as_("Int", a)), field("Int", "v", as_("Int", b))))),
         if_(both("Big", a, b), ret(eqz(call("rt_big_cmp", a, b)))),
@@ -2595,7 +2649,7 @@ def _generic(m):
             ret(arr_len(field("Str", "b", field("Lazy", "s", as_("Lazy", x)))))),
         if_(is_("Obj", x), [
             set("v", obj_op(OBJ_LEN, x)),
-            if_(eqz(ref_eq(get("v"), gget("None"))), ret(op("i32.wrap_i64", call("rt_i64", get("v"))))),
+            if_(eqz(is_("NoneType", get("v"))), ret(op("i32.wrap_i64", call("rt_i64", get("v"))))),
         ]),
         type_err1(m, "len: value of type ", x, " has no len"),
     ])
@@ -2665,7 +2719,7 @@ def _generic(m):
         ))),
         # dicts: as starlark-go, an unhashable key is just not there
         if_(is_("Dict", get("c")), [
-            if_(eqz(ref_eq(call("rt_unhashable", x), gget("None"))), ret(i32(0))),
+            if_(eqz(is_("NoneType", call("rt_unhashable", x))), ret(i32(0))),
             if_(or_(is_("Range", x), is_("Lazy", x)), ret(i32(0))),
             ret(op("i32.ge_s", call("rt_dict_find", as_("Dict", get("c")), x, call("rt_hash", x)), i32(0))),
         ]),
@@ -2714,7 +2768,7 @@ def _generic(m):
         if_(is_("Lazy", x), ret(call("rt_lazy_items", as_("Lazy", x)))),
         if_(is_("Obj", x), [
             set("v", obj_op(OBJ_ITER, x)),
-            if_(eqz(ref_eq(get("v"), gget("None"))), ret(as_("Tuple", get("v")))),
+            if_(eqz(is_("NoneType", get("v"))), ret(as_("Tuple", get("v")))),
         ]),
         type_err1(m, "", x, " value is not iterable"),
     ])
@@ -2765,7 +2819,7 @@ def _printing(m):
         ("k", V),
     ], body = [
         if_(is_null(v), [str_("<unbound>"), "return"]),
-        if_(ref_eq(v, gget("None")), [str_("None"), "return"]),
+        if_(is_("NoneType", v), [str_("None"), "return"]),
         if_(is_("Bool", v), [
             call("rt_buf_str", b, select_(field("Bool", "v", as_("Bool", v)), S(m, "True"), S(m, "False"), STR)),
             "return",

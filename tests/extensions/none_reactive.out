@@ -1,0 +1,42 @@
+total 12 []
+running 12 []
+big True []
+order 12 []
+order.sub 3 []
+struct(cost = 12, id = 1, item = "apple", note = "apple", sub = struct(price = 3)) False
+total None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14"]
+running None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive running tests/extensions/none_reactive.star:15"]
+big None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
+order None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
+order.sub None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "reactive order.sub.price tests/extensions/none_reactive.star:22"]
+struct(cost = None, id = 2, item = "pear", note = "applepear", sub = struct(price = None)) True
+total None ["literal None <stdin>:2", "reactive qty <stdin>:2", "reactive total tests/extensions/none_reactive.star:14"]
+big None ["literal None <stdin>:2", "reactive qty <stdin>:2", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
+order None ["literal None <stdin>:2", "reactive qty <stdin>:2", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
+order.sub 3 []
+struct(cost = None, id = 3, item = "apple", note = "applepearapple", sub = struct(price = 3)) True
+total 24 []
+big True []
+order 24 []
+order.sub 3 []
+struct(cost = 24, id = 4, item = "apple", note = "applepearappleapple", sub = struct(price = 3)) False
+total None ["literal None <stdin>:5", "reactive qty <stdin>:5", "reactive total tests/extensions/none_reactive.star:14"]
+big None ["literal None <stdin>:5", "reactive qty <stdin>:5", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
+order None ["literal None <stdin>:5", "reactive qty <stdin>:5", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
+order.sub 3 []
+struct(cost = None, id = 5, item = "apple", note = "applepearappleappleapple", sub = struct(price = 3)) True
+total 48 []
+big True []
+order 48 []
+order.sub 3 []
+struct(cost = 48, id = 6, item = "apple", note = "applepearappleappleappleapple", sub = struct(price = 3)) False
+total 6 []
+big False []
+order 6 []
+order.sub 3 []
+struct(cost = 6, id = 7, item = "apple", note = "applepearappleappleappleappleapple", sub = struct(price = 3)) False
+total None ["reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14"]
+big None ["reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
+order None ["reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
+order.sub None ["reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "reactive order.sub.price tests/extensions/none_reactive.star:22"]
+struct(cost = None, id = 8, item = None, note = None, sub = struct(price = None)) True

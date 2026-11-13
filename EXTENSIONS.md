@@ -11,8 +11,9 @@ see and to check.
   in `compiler/extensions.star` (the type checker, which is a program of
   its own rather than part of the compiler, is in `typecheck/`). `codegen.star` names no extension: it
   calls the hooks in `extensions.star` at fixed points (a call of a name, a
-  call through a value), and an extension either returns the code to emit
-  or None to leave the call to the core. Whole-program hooks run once per
+  call through a value; every expression, condition, assignment and
+  statement), and an extension either returns the code to emit
+  or None to leave it to the core. Whole-program hooks run once per
   compilation (after parsing, when declaring host imports and runtime
   functions, when building the prelude), `EXT_INTRINSICS` adds primitives
   that only the prelude can call, and generated code may call any prelude
@@ -311,11 +312,15 @@ standard input.
   recomputed variable counts as changed only if its new value differs
   (`!=`) from the old, so `big : size > 20` stops propagation when it
   stays the same.
-- Errors during an update are reported with a traceback on stderr (the
-  frame of the definition or statement shows as `<toplevel>`), every
-  reactive variable gets back its value from before the line, and the
-  program carries on with the next line. Output already printed by
-  observers during that update stays printed.
+- Errors during an update: by default (contagious None, below, is on in a
+  program with reactive variables) an error doesn't fail the update: it
+  is printed with its traceback on stderr, and what failed gives a None
+  that carries the error; see "Errors in a reactive program" below. With
+  `--nocontagiousnone` an error ends the update instead: it is reported
+  with a traceback on stderr (the frame of the definition or statement
+  shows as `<toplevel>`), every reactive variable gets back its value
+  from before the line, and the program carries on with the next line;
+  output already printed by observers during that update stays printed.
 - Journal: `node host/run.mjs --journal=FILE prog.star` (or `prog.wasm`)
   appends every line of standard input to FILE (each with `\n`, synced
   to disk before the line is applied, so nothing applied is missing from
@@ -332,7 +337,10 @@ standard input.
   (`x = 5`, `x = f(2)`) is sent to the program as a line of standard input.
   Replay keeps it in the session as an update and delivers it right after
   the inputs it followed (see sync points below), so later inputs see the
-  new value. A failing update is not kept. Updates don't recompile
+  new value. A failing update is not kept (with
+  contagious None, the default here, an update doesn't fail on an error:
+  the REPL shows the traceback, and the variables that couldn't be
+  computed are echoed as None). Updates don't recompile
   anything: a session with reactive variables runs in a worker
   (host/repl_worker.mjs) that stays alive at the end of its top level,
   waiting for input, and the REPL just sends it the line. (After a failed
@@ -404,6 +412,285 @@ standard input.
   `<name>.in` as standard input, compares stderr with `<name>.err`, and
   treats a test starting with `# error: <text>` as a compile-error test.
   REPL updates: the end of tests/repl/session.in.
+
+## Contagious None
+
+    x = None
+    x + 1          # None
+    x.foo          # None
+    x > None       # None
+    x == x         # None
+    abs(x)         # None
+    x == None      # True
+    x != None      # False
+    provenance(x)  # [("literal", "None", "prog.star", 1)]
+
+Three things about None: an operation on it gives None instead of an
+error; a None knows where it comes from; and in a reactive program, once
+it is running, every error becomes such a None.
+
+### Errors in a reactive program
+
+**A reactive program doesn't stop on an error once its first run is
+done.** (This is the default: contagious None is on in every program with
+reactive variables, unless it is compiled with `--nocontagiousnone`.)
+
+    def ratio(a, b):
+        return a // b            # line 2
+
+    n : 4
+    half : ratio(100, n)         # line 5
+    print("half is", half)
+
+Sending `n = 0` on standard input prints, on stderr,
+
+    Traceback (most recent call last):
+      prog.star:5:13: in <toplevel>
+      prog.star:2:14: in ratio
+    Error: floored division by zero
+
+and on stdout `half is None`; the program then waits for the next line,
+and `n = 5` prints `half is 20`.
+
+- When: during updates, i.e. whenever a line of standard input (or, in
+  the REPL, an assignment to a reactive variable) is being applied: the
+  expressions on the line, the definitions that are recomputed, the
+  observers that are re-run, and every function they call. The first run
+  of the top level is as in any program: an error there is an error, the
+  program exits with it, since a program that can't start has nothing to
+  keep running. (In a program without reactive variables that turns
+  contagious None on, only errors caused by a None are caught: see "None
+  further in" below.)
+- What: every Starlark error: a division by zero, an index out of range,
+  a key not in a dict, a wrong type, a missing field or method, a wrong
+  number of arguments, a failed unpacking, a frozen value, `fail(...)`,
+  too deep a recursion.
+- What it becomes: the smallest thing around the error that can be
+  given a value gets None, and the computation goes on from there, with
+  the None contagious as ever:
+  - an operator, an index, a slice, a field, a builtin call: that
+    expression is None (`100 // n` above);
+  - anything else in a function (a statement: an unpacking, an
+    assignment to a frozen list, `fail`): the call of that function is
+    None;
+  - anything else in a definition: the variable is None; in an observer
+    (a top-level expression statement): the statement stops there, and
+    the update goes on with the next one; in a relation's struct block
+    or condition: no member is added or replaced;
+  - an expression on standard input: the variable is assigned None.
+
+  So nothing is rolled back (unless `--rollback` says so, below): the variables that could be computed have
+  their new values, and the ones that couldn't are None until an update
+  makes them computable again.
+- Rollback, if asked for: with the compiler option `--rollback`
+  (compiler/main.star, host/run.mjs, host/repl.mjs; a test's
+  `# option:rollback`), an update in which any error was caught is undone
+  once it has run: every reactive variable gets back the value it had
+  before the input line, so the program's state is that of the last
+  update without errors. The update still runs to its end first: every
+  error is printed, and the observers that ran saw the Nones (what they
+  printed stays printed); only the values are put back. Without the
+  option (the default) nothing is undone. `--rollback` does nothing
+  without contagious None (`--nocontagiousnone` always undoes a failed
+  update, at its first error). Code: the runtime counts the errors
+  caught during updates (`catch_count`), and `_reactive_input` restores
+  its saved values if the count moved (`_n_failed`). Test:
+  tests/extensions/none_reactive_rollback.star.
+- The original error, for the programmer, in two places:
+  - on stderr, when it happens: the same traceback and message as if it
+    had ended the program (above);
+  - in the None: its trace starts with the entry
+    `("error", message, file, line)`: the error's message, and the file
+    and line of the innermost frame of that traceback, i.e. where it
+    happened. So `provenance(half)` above is
+    `[("error", "floored division by zero", "prog.star", 2),
+    ("function", "ratio", "prog.star", 2), ("reactive", "half",
+    "prog.star", 5)]`: what went wrong and where, then how the None got
+    here. A program can act on it:
+
+        cause : [e for e in provenance(half) if e[0] == "error"]
+        print("half failed:", cause[0][1]) if cause else None
+
+    For an expression on standard input the place is `<stdin>` and the
+    input's line number. An error in a condition (`if xs[9] > 1:`) or in
+    an observer has no value to live in: it is only on stderr.
+- What can still stop it: an error in the first run; an internal error
+  (a Wasm trap, such as the engine's own stack overflowing: exit status
+  3); the end of standard input, which is how it ends normally. A line
+  of input that isn't valid (syntax, an unknown variable) is reported and
+  ignored, as before.
+- Left as it was by an error: output already printed; changes already
+  made to mutable reactive values (a list appended to before the error);
+  and a `for` loop cut short by an error leaves the list or dict it was
+  over marked as being iterated, so later changes to that value fail
+  (and give None).
+
+### The rest
+
+- Activation: on by default in a program with reactive variables (above),
+  off in any other. The compiler options `--contagiousnone` and
+  `--nocontagiousnone` (compiler/main.star, host/run.mjs, host/repl.mjs; a
+  checkbox in the browser REPL) turn it on or off whatever the program
+  has. It applies to the whole program: the main file and the modules it
+  loads. Off, None is starlark-go's and `provenance` is undefined.
+- Contagion: the result of an operation with a None operand is that None
+  (the first one, left to right; the operands are all evaluated, and the
+  operation itself isn't done). No operation on None stops the program.
+  - Operations: the binary operators (arithmetic, `%`, bitwise,
+    comparisons, `in`, `not in`), the unary ones (`-`, `+`, `~`, `not`),
+    `x.name`, `x[i]`, `x[i:j:k]` (x or a bound that is written), a call
+    `x(...)` or `x.method(...)` of None, `f(*x)` and `f(**x)`, and a call
+    of a builtin function or method with a None argument: `abs(x)`,
+    `len(x)`, `str(x)`, `type(x)`, `bool(x)`, `"a,b".split(x)`,
+    `",".join(x)` are all None, and the builtin isn't called.
+  - The one exception: `==` and `!=` when an operand is `None` written
+    out. `x == None` is True and `x != None` False if x is None; they are
+    how a program tells. Any other comparison is an operation: `x == x`,
+    `x == y` and `x != 1` are None when x is.
+  - Not operations: `x and y`, `x or y` and `a if x else b` choose an
+    operand, with None false as ever (so `x or default` replaces a None);
+    `if x:`, `while x:` and a comprehension's `if x` just don't run. As an
+    operation on None is None, hence false, `if x > 1:`, `if x != 1:` and
+    `if not x:` don't run either when x is None: only `x == None` is true
+    of it.
+  - Storing, printing or passing a None is no operation: `[x]`, `{k: x}`,
+    `y = x`, and calling a def (or lambda) with it: the function runs,
+    and what its body does with the None follows these rules. The same
+    for the arguments a builtin only stores, prints or gives back:
+    `print(x)` prints None, `l.append(x)`, `l.insert(i, x)`, `s.add(x)`,
+    `d.get(k, x)`, `d.setdefault(k, x)`, `d.pop(k, x)`,
+    `getattr(o, name, x)`, `struct(a = x)`, `dict(a = x)`,
+    `d.update(a = x)`, `fail(x)` (which fails, as asked) and
+    `provenance(x)` (`TOLERANT` in none.star). Through a value
+    (`f = abs; f(x)`, `m = l.append; m(x)`) it is the same, decided when
+    the call happens: a builtin isn't called, a def is.
+  - Statements: `for v in x` (and a comprehension's `for`) runs no
+    iteration; `a, b = x` gives each target that None; `x[i] = v` and
+    `x.name = v` do nothing when x is None, nor does `l[x] = v` (but
+    `d[x] = v` stores under the key None, in a dict); `y += x` makes y
+    None.
+- None further in: a None inside a container handed to a builtin or an
+  operator doesn't stop the program either, in any program with
+  contagious None, first run included. `sorted([1, None])`,
+  `max(l)`, `",".join(["a", None])`, `"%d" % (None,)`, `[None] < [1]`,
+  `abs(*[None])`, also through a value (`f = sorted; f(l)`): what would
+  fail because of the None gives None instead (false, in a condition),
+  silently; the None carries the error it replaced (`"error"`, below).
+  The builtin does run, up to the failure: a callback (`key = f`) may
+  have been called, and a list it was changing may be half changed.
+- Provenance: `provenance(v)` returns what a None passed through, oldest
+  first, as a list of tuples `(kind, id, file, line)`; `[]` for anything
+  that isn't None. The kinds:
+  - `"literal"`, id `"None"`: where it was written (`<stdin>` and the
+    input line, on a reactive program's standard input);
+  - `"function"`, id the function's name (`"lambda"` for a lambda): the
+    line of the `return` it left by; for a function that returns nothing,
+    which is where a None starts, the line of the bare `return`, or of the
+    `def` if it ran off the end;
+  - `"builtin"`, id the builtin function's or method's name: the line of
+    the call that returned it (`d.get(k)` with no such key, `l.append(1)`,
+    or a None that was stored and is given back);
+  - `"error"`, id the error's message: an error that was turned into
+    this None, with the file and line where it happened (the innermost
+    frame of its traceback). It is the first entry of the trace: the
+    None starts there. See "Errors in a reactive program" above, and
+    "None further in";
+  - `"reactive"`, id the reactive variable: the line of its definition,
+    each time it is computed to None; for a field of a struct block,
+    `"order.cost"` and the field's line; and file `<stdin>` with the input
+    line, when it is assigned there.
+
+  For example, with `price : prices.get(item)` on line 13 and
+  `total : double(price) * qty` on line 14, `provenance(total)` is
+  `[("builtin", "get", "prog.star", 13), ("reactive", "price",
+  "prog.star", 13), ("function", "double", "prog.star", 5), ("reactive",
+  "total", "prog.star", 14)]`. An operation adds nothing: `x + 1` is x,
+  trace and all. Each entry is listed once, where the None first passed:
+  a None going round a loop, or a reactive variable recomputed from
+  itself, doesn't grow. A None from elsewhere (inside the prelude, say a
+  missing optional result) has an empty trace until it passes through
+  something.
+- With reactive variables: a None doesn't fail an update, and nor does
+  an error (above); the None flows
+  through the definitions and observers that read it. Expressions on
+  standard input are contagious too (`qty = None + 1` assigns None).
+  A variable recomputed to a None that came another way than the one it
+  held counts as changed, so what reads it is recomputed and holds the
+  current trace. In a self-referencing definition (`total : total + n`)
+  None wins over the identity.
+- Code: compiler/ext/none.star.
+  - transform decides whether it is on, then marks the ASTs of the
+    user's modules: return values and lambda bodies (they pass through
+    the function), an added `return` at the end of each def, the values
+    reactive.star notes as a variable's (`defines`), loops' iterables.
+  - The hooks expr, cond, assign and stmt (new hook points, called for
+    every expression, condition, assignment and statement) put the test
+    in front of each operation: the operands are evaluated into Wasm
+    locals and tested with `ref.test`, and codegen compiles the operation
+    itself from a copy of the node whose operands read those locals. So
+    the core's code, errors and positions are unchanged, and a program
+    whose values are never None prints exactly what it does without the
+    extension. The prelude is compiled as ever, so builtins written in
+    Starlark keep their meaning; the tests are in the callers.
+  - A None is a `$NoneType {via, prev}` struct: `via` the entry it last
+    passed through, `prev` the None it was before. The plain None, the
+    only one when the extension is off, has neither; so the core's "is
+    None" is a type test now rather than `ref.eq` with the global, and
+    all Nones are equal to each other in the prelude and inside
+    containers. `rt_none_via(v, entry)` makes the new None; entries and
+    the Nones that start at a place are created once, in globals.
+  - Catching: each operation (operators, index, slice, field), builtin
+    call, call of a def and call through a value in the user's modules
+    runs in a Wasm `try` (`_protect`), with the global `catch_depth`
+    raised. While it is, `rt_fail_ex`, where every runtime error ends
+    up, doesn't end the program if the message mentions `NoneType` (as
+    every error about a None does) or if the global `catch_all` is set:
+    it asks the host for the place (host import `caught`, which maps the
+    stack to source positions as for a traceback, and prints the
+    traceback if `catch_all`), and throws `("error", message, file,
+    line)` (exception tag `$caught`). The `catch` makes the None from
+    it, and puts back the call depth and the iteration counts of the
+    arguments (a builtin cut out of a loop over a list would leave it
+    unchangeable). `catch_all` is set by `rt_none_try` (the prelude's
+    `_n_try`), which the reactive runtime uses to evaluate each input
+    expression, definition and observer of an update, and which is the
+    outermost `try`: what no inner one caught makes that whole
+    evaluation None. Outside a `try`, and for other messages when
+    `catch_all` isn't set, errors and their tracebacks are as ever. The
+    encoder (lib/wasm.star) gained tags and `try`/`catch`/`throw` (the
+    legacy exception-handling opcodes, which Node 22 and current
+    browsers run).
+  - Calls through values ask `rt_none_skip` whether the callee is a
+    builtin given a None it doesn't just store. The reactive runtime's
+    runtime calls the prelude's `_n_none`, `_n_skip`, `_n_tag`,
+    `_n_changed`, `_n_try` and `_n_try_at`, which do nothing when the
+    extension is off.
+- Not covered:
+  - Inside containers all Nones are equal: `[x] == [None]` is True (its
+    operands are lists), and a dict display with two keys that are both
+    None fails as a repeated key.
+  - Outside updates, errors that aren't None's doing are errors still,
+    also when a None is around: `sorted([1, "a", None])` may fail on
+    `int < string`, and `[1, 2].index(x)` with x None is "value not in
+    list".
+  - Arguments for which starlark-go reads None as "not given"
+    (`s.split(None)`, `s.find(t, None)`, a slice bound) are operations
+    here: the result is None.
+  - A builtin's result gets a `"builtin"` entry only when it is called by
+    name (`d.get(k)`, `len(x)`), not through a value.
+  - The type checker (below) knows nothing of it.
+  - Programs compiled without it pay one thing: None is tested by type.
+    With it, each operation tests its operands, and a function's None
+    result allocates a small struct the first time it leaves by a given
+    `return`.
+- Tests: tests/extensions/none_basic.star (contagion),
+  none_provenance.star (+ modules/none_mod.star), none_reactive.star
+  (the default, with reactive variables and standard input),
+  none_nested.star (None inside containers), none_reactive_errors.star
+  (errors during updates, with their tracebacks in the .err file),
+  none_reactive_off.star (`--nocontagiousnone`), none_err_provenance.star;
+  tests take the options from `# option:contagiousnone` /
+  `# option:nocontagiousnone` lines.
 
 ## Static types
 

@@ -1,0 +1,8 @@
+item = "pear"
+qty = None
+item = "apple"
+qty = 4
+qty = None + 1
+qty = len([abs(None), len(*None), None.foo, [None][0][1:], -None, not None, None(), [i for i in None]])
+qty = 1 if None == None and not (None != None) else 0
+item = {}.get("x")

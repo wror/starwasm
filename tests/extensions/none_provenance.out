@@ -1,0 +1,52 @@
+a literal: None
+    literal None (tests/extensions/none_provenance.star:37)
+an operation adds nothing: None
+    literal None (tests/extensions/none_provenance.star:37)
+through a function: None
+    literal None (tests/extensions/none_provenance.star:37)
+    function ident (tests/extensions/none_provenance.star:13)
+through two, once each: None
+    literal None (tests/extensions/none_provenance.star:37)
+    function ident (tests/extensions/none_provenance.star:13)
+    function twice (tests/extensions/none_provenance.star:17)
+round a loop, once each: None
+    literal None (tests/extensions/none_provenance.star:37)
+    function ident (tests/extensions/none_provenance.star:13)
+    function loop (tests/extensions/none_provenance.star:35)
+no return value: None
+    function nothing (tests/extensions/none_provenance.star:19)
+a bare return: None
+    function bare (tests/extensions/none_provenance.star:24)
+nested: None
+    literal None (tests/extensions/none_provenance.star:29)
+    function inner (tests/extensions/none_provenance.star:29)
+    function outer (tests/extensions/none_provenance.star:30)
+a lambda: None
+    literal None (tests/extensions/none_provenance.star:37)
+    function lambda (tests/extensions/none_provenance.star:46)
+a default: None
+    literal None (tests/extensions/none_provenance.star:47)
+    function lambda (tests/extensions/none_provenance.star:47)
+a builtin's result: None
+    builtin get (tests/extensions/none_provenance.star:48)
+a method's result: None
+    builtin clear (tests/extensions/none_provenance.star:49)
+a stored one, given back: None
+    literal None (tests/extensions/none_provenance.star:37)
+    builtin get (tests/extensions/none_provenance.star:50)
+a loaded function: None
+    builtin get (tests/extensions/modules/none_mod.star:4)
+    function lookup (tests/extensions/modules/none_mod.star:4)
+falling off the end: None
+    function first (tests/extensions/modules/none_mod.star:6)
+
+print's result: None
+    builtin print (tests/extensions/none_provenance.star:53)
+the first None operand: None
+    literal None (tests/extensions/none_provenance.star:37)
+    function ident (tests/extensions/none_provenance.star:13)
+unpacked: None
+    function nothing (tests/extensions/none_provenance.star:19)
+not None: 1
+the trace of a trace: []
+[("literal", "None", "tests/extensions/none_provenance.star", 37)] [] False True

@@ -1,0 +1,7 @@
+n = 0
+n = 5
+key = "zz"
+n = 500
+n = 1 // 0
+items = [1, 2].missing()
+n = 4; key = "a"; items = [1, 2, 3]

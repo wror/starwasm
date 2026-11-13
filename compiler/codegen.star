@@ -82,11 +82,15 @@ load("spell.star", "nearest")
 load(
     "extensions.star",
     "EXT_INTRINSICS",
+    "ext_assign",
+    "ext_cond",
     "ext_direct_call",
     "ext_dynamic_call",
+    "ext_expr",
     "ext_imports",
     "ext_prelude",
     "ext_runtime",
+    "ext_stmt",
     "ext_transform",
 )
 load("../lib/prelude.star", "PRELUDE")
@@ -489,6 +493,9 @@ def cell_ref(mc, fc, name, posn):
 def gen(mc, fc, e):
     m = mc["m"]
     k = e["kind"]
+    code = ext_expr(CG, mc, fc, e)
+    if code != None:
+        return code
     if k == "int":
         return vi(e["val"])
     if k == "string":
@@ -755,6 +762,9 @@ def gen_binop(mc, fc, e):
 def gen_cond(mc, fc, e):
     """Code leaving an i32 truth value."""
     k = e["kind"]
+    code = ext_cond(CG, mc, fc, e)
+    if code != None:
+        return code
     if k == "binop":
         op_ = e["op"]
         cmp = COMPARE.get(op_)
@@ -1253,6 +1263,8 @@ def first_stmt_leaf(mc, fc, stmts):
 
 def first_leaf(mc, fc, e):
     k = e["kind"]
+    if k == "%code":  # an operand evaluated beforehand (by an extension's hook)
+        return first_leaf(mc, fc, e["orig"]) if e.get("orig") != None else None
     if k == "name":
         kind = lookup(mc, fc, e["id"], e["pos"])[0]
         if kind == "const" or kind == "builtin" or kind == "protomod":
@@ -1276,6 +1288,8 @@ def last_leaf(mc, fc, e):
     """Position of the last instruction with a source position that
     starlark-go runs to evaluate e, or None."""
     k = e["kind"]
+    if k == "%code":
+        return last_leaf(mc, fc, e["orig"]) if e.get("orig") != None else None
     if k == "name":
         kind = lookup(mc, fc, e["id"], e["pos"])[0]
         return None if kind == "const" or kind == "builtin" or kind == "protomod" else e["pos"]
@@ -1371,7 +1385,7 @@ def loop_setup(mc, fc, iter_e, posn):
     advance (step to the next element)."""
     m = mc["m"]
     if iter_e["kind"] == "call" and iter_e["fn"]["kind"] == "name" and \
-       iter_e["fn"]["id"] == "range" and not has_star_args(iter_e) and \
+       iter_e["fn"]["id"] == "range" and not has_star_args(iter_e) and not iter_e.get("hooked", False) and \
        lookup(mc, fc, "range", iter_e["fn"]["pos"])[0] == "builtin":
         args = iter_e["args"]
         check_plain_args(mc, iter_e, "range()")
@@ -1526,6 +1540,9 @@ def gen_assign(mc, fc, t, value, posn):
     """Code assigning `value` (code for an eqref) to target t. posn: where
     to report a failed tuple unpacking."""
     k = t["kind"]
+    code = ext_assign(CG, mc, fc, t, value, posn)
+    if code != None:
+        return code
     if k == "name":
         name = t["id"]
         scopes = fc["scopes"]
@@ -1573,6 +1590,9 @@ def gen_block(mc, fc, stmts):
 
 def gen_stmt(mc, fc, s):
     k = s["kind"]
+    code = ext_stmt(CG, mc, fc, s)
+    if code != None:
+        return code
     if k == "expr":
         return drop(gen(mc, fc, s["x"]))
     if k == "assign":
@@ -1658,9 +1678,13 @@ def gen_toplevel_def_stmt(mc, fc, s):
     code.append(gset("fv_" + name, make_func("dyn_" + name, "sig_" + name, null("Vals"), defaults)))
     return code
 
+def aug_fn(aug):
+    """The runtime function of augmented assignment `aug` ("+=", ...)."""
+    op_ = aug[:-1]
+    return {"+": "rt_iadd", "|": "rt_ior"}.get(op_, ARITH.get(op_))
+
 def gen_augassign(mc, fc, s):
-    op_ = s["op"][:-1]
-    fn = {"+": "rt_iadd", "|": "rt_ior"}.get(op_, ARITH.get(op_))
+    fn = aug_fn(s["op"])
     t = s["lhs"]
     if t["kind"] == "name":
         return gen_assign(mc, fc, t, callat(mc, s["oppos"], fn, gen_name(mc, fc, t), gen(mc, fc, s["rhs"])), s["oppos"])
@@ -1683,6 +1707,9 @@ def gen_augassign(mc, fc, s):
                         callat(mc, s["oppos"], fn, cur, gen(mc, fc, s["rhs"])))),
         ]
     cerr(mc, t["pos"], "cannot use " + s["op"] + " on this target")
+
+# more helpers for extension hooks (see CG)
+CG.update({"gen": gen, "gen_cond": gen_cond, "gen_assign": gen_assign, "aug_fn": aug_fn})
 
 # ---------------------------------------------------------------- module
 
@@ -2019,8 +2046,15 @@ def add_prelude(mc):
     mc["prelude"] = mod
     mc["order"] = [mod] + mc["order"]
 
-def compile_program(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False):
+def compile_program(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False,
+                    contagious_none = None, rollback = False):
     mc = {
+        # with contagious None, in a reactive program: an update in which
+        # an error was caught is rolled back (ext/none.star)
+        "rollback": rollback,
+        # the "contagious None" extension (ext/none.star): True, False, or
+        # None for its default (on in programs with reactive variables)
+        "contagious_none": contagious_none,
         "m": None,  # the Wasm module, created after parsing (below)
         "test": test,  # test-only builtins visible (TEST_BUILTINS)
         "globalreassign": globalreassign,  # starlark-go's GlobalReassign option
@@ -2133,7 +2167,8 @@ def debug_section(mc):
     ])
     return list(text.elem_ords())
 
-def compile(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False):
+def compile(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False,
+            contagious_none = None, rollback = False):
     """Compile a Starlark program (and the modules it loads, read relative
     to filename) to Wasm bytes (a list of ints). test: make the test-only
     builtins (TEST_BUILTINS) visible. descriptor_set: the contents of a
@@ -2143,5 +2178,9 @@ def compile(src, filename, test = False, descriptor_set = None, globalreassign =
     if/for/while at top level. repl: a REPL
     session (host/repl.mjs), whose `_` may be rebound regardless.
     recursion: starlark-go's Recursion option (off by default, as there):
-    functions may call themselves, directly or not (recursion.star)."""
-    return encode(compile_program(src, filename, test, descriptor_set, globalreassign, repl, recursion))
+    functions may call themselves, directly or not (recursion.star).
+    contagious_none: the "contagious None" extension (EXTENSIONS.md): True
+    or False, or None for its default (on in programs with reactive
+    variables). rollback: with it, in a reactive program, an update in
+    which an error was turned into None is undone."""
+    return encode(compile_program(src, filename, test, descriptor_set, globalreassign, repl, recursion, contagious_none, rollback))

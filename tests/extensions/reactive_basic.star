@@ -42,3 +42,6 @@ doubled : scale(width)
 print("doubled", doubled)
 calls.append("done")          # the first run may still mutate
 print("calls so far", len(calls))
+
+# option:nocontagiousnone (the errors of updates, here, are errors; with contagious
+# None, the default with reactive variables, they give None: none_reactive_errors.star)

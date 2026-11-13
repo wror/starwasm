@@ -294,7 +294,7 @@ def _in_context(e):
     elif k == "index":
         new = _prelude_call("_r_index", [_in_context(e["x"]), _in_context(e["i"])], posn)
     elif k == "slice":
-        parts = [_in_context(e[p]) if e[p] != None else _name("None", posn) for p in ["lo", "hi", "step"]]
+        parts = [_in_context(e[p]) if e[p] != None else _none(posn) for p in ["lo", "hi", "step"]]
         new = _prelude_call("_r_slice", [_in_context(e["x"])] + parts, posn)
     elif k == "cond":
         e["test"] = _prelude_call("_r_truth", [_in_context(e["test"])], e["test"]["pos"])
@@ -352,6 +352,20 @@ def _in_context(e):
 
 def _name(n, posn):
     return {"kind": "name", "id": n, "pos": posn}
+
+def _none(posn):
+    """None, generated (not written by the user: "gen")."""
+    return {"kind": "name", "id": "None", "pos": posn, "gen": True}
+
+def _defines(e, name):
+    """Note that expression e is the value of reactive variable `name`
+    (for a struct block, of its fields too: "name.field"), for extensions
+    that track where values come from (ext/none.star)."""
+    e["defines"] = (name, e["pos"][0])
+    if e.get("block", False):
+        for a in e["args"]:
+            if a["name"] != None:
+                _defines(a["value"], name + "." + a["name"])
 
 def _str(s, posn):
     return {"kind": "string", "val": s, "pos": posn}
@@ -489,6 +503,7 @@ def transform(cg, mc):
                     idv = _next_id(name, posn)
                 s["value"]["args"].append({"name": "id", "star": "", "value": idv, "pos": posn})
             defined[name] = True
+            _defines(s["value"], name)
             # computed only once what it reads is set
             required = [d for d in deps if unset.get(d, False)]
             if required:
@@ -526,11 +541,11 @@ def transform(cg, mc):
             # observers read relations' lists, which are always set
             required = [d for d in deps if unset.get(d, False) and not relations.get(d, False)]
             if required:
-                out.append({"kind": "expr", "pos": s["pos"], "x": _if_ready(s["x"], required, _name("None", s["pos"]))})
+                out.append({"kind": "expr", "pos": s["pos"], "x": _if_ready(s["x"], required, _none(s["pos"]))})
             else:
                 out.append(s)
             if deps:
-                thunk = ([{"kind": "expr", "x": _copy(s["x"]), "pos": s["pos"]}], _name("None", s["pos"]))
+                thunk = ([{"kind": "expr", "x": _copy(s["x"]), "pos": s["pos"]}], _none(s["pos"]))
         else:
             cx["uses"] = []
             _stmts(cx, [s], {}, None)
@@ -576,8 +591,8 @@ def _state_dict(relations, whens, posn):
         (_str("lineno", posn), {"kind": "int", "val": 0, "pos": posn}),
         (_str("relations", posn), table(relations)),
         (_str("whens", posn), table(whens)),
-        (_str("tid", posn), _name("None", posn)),
-        (_str("wself", posn), _name("None", posn)),
+        (_str("tid", posn), _none(posn)),
+        (_str("wself", posn), _none(posn)),
         (_str("changed", posn), {"kind": "dict", "entries": [], "colons": [], "pos": posn}),
     ]
     return {"kind": "dict", "entries": entries, "colons": [posn for _ in entries], "pos": posn}
@@ -726,7 +741,7 @@ def _reactive_input(values, nodes, state, names, before):
         if line == None:
             return
         state["lineno"] += 1
-        p = {"s": line, "i": 0, "err": None, "depth": 0}
+        p = {"s": line, "i": 0, "err": None, "depth": 0, "lineno": state["lineno"]}
         assigns = _r_line(p, values, names)
         if p["err"] != None:
             _eprint("<stdin>:" + str(state["lineno"]) + ":" + str(p["errpos"] + 1) + ": " + p["err"])
@@ -734,11 +749,17 @@ def _reactive_input(values, nodes, state, names, before):
         if not assigns:
             continue
         saved = dict(values)
-        ok = _try(lambda: _reactive_update(values, nodes, state, [(n, _r_eval(e, {}, names)) for n, e in assigns]))
+        errors = _n_errors()  # (ext/none.star: with --rollback, caught errors undo the update)
+        # (_n_tag, _n_none, _n_skip: ext/none.star; a None assigned here
+        # passed through the variable, at this line)
+        ok = _try(lambda: _reactive_update(values, nodes, state, [
+            (n, _n_tag(_n_try_at(lambda: _r_eval(e, {}, names), "<stdin>", state["lineno"]), "reactive", n, "<stdin>", state["lineno"]))
+            for n, e in assigns
+        ]))
         state["changed"] = {}
         state["tid"] = None
         state["wself"] = None
-        if not ok:
+        if not ok or _n_failed(errors):
             values.clear()
             values.update(saved)
 
@@ -751,7 +772,8 @@ def _reactive_update(values, nodes, state, assigns):
     """Set the assigned variables, then go through nodes (source order is
     a topological order) recomputing each variable that reads a changed
     one, and re-running each observer that does. A recomputed variable
-    counts as changed only if its new value differs (!=) from the old. A
+    counts as changed only if its new value differs (!=) from the old (or,
+    with ext/none.star, is a None that came another way than the old). A
     relation's new value is a member, added to its list or replacing the
     one with the same id (_r_upsert); it always counts as changed: an
     update removes a member and adds one. A node that reads a variable not
@@ -774,10 +796,15 @@ def _reactive_update(values, nodes, state, assigns):
                 break
         if not hit or not _r_ready(values, required):
             continue
+        # (_n_try: with contagious None, an error in f is printed and gives
+        # None, and the update goes on; without, it is plain f(), and the
+        # error ends the update)
         if name == None:
-            f()
+            _n_try(f)
             continue
-        v = f()
+        v = _n_try(f)
+        if _n_none(v) and rels.get(name, False):
+            continue  # a relation's member that failed: none is added
         if state["whens"].get(name, False):
             if v:  # _r_when updated it
                 changed[name] = True
@@ -786,7 +813,7 @@ def _reactive_update(values, nodes, state, assigns):
             _r_upsert(values, name, v)
             changed[name] = True
             continue
-        if v != values[name]:
+        if v != values[name] or _n_changed(values[name], v):
             changed[name] = True
         values[name] = v
 
@@ -1356,7 +1383,9 @@ def _r_primary(p):
         return ("name", t["v"], t["pos"])
     if t["k"] == "kw" and t["v"] in ("None", "True", "False"):
         _r_next(p)
-        return ("const", {"None": None, "True": True, "False": False}[t["v"]])
+        if t["v"] == "None":
+            return ("const", _n_tag(None, "literal", "None", "<stdin>", p["lineno"]))
+        return ("const", t["v"] == "True")
     if t["k"] == "op" and t["v"] in ("(", "[", "{"):
         if p["depth"] >= _R_MAX_DEPTH:
             return _r_fail(p, "expression nested too deeply", t["pos"])
@@ -1528,10 +1557,14 @@ def _r_eval(n, env, names):
         for key, val in n[1]:
             d[_r_eval(key, env, names)] = _r_eval(val, env, names)
         return d
+    # With contagious None (ext/none.star; _n_none is always False without
+    # it), an operation on None is that None, as in the program.
     if k == "unop":
-        return _r_unop(n[1], _r_eval(n[2], env, names))
+        x = _r_eval(n[2], env, names)
+        return x if _n_none(x) else _r_unop(n[1], x)
     if k == "not":
-        return not _r_eval(n[1], env, names)
+        x = _r_eval(n[1], env, names)
+        return x if _n_none(x) else not x
     if k == "and":
         x = _r_eval(n[1], env, names)
         return _r_eval(n[2], env, names) if x else x
@@ -1539,18 +1572,32 @@ def _r_eval(n, env, names):
         x = _r_eval(n[1], env, names)
         return x if x else _r_eval(n[2], env, names)
     if k == "binop":
-        return _r_binop(n[1], _r_eval(n[2], env, names), _r_eval(n[3], env, names))
+        x = _r_eval(n[2], env, names)
+        y = _r_eval(n[3], env, names)
+        if not ((n[1] == "==" or n[1] == "!=") and (_r_none_lit(n[2]) or _r_none_lit(n[3]))):
+            if _n_none(x):
+                return x
+            if _n_none(y):
+                return y
+        return _r_binop(n[1], x, y)
     if k == "cond":
         return _r_eval(n[2], env, names) if _r_eval(n[1], env, names) else _r_eval(n[3], env, names)
     if k == "attr":
-        return _attr(_r_eval(n[1], env, names), n[2])
+        x = _r_eval(n[1], env, names)
+        return x if _n_none(x) else _attr(x, n[2])
     if k == "call":
         f = _r_eval(n[1], env, names)
         pos = []
         kw = {}
+        skip = False
+        none = None
         for name, star, x in n[2]:
             v = _r_eval(x, env, names)
-            if star == "*":
+            if star != "" and _n_none(v):
+                if not skip:
+                    none = v
+                skip = True
+            elif star == "*":
                 pos.extend(v)
             elif star == "**":
                 kw.update(v)
@@ -1558,15 +1605,32 @@ def _r_eval(n, env, names):
                 kw[name] = v
             else:
                 pos.append(v)
+        if _n_none(f):
+            return f
+        if skip:
+            return none
+        none = _n_skip(f, pos, kw)
+        if _n_none(none):
+            return none
         return f(*pos, **kw)
     if k == "index":
-        return _r_eval(n[1], env, names)[_r_eval(n[2], env, names)]
+        x = _r_eval(n[1], env, names)
+        i = _r_eval(n[2], env, names)
+        return x if _n_none(x) else i if _n_none(i) else x[i]
     if k == "slice":
-        part = [None if x == None else _r_eval(x, env, names) for x in n[2:]]
-        return _r_eval(n[1], env, names)[part[0]:part[1]:part[2]]
+        x = _r_eval(n[1], env, names)
+        part = [None if y == None else _r_eval(y, env, names) for y in n[2:]]
+        for j, y in enumerate([x] + part):
+            if _n_none(y) and (j == 0 or n[1 + j] != None):
+                return y
+        return x[part[0]:part[1]:part[2]]
     out = [] if n[1] == "list" else {}
     _r_comp(n, 0, dict(env), names, out)
     return out
+
+def _r_none_lit(n):
+    """Is node n None written out?"""
+    return n[0] == "const" and n[1] == None
 
 def _r_comp(n, i, env, names, out):
     if i == len(n[3]):
@@ -1580,7 +1644,8 @@ def _r_comp(n, i, env, names, out):
         if _r_eval(c[1], env, names):
             _r_comp(n, i + 1, env, names, out)
         return
-    for v in _r_eval(c[2], env, names):
+    it = _r_eval(c[2], env, names)
+    for v in () if _n_none(it) else it:
         if len(c[1]) == 1:
             env[c[1][0]] = v
         else:

@@ -7,7 +7,8 @@
 // reuses __pycache__/*.pyc: see wasmcache.mjs (the Wasm is cached in
 // __wasmcache__/ next to the source). A compile error is printed as
 // "file:line:col: msg", with exit status 1. Options, before the file:
-//   --globalreassign, --recursion, --test, --descriptor_set=FILE
+//   --globalreassign, --recursion, --test, --descriptor_set=FILE,
+//   --contagiousnone, --nocontagiousnone, --rollback
 //                   the compiler's (compiler/main.star)
 //   --compiler=FILE.wasm
 //                   compile with this compiler (e.g. out/stage2.wasm);
@@ -165,7 +166,7 @@ function journaled(path, readLine) {
 
 const USAGE = `usage: node host/run.mjs [--journal=FILE] <file.wasm> [export [args...]] [-- program args...]
        node host/run.mjs [--journal=FILE] [--globalreassign] [--recursion] [--test] [--descriptor_set=FILE]
-                         [--compiler=FILE.wasm] [--compile] <file.star> [export [args...]] [-- program args...]
+                         [--contagiousnone | --nocontagiousnone] [--rollback] [--compiler=FILE.wasm] [--compile] <file.star> [export [args...]] [-- program args...]
 `;
 
 function main() {
@@ -180,7 +181,7 @@ function main() {
   let i = 0;
   for (; i < before.length && before[i].startsWith("--"); i++) {
     const a = before[i];
-    if (a === "--globalreassign" || a === "--recursion" || a === "--test" || a.startsWith("--descriptor_set=")) {
+    if (a === "--globalreassign" || a === "--recursion" || a === "--test" || a === "--contagiousnone" || a === "--nocontagiousnone" || a === "--rollback" || a.startsWith("--descriptor_set=")) {
       if (!flags.includes(a)) flags.push(a);
     }
     else if (a.startsWith("--compiler=")) compiler = a.slice("--compiler=".length);

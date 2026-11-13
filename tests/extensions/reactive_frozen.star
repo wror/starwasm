@@ -33,3 +33,6 @@ print(counts.update(n = x) if x == 3 else None)
 print(remember(x) if x == 4 else None)
 print(bump() if x == 5 else None)
 print("z is", z, "fresh", [x] + [y])
+
+# option:nocontagiousnone (the errors of updates, here, are errors; with contagious
+# None, the default with reactive variables, they give None: none_reactive_errors.star)

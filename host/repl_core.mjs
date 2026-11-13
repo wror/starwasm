@@ -123,6 +123,8 @@ function reactiveNames(entries) {
 // which is last. The observer may first run after the definition (for a
 // variable computed from a relation, once the relation has a member), so
 // `seen` is set by a plain statement, which runs once, at the definition.
+// (None is spelled out: with contagious None, on in such a session, repr(None)
+// is None, and so is a string + None.)
 function statementCode(src, num, names) {
   let code = src.replace(/\s+$/, "");
   const known = new Set(names);
@@ -134,7 +136,7 @@ function statementCode(src, num, names) {
     const shown = JSON.stringify(name + " = ");
     code += `\n${seen} = []\n` + (relation
       ? `(lambda v, seen: print(${shown} + repr(v[-1])) if seen and v else None)(${name}, ${seen})`
-      : `(lambda v, seen: print(${shown} + repr(v)) if seen else None)(${name}, ${seen})`) +
+      : `(lambda v, seen: print(${shown} + ("None" if v == None else repr(v))) if seen else None)(${name}, ${seen})`) +
       `\n${seen}.append(True)`;
   }
   return { code, offset: 0 };
@@ -270,7 +272,7 @@ function callAt(s, at) {
 /**
  * A REPL session.
  *   compiler      the compiler (a WebAssembly.Module)
- *   dialectFlags  compiler options (--globalreassign, --recursion)
+ *   dialectFlags  compiler options (--globalreassign, --recursion, --contagiousnone, --nocontagiousnone)
  *   sessionPath   the file the session is compiled from (load() paths are
  *                 relative to it); wasmPath: where the compiler writes
  *   readFile(path) -> Uint8Array, writeFile(path, bytes): file access, for
