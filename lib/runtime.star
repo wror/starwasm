@@ -376,6 +376,10 @@ def _declare(m, test = False):
     add_tag(m, "caught", [V])
     add_global(m, "catch_depth", I32, True, [i32(0)])
     add_global(m, "catch_all", I32, True, [i32(0)])
+    # none_strict: set (inside such a `try`) around a comparison written in
+    # the program: a None met while comparing, among the elements of the
+    # operands, is thrown, and is the comparison's result.
+    add_global(m, "none_strict", I32, True, [i32(0)])
     add_global(m, "catch_count", I32, True, [i32(0)])  # errors caught while catch_all
     # second results of rt_mag_divsmall / rt_mag_divmod (the remainder)
     add_global(m, "big_rem", I64, True, [i64(0)])
@@ -1944,7 +1948,13 @@ def _compare(m):
         # i32: both numbers, at least one a float
         return and_(and_(call("rt_is_num", a), call("rt_is_num", b)), or_(is_("Float", a), is_("Float", b)))
 
+    # (contagious None: see none_strict)
+    strict = if_(gget("none_strict"), [
+        if_(is_("NoneType", a), [a, ("throw", "caught")]),
+        if_(is_("NoneType", b), [b, ("throw", "caught")]),
+    ])
     add_func(m, "rt_eq_d", [("a", V), ("b", V), ("d", I32)], [I32], [
+        strict,
         too_deep,
         if_(eqz(or_(or_(is_("List", a), is_("Tuple", a)), or_(is_("Dict", a), is_("Struct", a)))),
             if_(ref_eq(a, b), ret(i32(1)))),  # containers: no identity shortcut (as starlark-go)
@@ -1983,6 +1993,7 @@ def _compare(m):
     ])
 
     add_func(m, "rt_lt_d", [("a", V), ("b", V), ("d", I32)], [I32], [
+        strict,
         too_deep,
         if_(mixed_num(a, b), ret(op("i32.lt_s", call("rt_num_cmp", a, b), i32(0)))),
         if_(and_(call("rt_is_int", a), call("rt_is_int", b)),

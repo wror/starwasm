@@ -569,6 +569,18 @@ and `n = 5` prints `half is 20`.
     `x.name = v` do nothing when x is None, nor does `l[x] = v` (but
     `d[x] = v` stores under the key None, in a dict); `y += x` makes y
     None.
+- Comparisons look inside: a comparison written in the program (`==`,
+  `!=`, `<`, `<=`, `>`, `>=`, `in`, `not in`) that meets a None among
+  the elements of its operands, at any depth, is that None, exactly as if
+  the None were an operand: `[x] == [None]`, `[x] == [y]`,
+  `(1, x) != (1, 2)`, `1 in [x, 1]` and `{"a": [x]} == {"a": [1]}` are
+  all None when x is. So Nones are never equal to anything in a
+  comparison, however they are wrapped; the one exception remains `==`
+  and `!=` with `None` itself written as an operand. A comparison that
+  ends before reaching the None is as ever (`[1, x] == [2, x]` is False,
+  `1 in [1, x]` True). (The runtime's rt_eq_d and rt_lt_d throw the None
+  they meet while the global `none_strict` is set, which it is only
+  around such a comparison; the comparison's `try` catches it.)
 - None further in: a None inside a container handed to a builtin or an
   operator doesn't stop the program either, in any program with
   contagious None, first run included. `sorted([1, None])`,
@@ -666,9 +678,12 @@ and `n = 5` prints `half is 20`.
     `_n_changed`, `_n_try` and `_n_try_at`, which do nothing when the
     extension is off.
 - Not covered:
-  - Inside containers all Nones are equal: `[x] == [None]` is True (its
-    operands are lists), and a dict display with two keys that are both
-    None fails as a repeated key.
+  - Nones are equal to each other only where the program doesn't
+    compare: as dict keys and set elements (a dict has one key None;
+    reading it, `d[x]` or `d.get(x)`, is an operation on None, so None
+    all the same), and inside builtins (`[x].count(None)` is a
+    call with a None argument, so None, but `sorted` and the like treat
+    two Nones as equal).
   - Outside updates, errors that aren't None's doing are errors still,
     also when a None is around: `sorted([1, "a", None])` may fail on
     `int < string`, and `[1, 2].index(x)` with x None is "value not in

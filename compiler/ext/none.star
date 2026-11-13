@@ -340,9 +340,10 @@ def _guard(cg, mc, fc, e, keys):
         setup.append(set(t, cg["gen"](mc, fc, e[key])))
         temps.append(t)
         changes[key] = _code(t, e[key])
-    return [setup, _first_none(temps, _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, **changes))))]
+    strict = e["kind"] == "binop" and COMPARE.get(e["op"], False)
+    return [setup, _first_none(temps, _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, **changes)), strict = strict))]
 
-def _protect(cg, mc, fc, code, marked = [], result = V):
+def _protect(cg, mc, fc, code, marked = [], result = V, strict = False):
     """code (an operation on values that aren't None), not failing: an
     error that rt_fail_ex throws while catch_depth is up (one whose message
     mentions NoneType, so the doing of a None further in, among a list's
@@ -367,12 +368,19 @@ def _protect(cg, mc, fc, code, marked = [], result = V):
         saves,
         gset("catch_depth", op("i32.add", get(d), i32(1))),
         ("try", result),
+        # strict: code is a comparison: a None met among the operands'
+        # elements is its result, as a None operand would be (none_strict
+        # in lib/runtime.star: rt_eq_d and rt_lt_d throw it)
+        gset("none_strict", i32(1)) if strict else [],
         code,
+        gset("none_strict", i32(0)) if strict else [],
         ("catch", "caught"),
         set(err, []),
+        gset("none_strict", i32(0)),
         gset("call_depth", get(cd)),
         restores,
-        new("NoneType", get(err), NONE) if result == V else i32(0),
+        # what was thrown: an error's entry, or (strict) a None
+        (if_(_is_none(err), get(err), new("NoneType", get(err), NONE), result = V)) if result == V else i32(0),
         "end",
         gset("catch_depth", get(d)),
     ]
@@ -449,7 +457,7 @@ def cond(cg, mc, fc, e):
             set(tx, cg["gen"](mc, fc, e["x"])),
             set(ty, cg["gen"](mc, fc, e["y"])),
             if_(or_(_is_none(tx), _is_none(ty)), i32(0),
-                _protect(cg, mc, fc, cg["gen_cond"](mc, fc, e2), result = I32), result = I32),
+                _protect(cg, mc, fc, cg["gen_cond"](mc, fc, e2), result = I32, strict = True), result = I32),
         ]
     if k == "unop" and e["op"] == "not":
         t = cg["temp"](fc, V)
@@ -672,6 +680,7 @@ def _reactive_op(cg, mc, fc, e, name):
     if idxs == None:
         return None
     args = e["args"]
+    strict = name == "_r_binop" and COMPARE.get(args[0]["value"].get("val"), False)
     if name == "_r_binop" and EQUALITY.get(args[0]["value"].get("val"), False) and \
        (_literal_none(cg, mc, fc, args[1]["value"]) or _literal_none(cg, mc, fc, args[2]["value"])):
         idxs = []
@@ -690,7 +699,7 @@ def _reactive_op(cg, mc, fc, e, name):
             if i in idxs:
                 temps.append(t)
         args2.append(a2)
-    code = _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, args = args2)))
+    code = _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, args = args2)), strict = strict)
     return [setup, _first_none(temps, code)]
 
 # ---------------------------------------------------------------- runtime
