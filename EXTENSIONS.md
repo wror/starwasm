@@ -9,7 +9,8 @@ see and to check.
 
 - **Code:** one file per extension, `compiler/ext/<name>.star`, registered
   in `compiler/extensions.star` (the type checker, which is a program of
-  its own rather than part of the compiler, is in `typecheck/`). `codegen.star` names no extension: it
+  its own rather than part of the compiler, is in `typecheck/`, and so is
+  the web server, in `serve/`). `codegen.star` names no extension: it
   calls the hooks in `extensions.star` at fixed points (a call of a name, a
   call through a value; every expression, condition, assignment and
   statement), and an extension either returns the code to emit
@@ -1059,3 +1060,111 @@ Tests: `tests/types/` (`tests/types.sh`): programs with their expected
 by the interpreted and by the self-compiled checker, and round trip (each
 `.starit` used as the `.start` must reproduce itself);
 `tests/types_test.star`: unification, case by case.
+
+## Serving relations
+
+    (cd host && go build -o ../bin/starserve ./serve)
+    bin/starserve examples/order/order.star      # http://localhost:8080/order
+
+`bin/starserve prog.star` runs a reactive program and serves each of its
+relations as web pages: a list of the members, a form to add one and a
+form to change one. The pages are HTML templates (the language of
+`template/`, see template/README.md) next to the program; a form that is
+posted becomes a line of the program's standard input.
+
+    order_request:            # what a form sends
+        symbol: "ZVZZT"
+        qty: 1
+        price: 1.0
+        time: ""
+
+    an order:
+        clordid: str(order_request.id)
+        symbol: order_request.symbol
+        qty: order_request.qty
+        price: order_request.price
+        lastupdate: order_request.time
+        version: order.version + 1
+
+- Routes, for each relation `<name>` (here `order`):
+
+  | request | answer |
+  | --- | --- |
+  | `GET /<name>` | `<name>s.html`, with `<name>`: the list of members |
+  | `GET /<name>/new` | `<name>_create.html` |
+  | `POST /<name>` | adds a member, then redirects to `/<name>` |
+  | `GET /<name>/<id>` | `<name>_update.html`, with `<name>`: the member with that `id` |
+  | `POST /<name>/<id>` | replaces that member, then redirects to `/<name>` |
+
+  Anything else is 404, or 405 for another method. There is no delete.
+  In a template a member's fields are `$order.symbol` and so on (in
+  `orders.html`, inside `$for="order"`). Strings are HTML-escaped before
+  they reach the template, and None is shown as nothing.
+- What a POST assigns: the *input* of the relation, which is the first
+  reactive variable its definition reads that is a lone struct
+  (`order_request` above), or the relation itself if its definition reads
+  no reactive variable but itself (then the members are exactly what the
+  forms send). The line is `order_request = struct(id = 3, symbol = "ZVZZT",
+  qty = 1, price = 1.0, time = "2026-11-13T12:00:00Z")`, and the relation
+  does the rest as for any input: the order with that id is added or
+  replaced, and its other fields are computed (`version` counts the
+  updates, as the self-reference reads the order being replaced). A
+  relation with no input (it reads only other relations) can't be posted
+  to: 405.
+- The struct's fields are those of the input's definition, in its order;
+  for each:
+  - if the form has it, its text converted to the type of the definition's
+    value when that is a literal: an int (`qty: 1`), a float (`price:
+    1.0`), a bool, else a string. Text that doesn't convert is an error;
+  - else, a field named `time` is the time of the request (UTC, RFC 3339).
+    There is no clock in the language, and this way the journal has the
+    times too;
+  - else, in an update, the member's field of that name, if it has one;
+  - else the definition's value, if it is a literal.
+
+  `id` is the member's in an update, and one more than the largest in the
+  relation for a new member. Form fields the definition doesn't have are
+  not sent to the program.
+- Lost updates: in an update, a form field that isn't one of the input's
+  but is a field of the member must still be equal to it (as text). So a
+  hidden `<input name="version" value="$order.version">` makes a form
+  filled in before someone else's change fail: 409.
+- Errors: a POST that fails answers with its form again (422, or 409) and
+  the variable `error`: the field that didn't convert, the conflict, or,
+  if the relation did not change, the program's last error for that line.
+  An error the program reports while it does change the relation (with
+  contagious None, a field that fails is None) is only in the server's
+  output.
+- How it is made. serve/serve.star is all of it but the HTTP: bin/starserve
+  (host/serve/main.go) is Go's net/http server, which runs that file with
+  starlark-go and calls its `handle(server, request)` for every request,
+  one at a time. serve.star parses the program with the compiler's parser
+  (to find the relations, their inputs and the fields' types), and runs it
+  with `node host/run.mjs`, unchanged but for observers added at the end
+  (in a copy, `<name>.serve.star` next to it): one per relation, printing
+  it when it changes, and a counter, which each request sets after its
+  line, so that its echo marks the end of that update's output:
+
+      _serve_sync : ""
+      print("%serve", "order", order)
+      print("%serve", "sync", _serve_sync)
+
+  The printed relations are read back with the compiler's parser. The
+  compiler and the runtime are untouched, and the program is an ordinary
+  reactive one: it runs the same from a terminal.
+- Options: `--addr=HOST:PORT` (default `localhost:8080`),
+  `--templates=DIR` (default: the program's directory), `--journal=FILE`
+  (host/run.mjs's: the orders are back after a restart; the journal also
+  holds the counter's lines), and the compiler's `--rollback`,
+  `--nocontagiousnone`, `--contagiousnone`, `--globalreassign`,
+  `--recursion`. `--now=TEXT` fixes the time, for tests.
+- Not covered: delete; lone variables (only relations have pages);
+  references (`<name>_id` fields) and choosing the member by anything but
+  `id`; forms with several values per field or file uploads; a page of
+  the relations at `/`; any authentication (it listens on localhost by
+  default: anyone who can reach it can post). A member whose printed form
+  isn't made of literals and structs (a function, the identity) makes
+  the server fail to read the relation. Output lines of the program that
+  start with `%serve ` are taken for the server's.
+- Tests: tests/serve.sh (the requests, with curl) and
+  tests/serve/order.out (the expected responses), on examples/order/.

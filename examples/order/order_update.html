@@ -1,0 +1,13 @@
+<!doctype html>
+<title>Order $order.clordid</title>
+<h1>Order $order.clordid</h1>
+<p class="error" $if="error">$error</p>
+<form method="post" action="/order/$order.clordid">
+  <input type="hidden" name="version" value="$order.version">
+  <label>Symbol <input name="symbol" value="$order.symbol" required></label>
+  <label>Qty <input name="qty" type="number" min="1" step="1" value="$order.qty" required></label>
+  <label>Price <input name="price" type="number" min="0" step="any" value="$order.price" required></label>
+  <button>Save</button>
+</form>
+<p>Version $order.version, last updated $order.lastupdate</p>
+<p><a href="/order">Back to orders</a></p>

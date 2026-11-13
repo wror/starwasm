@@ -45,6 +45,13 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
                           extension: EXTENSIONS.md, "Static types"); main.star
                           is its command line
     host/typecheck.mjs    runs it: node host/typecheck.mjs prog.star
+    template/             a template language in plain Starlark, independent
+                          of everything else here (template/README.md)
+    serve/serve.star      a reactive program's relations over HTTP, as HTML
+                          from templates (an extension: EXTENSIONS.md,
+                          "Serving relations")
+    host/serve/main.go    runs it: bin/starserve prog.star, Go's net/http
+    examples/order/       its example: an order book and its three pages
     examples/demo.star    milestone 1 demo (i64 factorial)
     tests/*_test.star     Starlark unit tests (encoder bytes vs. spec)
     tests/runtime/        differential test: expect.star (starlark-go) vs
@@ -58,6 +65,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     tests/repl/           scripted REPL session and its expected transcript
     tests/extensions/     tests of extensions (EXTENSIONS.md): <name>.star
                           must print <name>.out (tests/extensions.sh)
+    tests/serve.sh        test of bin/starserve: requests and the expected
+                          responses (tests/serve/order.out)
     tests/types/          tests of the type checker: programs with their
                           expected inferred types (.starit) or diagnostics
                           (.err) (tests/types.sh)

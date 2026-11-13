@@ -1,0 +1,196 @@
+== http://localhost:18473/order
+HTTP/1.1 200 OK
+
+<!doctype html>
+<title>Orders</title>
+<h1>Orders</h1>
+<p><a href="/order/new">New order</a></p>
+<table>
+  <tr>
+    <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+    <th>Last update</th><th>Version</th><th></th>
+  </tr>
+</table>
+
+== http://localhost:18473/order/new
+HTTP/1.1 200 OK
+
+<!doctype html>
+<title>New order</title>
+<h1>New order</h1>
+<form method="post" action="/order">
+  <label>Symbol <input name="symbol" required></label>
+  <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+  <label>Price <input name="price" type="number" min="0" step="any" required></label>
+  <button>Create</button>
+</form>
+<p><a href="/order">Back to orders</a></p>
+
+== -d symbol=ZVZZT&qty=1&price=1.0 http://localhost:18473/order
+HTTP/1.1 303 See Other
+Location: /order
+
+
+== -d symbol=A<b>"&qty=5&price=2 http://localhost:18473/order
+HTTP/1.1 303 See Other
+Location: /order
+
+
+== -d symbol=X&qty=abc&price=2 http://localhost:18473/order
+HTTP/1.1 422 Unprocessable Entity
+
+<!doctype html>
+<title>New order</title>
+<h1>New order</h1>
+<p class="error">qty must be a whole number</p>
+<form method="post" action="/order">
+  <label>Symbol <input name="symbol" required></label>
+  <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+  <label>Price <input name="price" type="number" min="0" step="any" required></label>
+  <button>Create</button>
+</form>
+<p><a href="/order">Back to orders</a></p>
+
+== -d symbol=X&qty=1&price=1e999 http://localhost:18473/order
+HTTP/1.1 422 Unprocessable Entity
+
+<!doctype html>
+<title>New order</title>
+<h1>New order</h1>
+<p class="error">price must be a number</p>
+<form method="post" action="/order">
+  <label>Symbol <input name="symbol" required></label>
+  <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+  <label>Price <input name="price" type="number" min="0" step="any" required></label>
+  <button>Create</button>
+</form>
+<p><a href="/order">Back to orders</a></p>
+
+== http://localhost:18473/order/1
+HTTP/1.1 200 OK
+
+<!doctype html>
+<title>Order 1</title>
+<h1>Order 1</h1>
+<form method="post" action="/order/1">
+  <input type="hidden" name="version" value="1">
+  <label>Symbol <input name="symbol" value="ZVZZT" required></label>
+  <label>Qty <input name="qty" type="number" min="1" step="1" value="1" required></label>
+  <label>Price <input name="price" type="number" min="0" step="any" value="1.0" required></label>
+  <button>Save</button>
+</form>
+<p>Version 1, last updated 2026-11-13T12:00:00Z</p>
+<p><a href="/order">Back to orders</a></p>
+
+== -d symbol=ZVZZT&qty=7&price=1.5&version=1 http://localhost:18473/order/1
+HTTP/1.1 303 See Other
+Location: /order
+
+
+== -d symbol=ZVZZT&qty=9&price=1.5&version=1 http://localhost:18473/order/1
+HTTP/1.1 409 Conflict
+
+<!doctype html>
+<title>Order 1</title>
+<h1>Order 1</h1>
+<p class="error">order 1 was changed by someone else: version is now 2, not 1</p>
+<form method="post" action="/order/1">
+  <input type="hidden" name="version" value="2">
+  <label>Symbol <input name="symbol" value="ZVZZT" required></label>
+  <label>Qty <input name="qty" type="number" min="1" step="1" value="7" required></label>
+  <label>Price <input name="price" type="number" min="0" step="any" value="1.5" required></label>
+  <button>Save</button>
+</form>
+<p>Version 2, last updated 2026-11-13T12:00:00Z</p>
+<p><a href="/order">Back to orders</a></p>
+
+== -d qty=8 http://localhost:18473/order/2
+HTTP/1.1 303 See Other
+Location: /order
+
+
+== http://localhost:18473/order
+HTTP/1.1 200 OK
+
+<!doctype html>
+<title>Orders</title>
+<h1>Orders</h1>
+<p><a href="/order/new">New order</a></p>
+<table>
+  <tr>
+    <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+    <th>Last update</th><th>Version</th><th></th>
+  </tr>
+  <tr>
+    <td>1</td>
+    <td>ZVZZT</td>
+    <td>7</td>
+    <td>1.5</td>
+    <td>2026-11-13T12:00:00Z</td>
+    <td>2</td>
+    <td><a href="/order/1">Edit</a></td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>A&lt;b&gt;&quot;</td>
+    <td>8</td>
+    <td>2.0</td>
+    <td>2026-11-13T12:00:00Z</td>
+    <td>2</td>
+    <td><a href="/order/2">Edit</a></td>
+  </tr>
+</table>
+
+== http://localhost:18473/order/9
+HTTP/1.1 404 Not Found
+
+no order 9
+
+== http://localhost:18473/
+HTTP/1.1 404 Not Found
+
+not found: the relations are /order
+
+== -X DELETE http://localhost:18473/order/1
+HTTP/1.1 405 Method Not Allowed
+
+method not allowed
+
+== -d a=1 http://localhost:18473/order/new
+HTTP/1.1 405 Method Not Allowed
+
+method not allowed
+
+== after a restart
+== http://localhost:18473/order
+HTTP/1.1 200 OK
+
+<!doctype html>
+<title>Orders</title>
+<h1>Orders</h1>
+<p><a href="/order/new">New order</a></p>
+<table>
+  <tr>
+    <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+    <th>Last update</th><th>Version</th><th></th>
+  </tr>
+  <tr>
+    <td>1</td>
+    <td>ZVZZT</td>
+    <td>7</td>
+    <td>1.5</td>
+    <td>2026-11-13T12:00:00Z</td>
+    <td>2</td>
+    <td><a href="/order/1">Edit</a></td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>A&lt;b&gt;&quot;</td>
+    <td>8</td>
+    <td>2.0</td>
+    <td>2026-11-13T12:00:00Z</td>
+    <td>2</td>
+    <td><a href="/order/2">Edit</a></td>
+  </tr>
+</table>
+
