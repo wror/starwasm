@@ -495,7 +495,21 @@ def _leave(f, out):
     elif f["nl"] and not last.endswith("\n"):  # in place of a line: end it
         out.append("\n")
 
-def _run(name, vars, read, cache):
+def _escape(s):
+    """s with HTML's special characters as character references."""
+    if "&" in s:
+        s = s.replace("&", "&amp;")
+    if "<" in s:
+        s = s.replace("<", "&lt;")
+    if ">" in s:
+        s = s.replace(">", "&gt;")
+    if "\"" in s:
+        s = s.replace("\"", "&quot;")
+    if "'" in s:
+        s = s.replace("'", "&#39;")
+    return s
+
+def _run(name, vars, read, cache, escape):
     out = []
     bindings = []  # innermost last: [path of a $for, its current item]
     root = _load(cache, read, name, "")
@@ -527,6 +541,8 @@ def _run(name, vars, read, cache):
                 if t not in ("int", "float", "bool"):
                     fail("%s: $%s is a %s: only strings and numbers can be substituted" % (where, ".".join(tok["path"]), t))
                 v = str(v)
+            elif escape:
+                v = _escape(v)
             if v != "":
                 out.append(v)
         elif k == "if":
@@ -567,7 +583,7 @@ def _run(name, vars, read, cache):
         fail("%s: the template is too big to render" % name)
     return "".join(out)
 
-def render(name, vars, read):
+def render(name, vars, read, escape = True):
     """Renders the template file `name`.
 
     Args:
@@ -578,17 +594,18 @@ def render(name, vars, read):
       read: how templates are read: a function from a path to the file's
         contents, or a dict from paths to contents. An included file is
         read by the including template's directory + "/" + its name.
+      escape: whether substituted strings are HTML-escaped (& < > " ').
 
     Returns:
       The expanded text. Errors fail() with "file:line: message".
     """
-    return _run(name, vars, read, {})
+    return _run(name, vars, read, {}, escape)
 
-def render_string(src, vars, read = None, name = "<string>"):
+def render_string(src, vars, read = None, name = "<string>", escape = True):
     """Renders the template text `src`.
 
     `name` is used in error messages, and its directory part (none by
     default) is where included files are read from; `read` (see render) is
-    only needed if the template includes files.
+    only needed if the template includes files; `escape` is as for render.
     """
-    return _run(name, vars, read, {name: _compile(name, src)})
+    return _run(name, vars, read, {name: _compile(name, src)}, escape)

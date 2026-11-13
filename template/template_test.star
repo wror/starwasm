@@ -27,6 +27,14 @@ def test_vars():
     t("braces", "${a}b $$5 $ 5 $1 a$", {"a": "x"}, "xb $5 $ 5 $1 a$")
     t("struct-free scalars", "$i $f $b", {"i": 1, "f": 1.5, "b": True}, "1 1.5 True")
 
+def test_escape():
+    v = {"s": "<a href=\"x\">Tom & 'Jerry'</a>", "l": ["<b>"], "f": "dog"}
+    t("escape", "<p title=\"$s\">$s</p>", v, "<p title=\"&lt;a href=&quot;x&quot;&gt;Tom &amp; &#39;Jerry&#39;&lt;/a&gt;\">&lt;a href=&quot;x&quot;&gt;Tom &amp; &#39;Jerry&#39;&lt;/a&gt;</p>")
+    t("escape in for", "<i $for=\"l\">$l</i>", v, "<i>&lt;b&gt;</i>")
+    t("included text is not escaped", "<div $include=\"header.html\"/>", {"title": "a<b"}, "<h1>a&lt;b</h1>\n")
+    eq("escape off", render_string("$s", {"s": "a<b & c"}, escape = False), "a<b & c")
+    eq("escape off, file", render("item.html", {"items": {"name": "<"}}, FILES, escape = False), "  <li><</li>\n")
+
 def test_line():
     src = "the quick brown fox\n$if action\njumped over\n$endif\nthe lazy dog\n"
     t("if true", src, {"action": True}, "the quick brown fox\njumped over\nthe lazy dog\n")
@@ -91,6 +99,7 @@ def test_html_alternatives():
 
 def test_all():
     test_vars()
+    test_escape()
     test_line()
     test_line_alternatives()
     test_html()

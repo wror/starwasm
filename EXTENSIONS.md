@@ -1098,8 +1098,8 @@ posted becomes a line of the program's standard input.
 
   Anything else is 404, or 405 for another method. There is no delete.
   In a template a member's fields are `$order.symbol` and so on (in
-  `orders.html`, inside `$for="order"`). Strings are HTML-escaped before
-  they reach the template, and None is shown as nothing.
+  `orders.html`, inside `$for="order"`). The template language
+  HTML-escapes the strings it substitutes; None is shown as nothing.
 - What a POST assigns: the *input* of the relation, which is the first
   reactive variable its definition reads that is a lone struct
   (`order_request` above), or the relation itself if its definition reads

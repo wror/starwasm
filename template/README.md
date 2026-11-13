@@ -20,7 +20,10 @@ dict from paths to contents. Errors `fail()` with `file:line: message`.
 `$a.b` reaches into a nested dict or struct. `${name}` delimits the name
 from following text, and `$$` is a literal `$`; a `$` that is not followed
 by a name is left alone. Using a variable that is not defined is an error.
-Values are inserted as they are: nothing is HTML-escaped.
+Strings are HTML-escaped as they are inserted (`&`, `<`, `>`, `"` and `'`
+become character references), so a value can't add markup, in text or in
+a quoted attribute. Text that is not HTML is rendered with `escape =
+False`: `render(name, vars, read, escape = False)`.
 
 ## $if, $for, $include
 

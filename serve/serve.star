@@ -247,23 +247,21 @@ def _source(v):
         return "{" + ", ".join(["%s: %s" % (_source(k), _source(x)) for k, x in v.items()]) + "}"
     return repr(v)
 
-def _escape(v):
-    """Value v for an HTML template: strings escaped, None empty."""
+def _shown(v):
+    """Value v for a template, which can't substitute None: it is empty."""
     t = type(v)
-    if t == "string":
-        return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
     if t == "NoneType":
         return ""
     if t == "list" or t == "tuple":
-        return [_escape(x) for x in v]
+        return [_shown(x) for x in v]
     if t == "dict":
-        return {k: _escape(x) for k, x in v.items()}
+        return {k: _shown(x) for k, x in v.items()}
     return v
 
 # ---------------------------------------------------------------- requests
 
 def _page(server, name, vars, status = 200):
-    return status, HTML, render(server["templates"] + "/" + name, _escape(vars), read_file)
+    return status, HTML, render(server["templates"] + "/" + name, _shown(vars), read_file)
 
 def _status(status, text):
     return status, TEXT, text + "\n"
