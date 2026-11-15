@@ -16,6 +16,8 @@
 //   float_fmt(x, conv)         format a float (Go strconv style) at memory 0
 //   float_parse(ptr, len)      parse a float; f64 at memory 0; 0/1/2 status
 //   float_mod(x, y)            fmod
+//   time_query(ptr, len)       the time module's questions (timeQuery below):
+//                              the answer at memory 0; its length, or -1
 //   print_i32 / print_i64      (milestone 1 demo)
 // and, for programs with reactive variables (compiler/ext/reactive.star):
 //   read_line(before)          next line of standard input (opts.readLine;
@@ -43,6 +45,272 @@ const noFs = () => {
   throw new Error("no file system");
 };
 const encode = (s) => new TextEncoder().encode(s);
+
+// ---- Time zones (the time module's time_query import; lib/time.star)
+//
+// A zone is what Go's time.LoadLocation reads: a TZif file of the system's
+// time zone database, when there is a file system with one (so names,
+// offsets and abbreviations are Go's); else Intl says the offsets, and the
+// abbreviations are the best it has ("EST", but "+01" where Go says "CET").
+
+const ZONE_DIRS = ["/usr/share/zoneinfo/", "/usr/share/lib/zoneinfo/", "/usr/lib/locale/TZ/", "/etc/zoneinfo/"];
+const zoneCache = new Map();
+
+// A TZif file (RFC 8536) as {tx: [{when, index}], zone: [{name, offset, isDST}], extend}.
+function parseTzif(b) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  if (b.length < 44 || String.fromCharCode(...b.subarray(0, 4)) !== "TZif") return null;
+  const counts = (at) => [0, 1, 2, 3, 4, 5].map((i) => dv.getUint32(at + 20 + 4 * i));
+  let at = 0, wide = false;
+  let [nUT, nStd, nLeap, nTime, nType, nChar] = counts(0);
+  if (b[4] >= 0x32) {
+    // version 2+: skip the 32-bit data; the same again with 64-bit times
+    at = 44 + nTime * 5 + nType * 6 + nChar + nLeap * 8 + nStd + nUT;
+    [nUT, nStd, nLeap, nTime, nType, nChar] = counts(at);
+    wide = true;
+  }
+  at += 44;
+  const size = wide ? 8 : 4;
+  const tx = [];
+  for (let i = 0; i < nTime; i++) {
+    const when = wide ? Number(dv.getBigInt64(at + i * size)) : dv.getInt32(at + i * size);
+    tx.push({ when, index: b[at + nTime * size + i] });
+  }
+  at += nTime * (size + 1);
+  const chars = at + nType * 6;
+  const zone = [];
+  for (let i = 0; i < nType; i++) {
+    let end = chars + b[at + i * 6 + 5];
+    const start = end;
+    while (end < chars + nChar && b[end] !== 0) end++;
+    zone.push({ name: String.fromCharCode(...b.subarray(start, end)), offset: dv.getInt32(at + i * 6), isDST: b[at + i * 6 + 4] !== 0 });
+  }
+  at = chars + nChar + nLeap * (size + 4) + nStd + nUT;
+  let extend = "";
+  if (wide && b[at] === 10) {
+    const end = b.indexOf(10, at + 1);
+    if (end > at) extend = String.fromCharCode(...b.subarray(at + 1, end));
+  }
+  return zone.length ? { tx, zone, extend } : null;
+}
+
+const isLeap = (y) => y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+const DAYS_BEFORE = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365];
+
+// The zone a POSIX TZ string (a TZif file's footer) gives at sec, as Go's
+// tzset: {name, offset}, or null if the string isn't understood.
+function posixZone(s, sec) {
+  let at = 0;
+  const name = () => {
+    let m;
+    if (s[at] === "<") m = /^<([^>]*)>/.exec(s.slice(at));
+    else m = /^([^0-9,+\-]{3,})/.exec(s.slice(at));
+    if (!m) return null;
+    at += m[0].length;
+    return m[1];
+  };
+  const offset = () => {
+    const m = /^([+-]?)(\d+)(?::(\d+))?(?::(\d+))?/.exec(s.slice(at));
+    if (!m || Number(m[2]) > 24 * 7 || Number(m[3] ?? 0) > 59 || Number(m[4] ?? 0) > 59) return null;
+    at += m[0].length;
+    const v = Number(m[2]) * 3600 + Number(m[3] ?? 0) * 60 + Number(m[4] ?? 0);
+    return m[1] === "-" ? -v : v;
+  };
+  const rule = () => {
+    let r, m;
+    if ((m = /^J(\d+)/.exec(s.slice(at)))) r = { kind: "J", day: Number(m[1]) };
+    else if ((m = /^M(\d+)\.(\d+)\.(\d+)/.exec(s.slice(at)))) r = { kind: "M", mon: Number(m[1]), week: Number(m[2]), day: Number(m[3]) };
+    else if ((m = /^(\d+)/.exec(s.slice(at)))) r = { kind: "D", day: Number(m[1]) };
+    else return null;
+    at += m[0].length;
+    r.time = 2 * 3600;
+    if (s[at] === "/") {
+      at++;
+      r.time = offset();
+      if (r.time === null) return null;
+    }
+    return r;
+  };
+  const stdName = name();
+  if (stdName === null) return null;
+  let stdOffset = offset();
+  if (stdOffset === null) return null;
+  stdOffset = -stdOffset;
+  if (at === s.length || s[at] === ",") return { name: stdName, offset: stdOffset };
+  const dstName = name();
+  if (dstName === null) return null;
+  let dstOffset = stdOffset + 3600;
+  if (at < s.length && s[at] !== ",") {
+    dstOffset = offset();
+    if (dstOffset === null) return null;
+    dstOffset = -dstOffset;
+  }
+  if (at === s.length) {
+    s = ",M3.2.0,M11.1.0"; // the default rules (tzcode)
+    at = 0;
+  }
+  if (s[at] !== "," && s[at] !== ";") return null;
+  at++;
+  const startRule = rule();
+  if (!startRule || s[at] !== ",") return null;
+  at++;
+  const endRule = rule();
+  if (!endRule || at < s.length) return null;
+  const date = new Date(sec * 1000);
+  const year = date.getUTCFullYear();
+  const ysec = sec - Date.UTC(year, 0, 1) / 1000; // (years 0..99: not after a zone's last transition)
+  const ruleTime = (r, off) => {
+    let d;
+    if (r.kind === "J") d = r.day - 1 + (isLeap(year) && r.day >= 60 ? 1 : 0);
+    else if (r.kind === "D") d = r.day;
+    else {
+      const dow = new Date(Date.UTC(year, r.mon - 1, 1)).getUTCDay();
+      d = r.day - dow;
+      if (d < 0) d += 7;
+      const daysIn = DAYS_BEFORE[r.mon] - DAYS_BEFORE[r.mon - 1] + (r.mon === 2 && isLeap(year) ? 1 : 0);
+      for (let i = 1; i < r.week; i++) {
+        if (d + 7 >= daysIn) break;
+        d += 7;
+      }
+      d += DAYS_BEFORE[r.mon - 1] + (isLeap(year) && r.mon > 2 ? 1 : 0);
+    }
+    return d * 86400 + r.time - off;
+  };
+  let startSec = ruleTime(startRule, stdOffset);
+  let endSec = ruleTime(endRule, dstOffset);
+  let std = { name: stdName, offset: stdOffset }, dst = { name: dstName, offset: dstOffset };
+  if (endSec < startSec) {
+    // the southern hemisphere: summer time spans the new year
+    [startSec, endSec] = [endSec, startSec];
+    [std, dst] = [dst, std];
+  }
+  return ysec < startSec || ysec >= endSec ? std : dst;
+}
+
+// Go's Location.lookup on a parsed file.
+function tzifLookup(z, sec) {
+  const { tx, zone } = z;
+  if (tx.length === 0 || sec < tx[0].when) {
+    // (Go's lookupFirstZone)
+    let first = 0;
+    if (tx.some((t) => t.index === 0)) {
+      first = -1;
+      if (tx.length > 0 && zone[tx[0].index].isDST) {
+        for (let zi = tx[0].index - 1; zi >= 0 && first < 0; zi--) if (!zone[zi].isDST) first = zi;
+      }
+      if (first < 0) first = zone.findIndex((x) => !x.isDST);
+      if (first < 0) first = 0;
+    }
+    return zone[first];
+  }
+  let lo = 0, hi = tx.length;
+  while (hi - lo > 1) {
+    const mid = lo + ((hi - lo) >> 1);
+    if (sec < tx[mid].when) hi = mid;
+    else lo = mid;
+  }
+  if (lo === tx.length - 1 && z.extend !== "") {
+    const e = posixZone(z.extend, sec);
+    if (e) return e;
+  }
+  return zone[tx[lo].index];
+}
+
+// A zone from Intl: offsets from the engine's data; abbreviations as good
+// as it has them.
+function intlZone(name) {
+  let parts, short;
+  try {
+    const o = { timeZone: name, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" };
+    parts = new Intl.DateTimeFormat("en-US", o);
+    short = new Intl.DateTimeFormat("en-US", { timeZone: name, timeZoneName: "short" });
+  } catch {
+    return null;
+  }
+  const lookup = (sec) => {
+    const ms = Math.max(-8.64e15, Math.min(8.64e15, Math.floor(sec) * 1000));
+    const f = {};
+    for (const p of parts.formatToParts(ms)) f[p.type] = Number(p.value);
+    const local = new Date(0);
+    local.setUTCFullYear(f.year, f.month - 1, f.day);
+    local.setUTCHours(f.hour, f.minute, f.second, 0);
+    const offset = Math.round((local.getTime() - ms) / 1000);
+    let abbr = short.formatToParts(ms).find((p) => p.type === "timeZoneName")?.value ?? "";
+    const m = /^(?:GMT|UTC)([+-])(\d+)(?::(\d+))?$/.exec(abbr);
+    if (m) abbr = m[1] + m[2].padStart(2, "0") + (m[3] ?? ""); // as Go's zones without a name: "+03"
+    return { name: abbr, offset };
+  };
+  return {
+    lookup,
+    names(sec) {
+      // (no list of a zone's abbreviations: those of that year's winter and summer)
+      const year = new Date(Math.max(-8.64e15, Math.min(8.64e15, sec * 1000))).getUTCFullYear();
+      return [lookup(Date.UTC(year, 0, 1) / 1000), lookup(Date.UTC(year, 6, 1) / 1000)];
+    },
+  };
+}
+
+// The zone called name ("Local": the system's), or null if there is none:
+// {lookup(sec) -> {name, offset}, names(sec) -> [{name, offset}]}.
+function loadZone(name) {
+  if (zoneCache.has(name)) return zoneCache.get(name);
+  const env = globalThis.process?.env ?? {};
+  let files = [], intl = name;
+  if (name === "Local") {
+    // as Go: $TZ names it ("": UTC); unset, /etc/localtime
+    const tz = env.TZ;
+    if (tz === undefined) files = ["/etc/localtime"];
+    else if (tz !== "" && tz !== ":") {
+      const n = tz.replace(/^:/, "");
+      files = n.startsWith("/") ? [n] : ZONE_DIRS.map((d) => d + n);
+    }
+    intl = tz === undefined ? Intl.DateTimeFormat().resolvedOptions().timeZone : tz.replace(/^:/, "") || "UTC";
+  } else {
+    files = [...(env.ZONEINFO ? [env.ZONEINFO.replace(/\/?$/, "/")] : []), ...ZONE_DIRS].map((d) => d + name);
+  }
+  let zone = null;
+  if (nodeFs) {
+    for (const f of files) {
+      let z = null;
+      try {
+        z = parseTzif(nodeFs.readFileSync(f));
+      } catch {
+        continue;
+      }
+      if (z) {
+        zone = { lookup: (sec) => tzifLookup(z, sec), names: () => z.zone };
+        break;
+      }
+    }
+  }
+  if (!zone) {
+    // not in a time zone database in files (there is none, or it lacks
+    // the name, as some lack the old ones, "US/Eastern"): the engine's
+    zone = intlZone(intl) ?? (name === "Local" ? intlZone("UTC") : null);
+  }
+  zoneCache.set(name, zone);
+  return zone;
+}
+
+// The answer to a question of lib/time.star's (_time_host), or null:
+//   "now"                 "<seconds> <nanoseconds>" since 1970-01-01 UTC
+//   "zone <name> <sec>"   "<offset> <abbreviation>" of the zone at that
+//                         instant; null if there is no such zone
+//   "names <name> <sec>"  "<abbreviation>:<offset> ..." of the zone's zones
+function timeQuery(q) {
+  if (q === "now") {
+    const ms = globalThis.performance ? performance.timeOrigin + performance.now() : Date.now();
+    const sec = Math.floor(ms / 1000);
+    return `${sec} ${Math.floor((ms - sec * 1000) * 1e6)}`;
+  }
+  const m = /^(zone|names) (.*) (-?\d+)$/s.exec(q);
+  const zone = m && loadZone(m[2]);
+  if (!zone) return null;
+  const sec = Number(m[3]);
+  if (m[1] === "names") return zone.names(sec).map((z) => `${z.name}:${z.offset}`).join(" ");
+  const z = zone.lookup(sec);
+  return `${z.offset} ${z.name}`;
+}
 const concatBytes = (chunks) => {
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
   let at = 0;
@@ -477,6 +745,13 @@ export function runModule(module, opts = {}) {
         return status;
       },
       float_mod: (x, y) => x % y,
+      time_query(ptr, len) {
+        const answer = timeQuery(utf8.decode(mem(ptr, len)));
+        if (answer === null) return -1;
+        const b = encode(answer);
+        mem(0, b.length).set(b);
+        return b.length;
+      },
       catch(f) {
         try {
           instance.exports.test_call0(f);

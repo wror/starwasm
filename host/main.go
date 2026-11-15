@@ -13,6 +13,8 @@
 // pool holds the files of the binary FileDescriptorSet FILE (what
 // `protoc --include_imports --descriptor_set_out` writes), or none.
 //
+// The predeclared time module is starlark-go's lib/time.
+//
 // Host builtins (the only "external" functions the compiler may use):
 //
 //	read_file(path) -> string
@@ -28,6 +30,7 @@ import (
 	"strings"
 
 	starlarkproto "go.starlark.net/lib/proto"
+	starlarktime "go.starlark.net/lib/time"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
@@ -130,6 +133,8 @@ func main() {
 		"struct": starlark.NewBuiltin("struct", starlarkstruct.Make),
 		// proto: starlark-go's lib/proto (not a core builtin either)
 		"proto": starlarkproto.Module,
+		// time: starlark-go's lib/time
+		"time": starlarktime.Module,
 	}
 	opts := &syntax.FileOptions{
 		// as starlark-go's defaults (cmd/starlark: -globalreassign controls

@@ -76,6 +76,8 @@ _OBJ_ATTR = 16  # x.a (b: None to fail if there is none, else return (found, val
 _OBJ_SETATTR = 17  # x.a = b
 _OBJ_DIR = 18  # the attribute names
 _OBJ_HASATTR = 19
+_OBJ_BINARY = 20  # x <b> a, or a <op> x for b = "r" + op: the result, or None
+_OBJ_CMP = 21  # x compared with a: -1, 0, 1, or None: not ordered
 
 def _is_obj(x):
     return _obj_kind(x) > 0
@@ -106,6 +108,8 @@ def _comparable(a, b):
         return True
     if ta != type(b):
         return False
+    if _is_obj(a):
+        return _obj_op(_OBJ_CMP, a, b, None) != None
     return ta == "int" or ta == "string" or ta == "list" or ta == "tuple" or ta == "bytes"
 
 def _minmax(name, args, key, want_max):

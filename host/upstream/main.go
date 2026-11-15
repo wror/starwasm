@@ -39,6 +39,7 @@ import (
 	"strings"
 
 	starlarkproto "go.starlark.net/lib/proto"
+	starlarktime "go.starlark.net/lib/time"
 	"go.starlark.net/resolve"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -182,6 +183,7 @@ func main() {
 	}
 	if *options == "starwasm" {
 		predeclared["proto"] = starlarkproto.Module
+		predeclared["time"] = starlarktime.Module
 	}
 
 	staticErrors := func(err error) {
@@ -231,6 +233,9 @@ func main() {
 	load = func(from *starlark.Thread, module string) (starlark.StringDict, error) {
 		if module == "proto.star" { // as starlark-go's eval_test
 			return starlark.StringDict{"proto": starlarkproto.Module}, nil
+		}
+		if module == "time.star" { // likewise
+			return starlark.StringDict{"time": starlarktime.Module}, nil
 		}
 		path := filepath.Clean(filepath.Join(filepath.Dir(from.Name), module))
 		e, ok := cache[path]

@@ -47,8 +47,10 @@ load(
 )
 load(
     "runtime.star",
+    "OBJ_BINARY",
     "OBJ_CALL",
     "OBJ_CALLNAME",
+    "OBJ_CMP",
     "OBJ_FREEZE",
     "OBJ_ITRACK",
     "OBJ_UNHASHABLE",
@@ -92,6 +94,7 @@ def _misc(m):
     # sides); sets are ordered by inclusion.
     add_func(m, "rt_comparable", P, [I32], [
         if_(and_(is_("Bool", a), is_("Bool", b)), ret(i32(1))),
+        if_(and_(is_("Obj", a), is_("Obj", b)), ret(eqz(is_("NoneType", obj_op(OBJ_CMP, a, b))))),
         or_(and_(call("rt_is_num", a), call("rt_is_num", b)),
             or_(and_(is_("Str", a), is_("Str", b)),
                 or_(and_(is_("List", a), is_("List", b)),
@@ -1641,6 +1644,35 @@ def _objects(m):
         call("rt_obj_op", op("i32.wrap_i64", call("rt_i64", get("n"))), get("x"), get("a"), get("b")),
     ])
     add_func(m, "rt_identical", [("a", V), ("b", V)], [V], [call("rt_bool", ref_eq(get("a"), get("b")))])
+
+    # a <sym> b where one is a library object: what the left one says it
+    # is, else the right one (asked for "r" + sym), else the usual error.
+    add_func(m, "rt_obj_binary", [("a", V), ("b", V), ("sym", V)], [V], locals = [("r", V)], body = [
+        if_(is_("Obj", get("a")), [
+            set("r", obj_op(OBJ_BINARY, get("a"), get("b"), get("sym"))),
+            if_(eqz(is_("NoneType", get("r"))), ret(get("r"))),
+        ]),
+        if_(is_("Obj", get("b")), [
+            set("r", obj_op(OBJ_BINARY, get("b"), get("a"), call("rt_str_concat", as_("Str", S(m, "r")), as_("Str", get("sym"))))),
+            if_(eqz(is_("NoneType", get("r"))), ret(get("r"))),
+        ]),
+        S(m, "unknown binary op: "),
+        get("a"),
+        call("rt_str_concat", call("rt_str_concat", as_("Str", S(m, " ")), as_("Str", get("sym"))), as_("Str", S(m, " "))),
+        get("b"),
+        S(m, ""),
+        call("rt_fail_type2"),
+        "unreachable",
+    ])
+
+    # _time_host(question): the host's answer (a string), or None
+    add_func(m, "rt_time_host", [("q", V)], [V], locals = [("n", I32), ("a", U8A), ("i", I32)], body = [
+        set("n", call("host_time_query", i32(0), call("rt_put_path", get("q")))),
+        if_(op("i32.lt_s", get("n"), i32(0)), ret(gget("None"))),
+        set("a", arr_new_default("U8", get("n"))),
+        for_i32("i", i32(0), get("n"), [arr_set("U8", get("a"), get("i"), [get("i"), ("i32.load8_u", 0)])]),
+        new("Str", i32(0), get("a")),
+    ])
 
     # Calling a library object. Its name as a callable (a message type is
     # called as its name: "Error in Test: ...") goes on a stack the host
