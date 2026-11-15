@@ -28,7 +28,8 @@ session (Starlark is deterministic, so the state is exactly reproduced).
   x = 5           with x reactive (x : ...): sent to the program as input
 Blocks, open brackets and triple-quoted strings continue on "..." lines,
 which start indented as the block is (backspace to dedent); end a block
-with an empty line. A failing input is not kept.
+with an empty line. Pasting from a REPL session (lines with the
+">>> " prompt) enters the lines typed there, not what was printed. A failing input is not kept.
 `;
 
 // ---- classifying input
@@ -81,6 +82,23 @@ export function nextIndent(text) {
   const last = text.slice(text.lastIndexOf("\n") + 1);
   const indent = /^[ \t]*/.exec(last)[0];
   return depth === 0 && last.replace(/#.*$/, "").trimEnd().endsWith(":") ? indent + "\t" : indent;
+}
+
+/**
+ * Text pasted into the REPL, as the lines to type. If it was copied from a
+ * REPL session (a line starts with the ">>> " prompt), that is the lines
+ * typed there, without their ">>> " and "... " prompts, and not the lines
+ * the REPL printed; else the text as it is. Lines end with "\n"; if a
+ * session ends with what the REPL printed, so does the result (the last
+ * line typed there was entered).
+ */
+export function pastedInput(text) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  if (!lines.some((l) => /^[ \t]*>>>( |$)/.test(l))) return lines.join("\n");
+  const typed = lines.map((l) => /^[ \t]*(?:>>>|\.\.\.)(?: (.*))?$/.exec(l));
+  // (the text after the last "\n" is a line not entered yet, unless printed)
+  const open = typed[typed.length - 1] ? typed.pop()[1] ?? "" : "";
+  return typed.filter((m) => m).map((m) => (m[1] ?? "") + "\n").join("") + open;
 }
 
 function looksLikeStatement(src) {

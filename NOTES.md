@@ -276,6 +276,15 @@ has warmed up the compiler.
   (readline's write() in the terminal, the input's value in the browser),
   so backspace removes it and the following lines follow suit; a line left
   with only the indentation ends the block. tests/repl/indent.mjs.
+- Pasting text copied from a REPL session (a line starts with ">>> ")
+  enters the lines typed there, without their ">>> " and "... " prompts,
+  and drops the lines the REPL printed (pastedInput in
+  host/repl_core.mjs). The browser gets the text from the paste event; the
+  terminal turns on bracketed paste, holds back the lines entered between
+  readline's paste-start and paste-end keys, and enters the filtered ones
+  (the text pasted stays on the screen as it was). Piped input, and a
+  terminal without bracketed paste, are taken as typed.
+  tests/repl/paste.mjs.
 - load() paths are relative to the current directory (the session file is
   `.starwasm-repl-<pid>.star` there, removed on exit).
 - Cost of replay: slow computations entered earlier rerun on every input.

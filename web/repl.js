@@ -6,6 +6,8 @@
 // replaying the journal. :reset clears it and the screen (not the ↑/↓
 // history), as does a change of dialect (the session only).
 // (Several tabs share it: the last input saved wins.)
+import { pastedInput } from "./host/repl_core.mjs";
+
 const $ = (id) => document.getElementById(id);
 const out = $("out"), input = $("input"), promptEl = $("prompt"), status = $("status");
 const term = $("term");
@@ -207,12 +209,21 @@ input.addEventListener("keydown", (e) => {
   }
 });
 
-// pasting several lines types each of them
+// Pasting several lines types each of them. Of text copied from a REPL
+// session (lines with the ">>> " prompt) those are the lines typed there,
+// without their prompts, and not what the REPL printed (pastedInput in
+// host/repl_core.mjs).
 input.addEventListener("paste", (e) => {
   const text = e.clipboardData.getData("text");
-  if (!text.includes("\n")) return;
+  const typed = pastedInput(text);
+  if (typed === text && !text.includes("\n")) return;
   e.preventDefault();
-  const lines = (input.value + text).replace(/\r\n?/g, "\n").split("\n");
+  if (!typed.includes("\n")) {
+    input.setRangeText(typed, input.selectionStart, input.selectionEnd, "end");
+    return;
+  }
+  // (lines pasted have their own indentation: not after the block's)
+  const lines = ((input.value.trim() === "" ? "" : input.value) + typed).split("\n");
   input.value = lines.pop();
   for (const line of lines) send(line);
 });

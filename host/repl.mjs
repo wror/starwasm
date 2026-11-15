@@ -30,6 +30,9 @@
 //   empty line. In a terminal a "..." line starts with the indentation of
 //   the line before it, and one more tab after a line ending in ":"
 //   (Session.indent()); backspace removes it.
+// - Text pasted from a REPL session (lines starting with the ">>> " prompt;
+//   in a terminal with bracketed paste) enters the lines typed there,
+//   without their ">>> " and "... " prompts, and not what the REPL printed.
 // - Reactive variables (compiler/ext/reactive.star): an input that assigns
 //   new values to them (`x = 5`, `x = f(2); y = 2`) is sent to the program
 //   as a line of standard input, as host/run.mjs would. It joins the session as
@@ -61,7 +64,7 @@ import { MessageChannel, Worker } from "node:worker_threads";
 import { loadModule } from "./wasmhost.mjs";
 import { fileURLToPath } from "node:url";
 import { compileStar, defaultCompiler } from "./wasmcache.mjs";
-import { Session } from "./repl_core.mjs";
+import { pastedInput, Session } from "./repl_core.mjs";
 
 const DIALECT_FLAGS = new Set(["--globalreassign", "--recursion", "--contagiousnone", "--nocontagiousnone", "--rollback"]);
 const dialectFlags = process.argv.slice(2).filter((a) => DIALECT_FLAGS.has(a));
@@ -154,13 +157,17 @@ const session = new Session({
 
 const rl = createInterface({ input: process.stdin, output: interactive ? process.stdout : undefined, terminal: interactive });
 let more = false;
+let waiting = 0; // lines entered, not yet run
+let paste = null; // during a paste: {before: the line it was pasted into, lines: those entered}
 const prompt = () => {
-  if (interactive) {
+  // (after the last of several lines, as pasted: what they print isn't
+  // mixed with prompts)
+  if (interactive && waiting === 0 && !paste) {
     rl.setPrompt(more ? "... " : ">>> ");
-    rl.prompt();
+    rl.prompt(true); // (keeping the cursor, in a line typed or pasted meanwhile)
     // a "..." line starts at the block's indent: typed in, so that
-    // backspace removes it
-    if (more) rl.write(session.indent());
+    // backspace removes it (unless something was typed or pasted meanwhile)
+    if (more && rl.line === "") rl.write(session.indent());
   }
 };
 
@@ -168,14 +175,47 @@ if (interactive) say(`starwasm REPL (${compilerPath}); :help for help\n`);
 prompt();
 // inputs are handled one at a time (running a program is asynchronous)
 let busy = Promise.resolve();
-rl.on("line", (line) => {
+function enter(line) {
+  waiting++;
   busy = busy.then(async () => {
     const r = await session.feed(line);
     if (r === "quit") process.exit(0);
     more = r === "more";
+    waiting--;
     prompt();
   });
-});
+}
+rl.on("line", (line) => (paste ? paste.lines.push(line) : enter(line)));
+
+// Pasted text is taken as a whole (pastedInput in host/repl_core.mjs: of
+// text copied from a REPL session, the lines typed there, without their
+// prompts). The terminal marks it, in "bracketed paste" mode, which
+// readline reports as the keys paste-start and paste-end; meanwhile the
+// lines entered are held back.
+if (interactive) {
+  say("\x1b[?2004h");
+  process.on("exit", () => say("\x1b[?2004l"));
+  process.stdin.on("keypress", (_, key) => {
+    if (key?.name === "paste-start") {
+      // (pasted in the middle of a line: left as it is)
+      if (rl.cursor === rl.line.length) paste = { before: rl.line, lines: [] };
+    } else if (key?.name === "paste-end" && paste) {
+      const { before, lines } = paste;
+      paste = null;
+      const shown = rl.line;
+      const text = [...lines, shown].join("\n").slice(before.length);
+      // (lines pasted have their own indentation: not after the block's)
+      const typed = ((lines.length && before.trim() === "" ? "" : before) + pastedInput(text)).split("\n");
+      const open = typed.pop();
+      if (open !== shown) {
+        rl.write(null, { ctrl: true, name: "u" });
+        rl.write(open);
+      }
+      if (typed.length && shown !== "") say("\n"); // what they print: below the text pasted
+      for (const line of typed) enter(line);
+    }
+  });
+}
 rl.on("close", () => {
   busy = busy.then(async () => {
     await session.finish();
