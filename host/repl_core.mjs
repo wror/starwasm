@@ -124,7 +124,9 @@ function reactiveNames(entries) {
 // variable computed from a relation, once the relation has a member), so
 // `seen` is set by a plain statement, which runs once, at the definition.
 // (None is spelled out: with contagious None, on in such a session, repr(None)
-// is None, and so is a string + None.)
+// is None, and so is a string + None. And None is told by its type: there
+// `v == None` doesn't compile, and type(v) is None, so false; without
+// contagious None it is "NoneType".)
 function statementCode(src, num, names) {
   let code = src.replace(/\s+$/, "");
   const known = new Set(names);
@@ -136,7 +138,7 @@ function statementCode(src, num, names) {
     const shown = JSON.stringify(name + " = ");
     code += `\n${seen} = []\n` + (relation
       ? `(lambda v, seen: print(${shown} + repr(v[-1])) if seen and v else None)(${name}, ${seen})`
-      : `(lambda v, seen: print(${shown} + ("None" if v == None else repr(v))) if seen else None)(${name}, ${seen})`) +
+      : `(lambda v, seen: print(${shown} + (repr(v) if type(v) != "NoneType" else "None")) if seen else None)(${name}, ${seen})`) +
       `\n${seen}.append(True)`;
   }
   return { code, offset: 0 };
@@ -153,7 +155,7 @@ function isUpdate(src, names) {
 // The code for an expression input: evaluate into `_`, print its repr.
 function echoCode(src) {
   // (a conditional expression: no `if` at top level in the default dialect)
-  return { code: `_ = (\n${src}\n)\nprint(repr(_)) if _ != None else None`, offset: 1 };
+  return { code: `_ = (\n${src}\n)\nprint(repr(_)) if type(_) != "NoneType" else None`, offset: 1 };
 }
 
 // An expression reading reactive variables can't be saved in `_` (a plain
@@ -166,7 +168,7 @@ function onceCode(src, num) {
   const once = `_once${num}`;
   return {
     code: `${once} = []\n` +
-      `None if ${once} else (lambda v: None if v == None else print(repr(v)))(\n${src}\n)\n${once}.append(True)`,
+      `None if ${once} else (lambda v: print(repr(v)) if type(v) != "NoneType" else None)(\n${src}\n)\n${once}.append(True)`,
     offset: 2,
   };
 }

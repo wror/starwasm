@@ -1,6 +1,6 @@
 # option:contagiousnone
-# Contagious None (EXTENSIONS.md): an operation on None gives None; only
-# == and != with None written out tell.
+# Contagious None (EXTENSIONS.md): an operation on None gives None, also
+# == and != (with None written out they don't compile: none_err_*.star).
 
 def show(*args):
     print(*[repr(a) for a in args])
@@ -12,9 +12,9 @@ def nothing():
     pass
 
 def early(v):
-    if v == None:
-        return
-    return v
+    if type(v):
+        return v
+    return
 
 x = None
 one = 1
@@ -23,8 +23,8 @@ d = {"k": 1}
 l = [3, 1, 2]
 
 # the user's examples
-show(x == None, x != None, x > None, x == x, x.foo, abs(x))
-show(None == x, None != x, one == None, one != None, x == 1, x != 1, 1 == x)
+show(x > x, x == x, x != x, x.foo, abs(x))
+show(x == one, one != x, x == 1, x != 1, 1 == x)
 
 # operators
 show(x + 1, 1 + x, x - 1, x * 2, x / 2, x // 2, x % 2, "%d" % x, x & 1, x | 1, x ^ 1, x << 1, 1 >> x)
@@ -70,10 +70,12 @@ def conds(v):
         out.append("not v > 1")
     if v != 1:
         out.append("v != 1")
-    if v == None:
-        out.append("v == None")
-    if v != None:
-        out.append("v != None")
+    if v == v:
+        out.append("v == v")
+    if v != v:
+        out.append("v != v")
+    if type(v):
+        out.append("type(v)")
     out.append("yes" if v else "no")
     out.append([1 for _ in range(2) if v] + [2 for _ in range(1) if not v])
     return out
@@ -110,6 +112,21 @@ def statements(v):
     return out
 
 show(statements(x))
+
+# None written out, where it is no operand of an operation
+def written(v = None):
+    a = None
+    b, c = None, [None]
+    c.append(None)
+    c[0] = None
+    d = {None: None, "k": None}
+    return [v, a, b, c, d, None or 1, None and 1, 2 if None else 3, ident(None), ident(v = None), d.get("zz", None), struct(a = None)]
+
+show(*written())
+print(None, [None], (None,))
+
+# telling a None: its type is None too, so false
+show([type(v) or "NoneType" for v in [x, 0, "", []]], [bool(type(v)) for v in [0, x]] == [True, x] or "a None")
 
 # everything else is as ever
 show(early(1), early(x), nothing(), 1 + 1, [1, 2][1], "a".upper(), len("abc"), 3 > 2, not 1, l == l, s.a)

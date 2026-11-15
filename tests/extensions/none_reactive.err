@@ -1,0 +1,6 @@
+<stdin>:9:7: an operation on None is always None (contagious None)
+<stdin>:10:17: an operation on None is always None (contagious None)
+<stdin>:11:23: an operation on None is always None (contagious None)
+<stdin>:12:9: an operation on None is always None (contagious None)
+<stdin>:13:8: an operation on None is always None (contagious None)
+<stdin>:14:19: an operation on None is always None (contagious None)

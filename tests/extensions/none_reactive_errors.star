@@ -26,7 +26,7 @@ entry : table[key] + 1
 pair : pick(items, n - 4)
 ok : checked(n)
 both : half + entry
-safe : half if half != None else -1
+safe : half if type(half) else -1
 a row when n > 0:
     n: n
     r: 100 // n

@@ -477,7 +477,7 @@ def free_cell(idx):
     return as_("Cell", arr_get("Vals", get("%env"), i32(idx)))
 
 # Helpers handed to extension hooks (extensions.star).
-CG = {"lookup": lookup, "temp": temp, "free_cell": free_cell, "callat": callat}
+CG = {"lookup": lookup, "temp": temp, "free_cell": free_cell, "callat": callat, "cerr": cerr}
 
 def cell_ref(mc, fc, name, posn):
     """Code for the $Cell of a captured variable, to hand to a closure."""

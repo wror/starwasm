@@ -49,4 +49,4 @@ unpacked: None
     function nothing (tests/extensions/none_provenance.star:19)
 not None: 1
 the trace of a trace: []
-[("literal", "None", "tests/extensions/none_provenance.star", 37)] [] False True
+[("literal", "None", "tests/extensions/none_provenance.star", 37)] [] False None
