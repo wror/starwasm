@@ -3,7 +3,7 @@
 # it must fail with a message containing <text>. When starlark-go
 # (bin/starhost) rejects the file statically too, the compiler's message
 # ("line:col: msg") must be exactly starlark-go's first error. A file with
-# a line "# option:globalreassign" or "# option:recursion" is compiled (and
+# a line "# option:globalreassign", "# option:globalredefine" or "# option:recursion" is compiled (and
 # run by starlark-go) with that option on.
 cd "$(dirname "$0")/.."
 # Compiled by node host/run.mjs --compile, with the options RUNFLAGS (as
@@ -14,7 +14,7 @@ n=0
 same=0
 for src in tests/compile_errors/*.star; do
   want=$(head -1 "$src" | sed 's/^# error: //')
-  gr="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:recursion' "$src" && printf ' --recursion')"
+  gr="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:globalredefine' "$src" && printf ' --globalredefine')$(grep -q '^# option:recursion' "$src" && printf ' --recursion')"
   if node host/run.mjs --compile $RUNFLAGS $gr "$src" 2> out/err.txt; then
     echo "compile_errors/$(basename "$src"): compiled, but expected error: $want"; fail=1
     continue

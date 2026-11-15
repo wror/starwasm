@@ -148,7 +148,7 @@ So the self-compiled compiler can replace starhost entirely:
 
 or, in one step, with the Wasm cached as Python caches bytecode:
 
-    node host/run.mjs [--globalreassign] [--recursion] prog.star [-- args...]
+    node host/run.mjs [--globalreassign] [--globalredefine] [--recursion] prog.star [-- args...]
 
 host/wasmcache.mjs keeps prog.star's module in __wasmcache__/prog[.<options>].wasm
 next to it, with a header (a custom section, "starwasm.cache") recording
@@ -205,7 +205,7 @@ What it took beyond milestone 3.5:
   go through temps to keep source evaluation order.
 - Dialect: starlark-go's defaults, set aside: by default no rebinding a
   top-level name, no while loops, no if/for/while at top level, and no
-  recursion. Two flags, on the compiler, bin/starhost and the REPL:
+  recursion. Three flags, on the compiler, bin/starhost and the REPL:
   - `--globalreassign` (starlark-go's AllowGlobalReassign: its options
     GlobalReassign, While and TopLevelControl together). Without it,
     binding a top-level name twice (`x = 1; x = 2`, `x += 1`, a def or load
@@ -218,6 +218,22 @@ What it took beyond milestone 3.5:
     function". With it: rebinding allowed, top-level uses resolve in source
     order (a use before the first binding is the builtin, or "undefined").
     Code: bind_top, check_control and e["preload"] in resolve.star.
+  - `--globalredefine`: `--globalreassign`, and top-level functions may
+    be bound again too. starlark-go has no such option: there a def is an
+    assignment, and AllowGlobalReassign covers it. Here a top-level
+    function is called statically by name, so `--globalreassign` alone
+    keeps functions fixed: "function f defined twice", "cannot reassign
+    function f". With `--globalredefine`, a function whose name is bound
+    more than once at top level (another def, an assignment, a for target,
+    a load) is a module variable instead: each def makes a closure where it
+    runs and assigns it, as a nested def does, and calls go through the
+    value (rt_call). Functions bound once are compiled exactly as before,
+    so the option costs them nothing. Code: redefined_funcs and s["redef"]
+    in declare_module (codegen.star). The recursion check doesn't follow
+    calls of such a function (they are not statically known). bin/starhost
+    takes the flag as --globalreassign. tests/compile/redefine.star.
+    (With either option, a def inside a top-level if or loop is such a
+    variable too.)
   - `--recursion` (starlark-go's Recursion). Without it, recursion is
     rejected at compile time, so compiled code pays nothing at run time
     (starlark-go checks at run time): a cycle of statically known calls
@@ -227,7 +243,7 @@ What it took beyond milestone 3.5:
     error even if never taken (compiler/recursion.star).
   The compiler and the tools are recursive: they run as `bin/starhost
   --recursion ...`, and the compiler is compiled with `--recursion`. Test
-  programs that need an option say so with a line `# option:globalreassign`
+  programs that need an option say so with a line `# option:globalreassign`, `# option:globalredefine`
   or `# option:recursion` (tests/compile_one.sh, compile_errors.sh and
   extensions.sh pass the flag to both sides, as tests/upstream does for
   starlark-go's own chunks). The prelude is always compiled with all
@@ -332,7 +348,8 @@ compiler as compiler.wasm. Differences from the terminal REPL:
   input runs as before unless :check is on. tests/repl/diagnose.mjs.
 - Stop terminates the worker (a long computation) and restores the session
   without that input; Stop during a restore drops the saved session. A
-  change of dialect (--globalreassign, --recursion) starts over.
+  change of dialect (--globalreassign with --globalredefine, one toggle;
+  --recursion) starts over.
 
 Locally: `node web/build.mjs` (into out/site; builds the compiler if
 needed), then `python3 -m http.server -d out/site`.

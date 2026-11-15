@@ -390,7 +390,7 @@ function callAt(s, at) {
 /**
  * A REPL session.
  *   compiler      the compiler (a WebAssembly.Module)
- *   dialectFlags  compiler options (--globalreassign, --recursion, --contagiousnone, --nocontagiousnone)
+ *   dialectFlags  compiler options (--globalreassign, --globalredefine, --recursion, --contagiousnone, --nocontagiousnone)
  *   sessionPath   the file the session is compiled from (load() paths are
  *                 relative to it); wasmPath: where the compiler writes
  *   readFile(path) -> Uint8Array, writeFile(path, bytes): file access, for

@@ -9,9 +9,9 @@ case "$src" in tests/errors/*) name="errors_$name" ;; esac
 res="out/c_$name.result"
 # the proto module's descriptor pool (tests/proto/README.md), for both
 ds=--descriptor_set=tests/proto/test.binpb
-# a program with a line "# option:globalreassign" or "# option:recursion"
+# a program with a line "# option:globalreassign", "# option:globalredefine" or "# option:recursion"
 # runs with that dialect option, in both (as starlark-go's own test files)
-ds="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:recursion' "$src" && printf ' --recursion') $ds"
+ds="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:globalredefine' "$src" && printf ' --globalredefine')$(grep -q '^# option:recursion' "$src" && printf ' --recursion') $ds"
 {
   exp=0; bin/starhost $ds "$src" > "out/c_$name.expect" 2> "out/c_$name.experr" || exp=$?
   if ! node host/run.mjs --compile $RUNFLAGS $ds "$src" 2> "out/c_$name.cerr"; then

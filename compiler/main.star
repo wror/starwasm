@@ -1,6 +1,6 @@
 # Compiler driver.
 #
-#   bin/starhost compiler/main.star [--test] [--globalreassign] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone] [--rollback]
+#   bin/starhost compiler/main.star [--test] [--globalreassign] [--globalredefine] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone] [--rollback]
 #                                   [--descriptor_set=FILE] input.star output.wasm
 #   node host/run.mjs output.wasm        # runs the module's top level
 #   node host/run.mjs [options] input.star   # both: compiles only when needed (host/wasmcache.mjs)
@@ -11,6 +11,14 @@
 # starlark-go: allow a top-level name to be bound more than once (and
 # resolve top-level uses in source order; see compiler/resolve.star), while
 # loops, and if/for/while at top level.
+# --globalredefine: --globalreassign, and a top-level function may be bound
+# more than once too, by another def, an assignment or a load. starlark-go
+# has no such option: its AllowGlobalReassign allows this as well. Here a
+# function defined once is called statically, so --globalreassign alone
+# keeps functions fixed ("function f defined twice", "cannot reassign
+# function f"); with --globalredefine a function bound again is a module
+# variable, set by each def as it runs, and calls of it go through its
+# value. Functions bound once are compiled as without it.
 # --recursion: starlark-go's Recursion option, off by default as in
 # starlark-go: allow functions to call themselves, directly or not (without
 # it, a cycle of statically known calls is a compile error; see
@@ -35,6 +43,7 @@ load("codegen.star", "compile")
 def main():
     test = False
     reassign = False
+    redefine = False
     repl = False
     recursion = False
     contagious_none = None
@@ -46,6 +55,8 @@ def main():
             test = True
         elif a == "--globalreassign":
             reassign = True
+        elif a == "--globalredefine":
+            redefine = True
         elif a == "--repl":
             repl = True
         elif a == "--recursion":
@@ -61,7 +72,7 @@ def main():
         else:
             args.append(a)
     if len(args) != 2:
-        fail("usage: starhost compiler/main.star [--test] [--globalreassign] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone] [--rollback] [--descriptor_set=FILE] <input.star> <output.wasm>")
-    write_file(args[1], compile(read_file(args[0]), args[0], test, fds, reassign, repl, recursion, contagious_none, rollback))
+        fail("usage: starhost compiler/main.star [--test] [--globalreassign] [--globalredefine] [--recursion] [--repl] [--contagiousnone | --nocontagiousnone] [--rollback] [--descriptor_set=FILE] <input.star> <output.wasm>")
+    write_file(args[1], compile(read_file(args[0]), args[0], test, fds, reassign, repl, recursion, contagious_none, rollback, redefine))
 
 main()
