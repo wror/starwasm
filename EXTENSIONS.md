@@ -418,16 +418,24 @@ standard input.
     x = None
     x + 1          # None
     x.foo          # None
-    x > None       # None
+    x > 1          # None
     x == x         # None
     abs(x)         # None
+    x or 1         # None: a None is not taken for False
+    [v for v in x] # None: nor for an empty list
+    x ?? 1         # 1: the coalescing operator replaces a None
+    if x: ...      # error: if: the condition is None
+    for v in x: ...  # error: for: cannot iterate over None
     x == None      # compile error: an operation on None is always None
     None + 1       # compile error, likewise
     provenance(x)  # [("literal", "None", "prog.star", 1)]
 
-Three things about None: an operation on it gives None instead of an
-error; a None knows where it comes from; and in a reactive program, once
-it is running, every error becomes such a None.
+Four things about None: an operation on it gives None instead of an
+error; it is never coerced, to False or to an empty sequence (in an
+expression that is None again, in an `if`, `while` or `for` statement an
+error), and `??` is how a program replaces it; a None knows where it
+comes from; and in a reactive program, once it is running, every error
+becomes such a None.
 
 ### Errors in a reactive program
 
@@ -558,25 +566,46 @@ and `n = 5` prints `half is 20`.
     or method given a `None` it doesn't just store (`len(None)`,
     `"a b".split(None)`, `d.get(None)`), and the statements below: `for v
     in None` (a comprehension's too), `a, b = None`, `y += None`,
-    `None[i] = v`. Only the literal is checked, and only as a direct
+    `None[i] = v`; and the tests of a None's truth: `None or 1`, `None
+    and 1`, `a if None else b`, a comprehension's `if None`, and the
+    statements `if None:` and `while None:` (these two and `for v in
+    None:` would fail rather than be None: "it is always an error"). Only
+    the literal is checked, and only as a direct
     operand: a variable that holds None (`x == x`), and a None inside
     something (`[None][0] + 1`, `x == [None]`) are computed, to None, as
     ever. None written anywhere else is fine: `x = None`, `return None`,
     `[None]`, `{k: None}`, a default `v = None`, `f(None)` for a def,
-    `None or 1`, `a if c else None`, and the arguments a builtin only
-    stores (`l.append(None)`, `d.get(k, None)`).
-  - Telling a None, then: by what it does. It is false (`x or default`,
-    `if x:`), and so is everything computed from it, its type too:
-    `type(x)` is a non-empty string for every other value, so `if
-    type(x):` runs for 0, `""` and `[]` but not for a None, and `type(x)
-    or "NoneType"` names the type of anything. `provenance(x)` says where
-    a None comes from.
-  - Not operations: `x and y`, `x or y` and `a if x else b` choose an
-    operand, with None false as ever (so `x or default` replaces a None);
-    `if x:`, `while x:` and a comprehension's `if x` just don't run. As an
-    operation on None is None, hence false, `if x > 1:`, `if x != 1:` and
-    `if not x:` don't run either when x is None: no condition is true of
-    it.
+    `x or None`, `a if c else None`, `None ?? 1`, and the arguments a
+    builtin only stores (`l.append(None)`, `d.get(k, None)`).
+  - No coercion: a None is never taken for False, nor for an empty
+    sequence. Where an expression tests a value's truth or iterates over
+    it, and it is None, the expression is that None:
+    - `x or y` and `x and y` are x when x is None (y isn't evaluated);
+      `a if x else b` is x when x is None (neither a nor b is
+      evaluated). `0 or x` and `a if c else x` just give x, as ever.
+    - A comprehension whose iterable is None is that None, as `list(x)`
+      is: `[v for v in x]`, `{k: 1 for k in x}`. So is one that meets a
+      None further in, in the iterable of an inner `for` or in an `if`
+      condition (`[y for x in xs for y in x]` with a None among xs, `[v
+      for v in vs if v > limit]` with limit None): the first one met.
+      The comprehension isn't cut short for it: the loops run to their
+      end (a None iterable as an empty one, a None condition as false),
+      and then the result is the None instead of the list.
+
+    In a statement there is no value to be None, so it is an error:
+    `if x:` and `while x:` fail with `if: the condition is None` (`while:
+    ...`) when the condition is None, which every condition computed from
+    a None is (`if x > 1:`, `if not x:`), and `for v in x:` fails with
+    `for: cannot iterate over None`. They are errors like any other: with
+    a traceback, ending the program, or, during a reactive program's
+    updates, becoming a None that carries the error (above).
+  - `??` replaces a None: `x ?? y` is y if x is None, else x (see "The
+    coalescing operator" below). So `x ?? default`, `if x ?? False:`,
+    `for v in x ?? []:`, `[v for v in x] ?? []`, `(a.b.c + 1) ?? 0`.
+  - Telling a None, then: `x ?? default` for a value, or by what it does:
+    everything computed from it is None, its type too, so `type(x) ??
+    "NoneType"` names the type of anything. `provenance(x)` says where a
+    None comes from.
   - Storing, printing or passing a None is no operation: `[x]`, `{k: x}`,
     `y = x`, and calling a def (or lambda) with it: the function runs,
     and what its body does with the None follows these rules. The same
@@ -588,8 +617,7 @@ and `n = 5` prints `half is 20`.
     `provenance(x)` (`TOLERANT` in none.star). Through a value
     (`f = abs; f(x)`, `m = l.append; m(x)`) it is the same, decided when
     the call happens: a builtin isn't called, a def is.
-  - Statements: `for v in x` (and a comprehension's `for`) runs no
-    iteration; `a, b = x` gives each target that None; `x[i] = v` and
+  - Other statements: `a, b = x` gives each target that None; `x[i] = v` and
     `x.name = v` do nothing when x is None, nor does `l[x] = v` (but
     `d[x] = v` stores under the key None, in a dict); `y += x` makes y
     None.
@@ -647,13 +675,15 @@ and `n = 5` prints `half is 20`.
   something.
 - With reactive variables: a None doesn't fail an update, and nor does
   an error (above); the None flows
-  through the definitions and observers that read it. Expressions on
-  standard input are contagious too (`qty = [None][0] + 1` assigns None),
+  through the definitions and observers that read it. (A relation's
+  `when` condition that is None holds of no member, as before.)
+  Expressions on standard input are contagious too, `or`, `and`, `if`-`else`
+  and comprehensions included, and they have `??` (`qty = [None][0] + 1` assigns None),
   and an operation on None written out is refused there as it is in the
   program: `qty = None + 1` is a bad line, reported as `<stdin>:5:7: an
   operation on None is always None (contagious None)` and ignored. (An
-  operator, field, index, slice, call of None, `*None` or a
-  comprehension over None: a builtin's None argument is only found when
+  operator, field, index, slice, call of None, `*None`, a test of None's
+  truth or a comprehension over None: a builtin's None argument is only found when
   the call happens, since the line's names are looked up then.)
   A variable recomputed to a None that came another way than the one it
   held counts as changed, so what reads it is recomputed and holds the
@@ -663,7 +693,9 @@ and `n = 5` prints `half is 20`.
   - transform decides whether it is on, then marks the ASTs of the
     user's modules: return values and lambda bodies (they pass through
     the function), an added `return` at the end of each def, the values
-    reactive.star notes as a variable's (`defines`), loops' iterables.
+    reactive.star notes as a variable's (`defines`), loops' iterables
+    and the conditions of `if`, `while` and comprehensions (`%iter`,
+    `%must`).
   - The hooks expr, cond, assign and stmt (new hook points, called for
     every expression, condition, assignment and statement) put the test
     in front of each operation: the operands are evaluated into Wasm
@@ -673,6 +705,16 @@ and `n = 5` prints `half is 20`.
     whose values are never None prints exactly what it does without the
     extension. The prelude is compiled as ever, so builtins written in
     Starlark keep their meaning; the tests are in the callers.
+  - No coercion: the expr hook compiles `and`, `or` and `if`-`else` with
+    a test of the first operand (the condition) in front, as for any
+    operation. A marked condition is compiled as a value by the cond hook
+    and a marked iterable by the expr hook, which then fail (`rt_fail`,
+    at the condition or iterable) in a statement, or, in a comprehension,
+    store the None in a local of that comprehension, null when it starts,
+    which replaces the result at the end if it isn't null. (Leaving the
+    loops at once would skip the bookkeeping that ends an iteration over
+    a list; so they run on.) The failures' messages don't mention
+    `NoneType`, so outside updates they aren't caught (below).
   - The same hooks report None written out as an operand (`_block`, at
     each place a test would go in front of the operand), so the check is
     exactly as wide as the contagion; `_r_none_ops` in reactive.star does
@@ -727,6 +769,10 @@ and `n = 5` prints `half is 20`.
     also when a None is around: `sorted([1, "a", None])` may fail on
     `int < string`, and `[1, 2].index(x)` with x None is "value not in
     list".
+  - An error for a None condition or iterable replaces the None: the
+    None that the failing call becomes during an update carries the
+    error (`if: the condition is None`, and where), not the trace of the
+    None that was tested.
   - Arguments for which starlark-go reads None as "not given"
     (`s.split(None)`, `s.find(t, None)`, a slice bound) are operations
     here: the result is None.
@@ -744,9 +790,41 @@ and `n = 5` prints `half is 20`.
   (errors during updates, with their tracebacks in the .err file),
   none_reactive_off.star (`--nocontagiousnone`), none_err_provenance.star,
   none_err_literal_*.star (None written out as an operand: the compile
-  errors);
+  errors), coalesce.star (`??` without contagious None);
   tests take the options from `# option:contagiousnone` /
   `# option:nocontagiousnone` lines.
+
+## The coalescing operator `??`
+
+    x ?? y         # y if x is None, else x
+
+- `x ?? y` evaluates x; if it is None, the result is y, which is
+  evaluated only then; else it is x, whatever x is (`0 ?? 1` is 0, `""
+  ?? "a"` is `""`: only None is replaced, unlike `x or y`).
+- It binds less tightly than every other binary operator, `or` included,
+  and more tightly than `if`-`else` and `lambda`; it groups from the
+  left. So `a.b ?? c + 1` is `a.b ?? (c + 1)`, `x ?? 0 or 5` is `x ?? (0
+  or 5)`, `not x ?? y` is `(not x) ?? y`, `a ?? b ?? c` is the first
+  that isn't None (or c), and `a ?? b if c else d` is `(a ?? b) if c
+  else d`.
+- It is there in every program, with or without contagious None. With
+  it, `??` is what ends a contagion: the left operand may be any
+  expression that came out None, `(x.price * qty) ?? 0`, `[v for v in
+  xs] ?? []`, `if ready ?? False:`. `None ?? y` compiles (it is y), and
+  a None that `??` replaces leaves no trace in the result.
+- Also in the expressions on a reactive program's standard input, and
+  in the type checker: for x a `T | None`, `x ?? y` is a `T` if y is
+  (as `x or y` is typed, but without narrowing).
+- There is no `??=`.
+- Code: the lexer's token `??`, the parser's lowest precedence level
+  (`PREC` in parser.star: a `binop` node with op `"??"`), and the expr
+  hook of compiler/ext/none.star, which compiles it in every module,
+  whether or not contagious None is on: the left operand into a local, a
+  type test, and the right operand in the branch. `_r_pcoal` and
+  `"coal"` nodes in reactive.star's input expressions; `_infer_binop` in
+  typecheck/infer.star.
+- Tests: tests/extensions/coalesce.star, none_basic.star,
+  tests/parser_test.star.
 
 ## Static types
 

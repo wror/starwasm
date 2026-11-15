@@ -282,7 +282,7 @@ def _in_context(e):
     new = None
     if e.get("gen", False):
         return e
-    if k == "binop" and e["op"] != "and" and e["op"] != "or":
+    if k == "binop" and e["op"] != "and" and e["op"] != "or" and e["op"] != "??":
         new = _prelude_call("_r_binop", [_str(e["op"], posn), _in_context(e["x"]), _in_context(e["y"])], posn)
     elif k == "binop":
         _in_context(e["x"])
@@ -1119,7 +1119,7 @@ def _r_ident(p):
 
 _R_KEYWORDS = {"and": True, "or": True, "not": True, "in": True, "if": True, "else": True,
                "for": True, "lambda": True, "None": True, "True": True, "False": True}
-_R_PUNCT2 = {"//": True, "<<": True, ">>": True, "==": True, "!=": True, "<=": True, ">=": True}
+_R_PUNCT2 = {"??": True, "//": True, "<<": True, ">>": True, "==": True, "!=": True, "<=": True, ">=": True}
 _R_PUNCT1 = "+-*/%&|^~<>()[]{},:.;="
 _R_COMPARE = {"==": True, "!=": True, "<": True, ">": True, "<=": True, ">=": True, "in": True}
 _R_BINARY = [["|"], ["^"], ["&"], ["<<", ">>"], ["+", "-"], ["*", "/", "//", "%"]]
@@ -1204,7 +1204,7 @@ def _r_line(p, values, names):
 # ---- the expression parser: p["toks"], p["t"] (index of the next token).
 # Nodes are tuples: ("const", v) ("name", id, pos) ("list", elems)
 # ("tuple", elems) ("dict", [(k, v)]) ("unop", op, x) ("not", x)
-# ("and", x, y) ("or", x, y) ("binop", op, x, y) ("cond", test, then, else)
+# ("and", x, y) ("or", x, y) ("coal", x, y) ("binop", op, x, y) ("cond", test, then, else)
 # ("attr", x, name) ("call", f, [(name or None, star, x)]) ("index", x, i)
 # ("slice", x, lo, hi, step) ("comp", "list" | "dict", body, clauses),
 # clauses being ("for", [names], iterable) or ("if", test).
@@ -1246,12 +1246,21 @@ def _r_exprs(p):
 def _r_test(p):
     if _r_is(p, "lambda"):
         return _r_fail(p, "lambda is not supported here", _r_tok(p)["pos"])
-    x = _r_por(p)
+    x = _r_pcoal(p)
     if _r_is(p, "if"):
         _r_next(p)
-        test = _r_por(p)
+        test = _r_pcoal(p)
         _r_expect(p, "else")
         return ("cond", test, x, _r_test(p))
+    return x
+
+def _r_pcoal(p):
+    x = _r_por(p)
+    for _ in range(len(p["toks"])):
+        if not _r_is(p, "??") or p["err"] != None:
+            break
+        _r_next(p)
+        x = ("coal", x, _r_por(p))
     return x
 
 def _r_por(p):
@@ -1498,7 +1507,7 @@ def _r_children(n):
         return [n[2]]
     if k == "not":
         return [n[1]]
-    if k == "and" or k == "or":
+    if k == "and" or k == "or" or k == "coal":
         return [n[1], n[2]]
     if k == "binop":
         return [n[2], n[3]]
@@ -1572,7 +1581,10 @@ def _r_eval(n, env, names):
         return _r_eval(n[2], env, names) if x else x
     if k == "or":
         x = _r_eval(n[1], env, names)
-        return x if x else _r_eval(n[2], env, names)
+        return x if x or _n_none(x) else _r_eval(n[2], env, names)
+    if k == "coal":
+        x = _r_eval(n[1], env, names)
+        return _r_eval(n[2], env, names) if x == None else x
     if k == "binop":
         x = _r_eval(n[2], env, names)
         y = _r_eval(n[3], env, names)
@@ -1582,7 +1594,10 @@ def _r_eval(n, env, names):
             return y
         return _r_binop(n[1], x, y)
     if k == "cond":
-        return _r_eval(n[2], env, names) if _r_eval(n[1], env, names) else _r_eval(n[3], env, names)
+        x = _r_eval(n[1], env, names)
+        if _n_none(x):
+            return x
+        return _r_eval(n[2], env, names) if x else _r_eval(n[3], env, names)
     if k == "attr":
         x = _r_eval(n[1], env, names)
         return x if _n_none(x) else _attr(x, n[2])
@@ -1626,8 +1641,9 @@ def _r_eval(n, env, names):
                 return y
         return x[part[0]:part[1]:part[2]]
     out = [] if n[1] == "list" else {}
-    _r_comp(n, 0, dict(env), names, out)
-    return out
+    none = []  # the first None a clause iterated over or tested, if any
+    _r_comp(n, 0, dict(env), names, out, none)
+    return none[0] if none else out
 
 def _r_none_lit(n):
     """Is node n None written out?"""
@@ -1644,19 +1660,19 @@ def _r_none_ops(p, n):
         xs = [n[2]]
     elif k == "binop":
         xs = [n[2], n[3]]
-    elif k == "not" or k == "attr":
+    elif k == "not" or k == "attr" or k == "and" or k == "or" or k == "cond":
         xs = [n[1]]
     elif k == "index" or k == "slice":
         xs = n[1:]
     elif k == "call":
         xs = [n[1]] + [a[2] for a in n[2] if a[1] != ""]
     elif k == "comp":
-        xs = [c[2] for c in n[3] if c[0] == "for"]
+        xs = [c[2] if c[0] == "for" else c[1] for c in n[3]]
     for x in xs:
         if _r_none_lit(x):
             _r_fail(p, "an operation on None is always None (contagious None)", x[2])
 
-def _r_comp(n, i, env, names, out):
+def _r_comp(n, i, env, names, out, none):
     if i == len(n[3]):
         if n[1] == "list":
             out.append(_r_eval(n[2], env, names))
@@ -1665,11 +1681,17 @@ def _r_comp(n, i, env, names, out):
         return
     c = n[3][i]
     if c[0] == "if":
-        if _r_eval(c[1], env, names):
-            _r_comp(n, i + 1, env, names, out)
+        x = _r_eval(c[1], env, names)
+        if _n_none(x):
+            none.append(x)
+        elif x:
+            _r_comp(n, i + 1, env, names, out, none)
         return
     it = _r_eval(c[2], env, names)
-    for v in () if _n_none(it) else it:
+    if _n_none(it):
+        none.append(it)
+        return
+    for v in it:
         if len(c[1]) == 1:
             env[c[1][0]] = v
         else:
@@ -1678,7 +1700,7 @@ def _r_comp(n, i, env, names, out):
                 fail("got %d values to unpack, want %d" % (len(vs), len(c[1])))
             for j, t in enumerate(c[1]):
                 env[t] = vs[j]
-        _r_comp(n, i + 1, env, names, out)
+        _r_comp(n, i + 1, env, names, out, none)
 
 def _r_number(p):
     """An unsigned int or float literal, as Starlark writes them."""

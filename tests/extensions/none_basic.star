@@ -1,6 +1,8 @@
 # option:contagiousnone
 # Contagious None (EXTENSIONS.md): an operation on None gives None, also
-# == and != (with None written out they don't compile: none_err_*.star).
+# == and != (with None written out they don't compile: none_err_*.star),
+# and so does a test of its truth or an iteration over it in an expression
+# (in a statement it is an error: none_reactive_errors.star); ?? replaces it.
 
 def show(*args):
     print(*[repr(a) for a in args])
@@ -12,9 +14,9 @@ def nothing():
     pass
 
 def early(v):
-    if type(v):
-        return v
-    return
+    if (v ?? 0) == 0:
+        return
+    return v
 
 x = None
 one = 1
@@ -57,45 +59,43 @@ fs = [abs, ident, "x".upper, l.append, s.g]
 show([f(x) for f in fs[:3]], fs[3](x), fs[4](x), l)
 show(s.f(1), s.g(-2), fs[0](-3), fs[1](4))
 
-# conditions: None is false, and so is anything computed from it
+# conditions: None is neither true nor false: what tests it is None
 def conds(v):
     out = []
-    if v:
+    if v ?? False:
         out.append("v")
-    if not v:
-        out.append("not v")
-    if v > 1:
-        out.append("v > 1")
-    if not v > 1:
-        out.append("not v > 1")
-    if v != 1:
-        out.append("v != 1")
-    if v == v:
-        out.append("v == v")
-    if v != v:
-        out.append("v != v")
-    if type(v):
-        out.append("type(v)")
+    if (v > 1) ?? True:
+        out.append("v > 1, or None")
     out.append("yes" if v else "no")
-    out.append([1 for _ in range(2) if v] + [2 for _ in range(1) if not v])
+    out.append("more" if v > 1 else "less")
+    out.append(("is" if not v else "not") ?? "neither")
+    out.append([v or "or", v and "and", 0 or v, 1 and v, v or v])
+    out.append([1 for _ in range(2) if v])
+    out.append([i for i in [1, 2] if i > v])
     return out
 
+# a comprehension over None, or with a None condition, is that None
+def comps(v):
+    return [[i for i in v], {i: 1 for i in v}, [j for i in [[1], v, [2]] for j in i], [i for i in v] ?? [], provenance([i for i in v]) == provenance(v)]
+
 show(conds(x))
+show(comps(x))
+show(comps([3]))
 show(conds(2))
 
 # statements: nothing interrupts the program
 def statements(v):
     out = []
-    for i in v:
+    for i in v ?? []:
         out.append(i)
-    for i in range(v):
+    for i in range(v) ?? range(1):
         out.append(i)
     for i, j in [v, (1, 2)]:
         out.append((i, j))
     a, b = v
     (c, [e, f]) = v
     out.append((a, b, c, e, f))
-    out += [k for k in v] + [k for k in v.items()]
+    out += [k for k in v] ?? ["no k"]
     m = [1, 2]
     dd = {}
     m[v] = 5
@@ -120,13 +120,24 @@ def written(v = None):
     c.append(None)
     c[0] = None
     d = {None: None, "k": None}
-    return [v, a, b, c, d, None or 1, None and 1, 2 if None else 3, ident(None), ident(v = None), d.get("zz", None), struct(a = None)]
+    return [v, a, b, c, d, 0 or None, 1 and None, None if 1 else 2, 3 if 0 else None, ident(None), ident(v = None), d.get("zz", None), struct(a = None)]
 
 show(*written())
 print(None, [None], (None,))
 
-# telling a None: its type is None too, so false
-show([type(v) or "NoneType" for v in [x, 0, "", []]], [bool(type(v)) for v in [0, x]] == [True, x] or "a None")
+# x ?? y: y if x is None, else x (y is evaluated only then)
+def loud(v):
+    print("evaluated", v)
+    return v
+
+show(x ?? 1, 0 ?? 1, "" ?? 1, False ?? 1, [] ?? 1, None ?? 1, x ?? x, x ?? None, x ?? x ?? "last")
+show(1 ?? loud(2), x ?? loud(3), x.foo.bar ?? "no bar", d.get("zz") ?? "no zz", nothing() ?? "nothing")
+# it binds less than every other operator, and groups from the left
+show(x ?? 0 or 5, x ?? 1 + 1, 2 * 3 ?? 4, x ?? 1 == 1, (x ?? 1) if x ?? True else 2, not x ?? "n", [v ?? 0 for v in [1, x, 3]])
+show(provenance(x ?? 1), provenance(x ?? nothing()) == provenance(nothing()))
+
+# telling a None: its type is None too
+show([type(v) ?? "NoneType" for v in [x, 0, "", []]])
 
 # everything else is as ever
 show(early(1), early(x), nothing(), 1 + 1, [1, 2][1], "a".upper(), len("abc"), 3 > 2, not 1, l == l, s.a)

@@ -25,17 +25,14 @@ show("range", range(*l))
 show("through a value", [f(l) for f in [sorted, max, len]])
 show("a method value", [m(["a", n]) for m in [",".join]])
 
-# in a condition, false
+# as a condition, None still
 def conds():
-    out = []
-    if [n] < [1]:
-        out.append("<")
-    if not ([n] < [1]):
-        out.append("not <")
-    if (n, 1) != (n, 1):
-        out.append("!=")
-    out.append("yes" if sorted(l) else "no")
-    return out
+    return [
+        "<" if [n] < [1] else "not <",
+        ("<" if not ([n] < [1]) else "not <") ?? "neither",
+        [1 for _ in range(2) if (n, 1) != (n, 1)] ?? "no list",
+        ("yes" if sorted(l) else "no") ?? "unsorted",
+    ]
 
 print(conds())
 
@@ -58,10 +55,10 @@ print(after())
 # augmented, and the callbacks of a builtin
 def augmented():
     acc = [1]
-    acc += sorted(l) or [2]
+    acc += sorted(l) ?? [2]
     return acc
 
-print(augmented(), sorted([3, 1, 2], key = lambda v: -v), sorted(l, key = lambda v: v or 0), [k for k in sorted({"b": n, "a": 1})])
+print(augmented(), sorted([3, 1, 2], key = lambda v: -v), sorted(l, key = lambda v: v ?? 0), [k for k in sorted({"b": n, "a": 1})])
 
 # a comparison written here that meets a None among its operands' elements
 # is that None, as if the None were an operand
@@ -73,7 +70,7 @@ show("deep", {"a": [1, (x,)]} == {"a": [1, (2,)]})
 show("in", 1 in [x, 1])
 show("not in", 3 not in (1, x))
 show("lt", [1, x] < [1, 2])
-print([1, 2] == [1, 2], 2 in [1, 2], [x] == [None] or "no", [x][0] == x, "a" in {"a": x, None: 1}, {None: 1}.get(x))
+print([1, 2] == [1, 2], 2 in [1, 2], [x] == [None] ?? "no", [x][0] == x, "a" in {"a": x, None: 1}, {None: 1}.get(x))
 
 # everything else is as ever
 print(sorted([2, 1]), max(1, 2), len("abc"), "%d" % 3, [1] < [2], ",".join(["a", "b"]))

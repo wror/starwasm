@@ -1,4 +1,4 @@
-# error: iteration over None: an operation on None is always None
+# error: for loop over None: it is always an error
 # option:contagiousnone
 def f():
     for v in None:

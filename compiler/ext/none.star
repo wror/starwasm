@@ -3,6 +3,9 @@
 #   x = None
 #   x + 1, x.foo, x[0], x > 2, x == x, abs(x), x.upper()    # all None
 #   x == None, None + 1, abs(None), None.foo                # compile errors
+#   x or 1, x and 1, 1 if x else 2, [v for v in x]          # None too
+#   if x: ..., while x: ..., for v in x: ...                # errors
+#   x ?? 1                                                  # 1
 #   provenance(x)      # [("literal", "None", "prog.star", 1), ...]
 #
 # On by default in programs with reactive variables (ext/reactive.star),
@@ -45,10 +48,23 @@
 #    going round a loop doesn't grow). Entries are created once per place,
 #    in a global, on first use (_lazy).
 #
+# 3. No coercion. A None is never taken for False or for an empty
+#    sequence. Where an expression needs a truth value or an iterable and
+#    gets None, it is that None: x and y, x or y, a if x else b, and a
+#    comprehension (of a None iterable, or with a None condition; the
+#    comprehension runs to its end all the same, but its value is the first
+#    such None). Where a statement does (if, while, for), it is an error.
+#    x ?? y is how a program replaces a None: y if x is None, else x (the
+#    operator is compiled here whether or not the extension is on).
+#
 # Marks on AST nodes (set by transform, read by the hooks):
 #   "%via": (kind, id, line)   wrap the value: it passes through this
 #   "%site": (kind, id, line)  (on a None name) the None that starts here
-#   "%iter": True              a loop's iterable: None iterates as ()
+#   "%iter": "for" | "comp"    a loop's iterable: None is an error (a for
+#                              statement), or the comprehension's value
+#   "%must": "if" | "while" | "comp"
+#                              a condition: None is an error (statements),
+#                              or the comprehension's value
 #   "%discard": True           a call whose result is dropped
 #   "%core": True              already guarded: the hooks pass
 
@@ -138,6 +154,7 @@ TOLERANT = {
 # self-referencing definition (its _in_context): the arguments that are
 # the operation's operands.
 REACTIVE_OPS = {
+    "_r_truth": [0],
     "_r_binop": [1, 2],
     "_r_unop": [1],
     "_r_not": [0],
@@ -150,7 +167,7 @@ REACTIVE_OPS = {
 
 # Expressions whose value is of a builtin type (never a struct), by kind.
 BUILTIN_KINDS = {"string": True, "bytes": True, "int": True, "float": True, "list": True, "tuple": True, "dict": True, "comp": True}
-REACTIVE_WHAT = {"_r_unop": "unary operation on", "_r_not": "not", "_r_attr": "field of", "_r_index": "index of or by", "_r_slice": "slice of or by", "_r_conv": "conversion of"}
+REACTIVE_WHAT = {"_r_truth": "if-else on", "_r_unop": "unary operation on", "_r_not": "not", "_r_attr": "field of", "_r_index": "index of or by", "_r_slice": "slice of or by", "_r_conv": "conversion of"}
 
 COMPARE = {"==": True, "!=": True, "<": True, ">": True, "<=": True, ">=": True, "in": True, "not in": True}
 
@@ -172,6 +189,7 @@ def transform(cg, mc):
         on = mc["ext"].get("reactive", False)
     mc["ext"]["none"] = on
     mc["ext"]["none_lazy"] = {}
+    mc["ext"]["none_comps"] = []  # the comprehensions being compiled: their locals for a None met
     if on:
         for mod in mc["mods"]:
             _mark_stmts(mod["stmts"], None)
@@ -204,15 +222,17 @@ def _mark_stmts(stmts, fname):
                 _via(s["value"], ("function", fname, s["pos"][0]))
         elif k == "if":
             _mark(s["test"], None)
+            s["test"]["%must"] = "if"
             _mark_stmts(s["body"], fname)
             _mark_stmts(s["else_"], fname)
         elif k == "while":
             _mark(s["test"], None)
+            s["test"]["%must"] = "while"
             _mark_stmts(s["body"], fname)
         elif k == "for":
             _mark(s["target"], None)
             _mark(s["iter"], None)
-            _mark_iter(s["iter"])
+            _mark_iter(s["iter"], "for")
             _mark_stmts(s["body"], fname)
         elif k == "expr":
             _mark(s["x"], None)
@@ -231,9 +251,9 @@ def _via(e, entry):
     already passes through another.)"""
     e["%via"] = e.get("%via", ()) + (entry,)
 
-def _mark_iter(e):
-    """A loop's iterable: None iterates as (). A range of int literals
-    can't be None, and stays codegen's counted loop."""
+def _mark_iter(e, kind):
+    """A loop's iterable, of a for statement or a comprehension (kind). A
+    range of int literals can't be None, and stays codegen's counted loop."""
     if e["kind"] == "call" and e["fn"]["kind"] == "name" and e["fn"]["id"] == "range":
         lit = True
         for a in e["args"]:
@@ -244,7 +264,7 @@ def _mark_iter(e):
                 lit = False
         if lit:
             return
-    e["%iter"] = True
+    e["%iter"] = kind
     e["hooked"] = True  # codegen: no shortcut past the expr hook
 
 def _mark(x, _):
@@ -267,7 +287,9 @@ def _mark(x, _):
     elif k == "comp":
         for c in x["clauses"]:
             if c["kind"] == "for":
-                _mark_iter(c["iter"])
+                _mark_iter(c["iter"], "comp")
+            else:
+                c["test"]["%must"] = "comp"
     d = x.get("defines")
     if d != None:
         _via(x, ("reactive", d[0], d[1]))
@@ -313,7 +335,7 @@ def _core(e, **changes):
     e2 = dict(e)
     e2.update(changes)
     e2["%core"] = True
-    for k in ["%via", "%iter", "%discard", "hooked"]:
+    for k in ["%via", "%iter", "%must", "%discard", "hooked"]:
         if k in e2:
             e2.pop(k)
     return e2
@@ -394,12 +416,27 @@ def _protect(cg, mc, fc, code, marked = [], result = V, strict = False):
         gset("catch_depth", get(d)),
     ]
 
-def _block(cg, mc, fc, x, what):
+def _block(cg, mc, fc, x, what, error = False):
     """A compile error if x, an operand of the operation `what`, is None
-    written out: the operation would be None wherever it runs. (Not for a
-    None another extension generated: a missing slice bound.)"""
+    written out: the operation would be None wherever it runs (or, error:
+    it is a statement, and would fail). (Not for a None another extension
+    generated: a missing slice bound.)"""
     if x != None and not x.get("gen", False) and _literal_none(cg, mc, fc, x):
-        cg["cerr"](mc, x["pos"], what + " None: an operation on None is always None (contagious None)")
+        why = "it is always an error" if error else "an operation on None is always None"
+        cg["cerr"](mc, x["pos"], what + " None: " + why + " (contagious None)")
+
+def _fail(cg, mc, posn, msg):
+    """Code failing with msg at posn. (msg doesn't mention NoneType: it is
+    no error for _protect to turn into a None outside updates.)"""
+    return [S(mc["m"], msg), cg["at"](mc, posn), call("rt_fail"), "unreachable"]
+
+def _comp_none(mc, t):
+    """Code noting that the comprehension being compiled met the None in
+    local t: its value is the first one met."""
+    comps = mc["ext"]["none_comps"]
+    if not comps:
+        return []
+    return if_(is_null(get(comps[-1])), set(comps[-1], get(t)))
 
 def _what(e):
     """How the error names operation e."""
@@ -417,9 +454,13 @@ def _what(e):
 # ---------------------------------------------------------------- hooks
 
 def expr(cg, mc, fc, e):
+    k = e["kind"]
+    if k == "binop" and e["op"] == "??":
+        # x ?? y: y if x is None, else x (in every module, on or off)
+        t = cg["temp"](fc, V)
+        return [set(t, cg["gen"](mc, fc, e["x"])), if_(_is_none(t), cg["gen"](mc, fc, e["y"]), get(t), result = V)]
     if not _active(mc) or e.get("%core", False):
         return None
-    k = e["kind"]
     if k == "%code":
         return None
     if e.get("%site") != None:
@@ -432,12 +473,35 @@ def expr(cg, mc, fc, e):
         for entry in vias:
             code = call("rt_none_via", code, _entry(mc, entry))
         return code
-    if e.get("%iter", False):
-        _block(cg, mc, fc, e, "iteration over")
+    it = e.get("%iter")
+    if it != None:
         e2 = dict(e)
         e2.pop("%iter")
         t = cg["temp"](fc, V)
-        return [set(t, cg["gen"](mc, fc, e2)), if_(_is_none(t), new("Tuple", arr_fixed("Vals")), get(t), result = V)]
+        if it == "for":
+            _block(cg, mc, fc, e, "for loop over", error = True)
+            return [set(t, cg["gen"](mc, fc, e2)), if_(_is_none(t), _fail(cg, mc, e["pos"], "for: cannot iterate over None")), get(t)]
+        _block(cg, mc, fc, e, "iteration over")
+        return [set(t, cg["gen"](mc, fc, e2)), if_(_is_none(t), [_comp_none(mc, t), new("Tuple", arr_fixed("Vals"))], get(t), result = V)]
+    if k == "comp":
+        # its value, unless a clause met a None (the %iter and %must of
+        # its clauses note it in local nn): then that None
+        nn = cg["temp"](fc, V)
+        r = cg["temp"](fc, V)
+        comps = mc["ext"]["none_comps"]
+        comps.append(nn)
+        code = cg["gen"](mc, fc, _core(e))
+        comps.pop()
+        return [set(nn, null("eq")), set(r, code), if_(is_null(get(nn)), get(r), get(nn), result = V)]
+    if k == "cond":
+        # a if x else b: None if x is
+        _block(cg, mc, fc, e["test"], "if-else on")
+        t = cg["temp"](fc, V)
+        return [
+            set(t, cg["gen"](mc, fc, e["test"])),
+            if_(_is_none(t), get(t),
+                if_(call("rt_truth", get(t)), cg["gen"](mc, fc, e["then"]), cg["gen"](mc, fc, e["else_"]), result = V), result = V),
+        ]
     if k == "name":
         if e.get("gen", False) or not _literal_none(cg, mc, fc, e):
             return None
@@ -445,7 +509,10 @@ def expr(cg, mc, fc, e):
     if k == "binop":
         op_ = e["op"]
         if op_ == "and" or op_ == "or":
-            return None  # they choose an operand; None is false
+            # they choose an operand by the truth of the first: None if it is
+            _block(cg, mc, fc, e["x"], op_ + " after")
+            t = cg["temp"](fc, V)
+            return [set(t, cg["gen"](mc, fc, e["x"])), if_(_is_none(t), get(t), cg["gen"](mc, fc, _core(e, x = _code(t, e["x"]))), result = V)]
         return _guard(cg, mc, fc, e, ["x", "y"])
     if k == "unop":
         return _guard(cg, mc, fc, e, ["x"])
@@ -462,10 +529,26 @@ def expr(cg, mc, fc, e):
     return None
 
 def cond(cg, mc, fc, e):
-    """e as an i32 truth value: an operation on None is None, so false."""
+    """e as an i32 truth value. A condition written in the program is
+    marked (%must): None there is an error, or the comprehension's value.
+    Any other (generated code): an operation on None is None, so false."""
     if not _active(mc) or e.get("%core", False):
         return None
     k = e["kind"]
+    must = e.get("%must")
+    if must != None:
+        # a statement's condition, or a comprehension's: as a value, which
+        # may not be None
+        e2 = dict(e)
+        e2.pop("%must")
+        t = cg["temp"](fc, V)
+        if must == "comp":
+            _block(cg, mc, fc, e, "if")
+            none = [_comp_none(mc, t), i32(0)]
+        else:
+            _block(cg, mc, fc, e, must, error = True)
+            none = _fail(cg, mc, e["pos"], must + ": the condition is None")
+        return [set(t, cg["gen"](mc, fc, e2)), if_(_is_none(t), none, call("rt_truth", get(t)), result = I32)]
     if k == "binop" and COMPARE.get(e["op"], False):
         _block(cg, mc, fc, e["x"], e["op"])
         _block(cg, mc, fc, e["y"], e["op"])
