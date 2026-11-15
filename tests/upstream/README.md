@@ -28,13 +28,15 @@ As starlark-go's TestExecFile, TestResolve and TestParseErrors:
   bin/upstreamhost, `--descriptor_set` for the compiler); starwasm compiles
   a copy without the Go test's `load("proto.star", "proto")` (proto is
   predeclared).
+- starlark/testdata/time.star: likewise a copy without its
+  `load('time.star', 'time')` (time is predeclared too; lib/time.star).
 - starlarkstruct/testdata/struct.star: its first 19 lines (the rest needs
   the Go test's `gensym`).
 - resolve/testdata/resolve.star: compiled only; static errors.
 - syntax/testdata/errors.star and scan.star: parsed only
   (tests/upstream/parse_only.star, on starwasm's front end).
 
-Not run: json, math, time (Go library modules), module.star (tests
+Not run: json, math (Go library modules), module.star (tests
 starlarkstruct's module type, which assert.star replaces with struct),
 benchmark, bazel, paths, function_param (not test scripts).
 

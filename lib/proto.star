@@ -1114,8 +1114,9 @@ def _pr_hash(x, k, d):
         return hash(d[0]) ^ 5521
     _error_plain("unhashable: " + type(x))
 
-def _obj_dispatch(op, x, a, b):
-    """Every operation on a proto value (see _objects in lib/builtins.star)."""
+def _pr_dispatch(op, x, a, b):
+    """Every operation on a proto value (see _objects in lib/builtins.star;
+    codegen makes the _obj_dispatch that calls it)."""
     k = _obj_kind(x)
     d = _obj_data(x)
     if op == _O_ATTR:
@@ -1190,6 +1191,8 @@ def _obj_dispatch(op, x, a, b):
             return False
         v, err = _pr_attr(x, k, d, a)
         return err == None or a in _pr_attrs(k, d)
+    if op == _OBJ_BINARY or op == _OBJ_CMP:
+        return None  # no arithmetic, no order
     _error_plain("internal error: proto operation " + str(op))
 
 # ---------------------------------------------------------------- the module

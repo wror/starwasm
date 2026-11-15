@@ -231,6 +231,17 @@ OBJ_CALLNAME = 12  # the name of x as a callable (for "Error in <name>"), or Non
 OBJ_FREEZE = 13
 OBJ_UNHASHABLE = 14  # None, or the type name that makes x unhashable
 OBJ_ITEMS = 15  # a mapping's items, a list of pairs
+# (16..19: attributes, _OBJ_ATTR... in lib/prelude.star)
+OBJ_BINARY = 20  # x <b> a (b: "+", "-", "*", "/", "//", "%", ...) or, b: "r+", ..., a <op> x: the result, or None: no such operation
+OBJ_CMP = 21  # x compared with a: -1, 0, 1, or None: not ordered
+
+def binop_err(m, a, sym, b):
+    """Code ending a binary operator's function for operands it doesn't
+    know: a library object's own operation (rt_obj_binary), else the error."""
+    return [
+        if_(or_(is_("Obj", a), is_("Obj", b)), ret(call("rt_obj_binary", a, b, S(m, sym)))),
+        type_err2(m, "unknown binary op: ", a, " " + sym + " ", b, ""),
+    ]
 
 def obj_op(n, x, a = None, b = None):
     """Code calling the prelude's dispatcher for operation n on $Obj x."""
@@ -345,6 +356,10 @@ def _declare(m, test = False):
     import_func(m, "host", "float_fmt", [F64, I32], [I32], as_name = "host_float_fmt")
     import_func(m, "host", "float_parse", [I32, I32], [I32], as_name = "host_float_parse")
     import_func(m, "host", "float_mod", [F64, F64], [F64], as_name = "host_float_mod")
+    # The time module (lib/time.star): time_query(ptr, len) answers the
+    # question in the bytes (see _time_host there) at memory 0 and returns
+    # the answer's length, or -1 if there is none.
+    import_func(m, "host", "time_query", [I32, I32], [I32], as_name = "host_time_query")
     if test:
         # Test-only builtins (compile with --test; see add_test_builtins in
         # builtins.star and tests/upstream/). Strings use memory as above.
@@ -690,10 +705,10 @@ def _ints(m):
     def rest(sym, fop = None, setop = None):
         out = []
         if fop != None:
-            out.append(if_(either_float(), ret(call(fop, A, B))))
+            out.append(if_(and_(either_float(), eqz(or_(is_("Obj", A), is_("Obj", B)))), ret(call(fop, A, B))))
         if setop != None:
             out.append(if_(both("Set", A, B), ret(call(setop, as_("Set", A), as_("Set", B)))))
-        out.append(type_err2(m, "unknown binary op: ", A, " " + sym + " ", B, ""))
+        out.append(binop_err(m, A, sym, B))
         return out
 
     add_func(m, "rt_sub", PAB, [V], locals = LXY, body = [
@@ -1549,7 +1564,7 @@ def _floats(m):
     def binop(name, sym, code, zero_msg = None):
         body = [
             if_(eqz(and_(call("rt_is_num", get("a")), call("rt_is_num", get("b")))),
-                type_err2(m, "unknown binary op: ", get("a"), " " + sym + " ", get("b"), "")),
+                binop_err(m, get("a"), sym, get("b"))),
             set("x", call("rt_f64", get("a"))),
             set("y", call("rt_f64", get("b"))),
         ]
@@ -2022,6 +2037,8 @@ def _compare(m):
             call("rt_set_subset", as_("Set", a), as_("Set", b)),
             op("i32.lt_s", field("Dict", "len", field("Set", "d", as_("Set", a))), field("Dict", "len", field("Set", "d", as_("Set", b)))),
         ))),
+        if_(both("Obj", a, b), if_(eqz(is_("NoneType", obj_op(OBJ_CMP, a, b))),
+            ret(op("i64.lt_s", call("rt_i64", obj_op(OBJ_CMP, a, b)), i64(0))))),
         type_err2(m, "", a, " < ", b, " not implemented"),
     ])
 
@@ -2616,7 +2633,7 @@ def _generic(m):
             "Tuple",
             call("rt_vals_concat", T(a), arr_len(T(a)), T(b), arr_len(T(b))),
         ))),
-        type_err2(m, "unknown binary op: ", a, " + ", b, ""),
+        binop_err(m, a, "+", b),
     ])
 
     add_func(m, "rt_mul", [("a", V), ("b", V)], [V], locals = [("t", V), ("arr", VALS), ("x", I64), ("y", I64), ("r", I64)], body = [
@@ -2642,7 +2659,7 @@ def _generic(m):
             ]),
             if_(is_("Tuple", a), ret(new("Tuple", call("rt_vals_repeat", T(a), arr_len(T(a)), b)))),
         ]),
-        type_err2(m, "unknown binary op: ", a, " * ", b, ""),
+        binop_err(m, a, "*", b),
     ])
 
     add_func(m, "rt_len_i32", [("x", V)], [I32], locals = [("n", I64), ("v", V)], body = [

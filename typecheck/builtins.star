@@ -46,6 +46,7 @@ def read_file(path: str) -> str
 def write_file(path: str, data: Any) -> None
 argv: list[str]
 proto: Any
+time: Any
 """
 
 METHODS = {

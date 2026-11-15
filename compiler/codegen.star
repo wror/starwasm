@@ -95,6 +95,7 @@ load(
 )
 load("../lib/prelude.star", "PRELUDE")
 load("../lib/proto.star", "PROTO_PRELUDE")
+load("../lib/time.star", "TIME_PRELUDE")
 
 V = EQREF
 NONE = gget("None")
@@ -174,6 +175,7 @@ BUILTINS = {
     "_obj_kind": (1, 1),
     "_obj_data": (1, 1),
     "_obj_id": (1, 1),
+    "_time_host": (1, 1),
     "_obj_op": (4, 4),
     "_identical": (2, 2),
     "_pb_buf": (0, 0),
@@ -246,6 +248,7 @@ SIMPLE_BUILTINS = {
     "_obj_kind": "rt_obj_kind",
     "_obj_data": "rt_obj_data",
     "_obj_id": "rt_obj_id",
+    "_time_host": "rt_time_host",
     "_obj_op": "rt_obj_op_v",
     "_identical": "rt_identical",
     "_pb_buf": "rt_pb_buf",
@@ -371,6 +374,8 @@ def lookup(mc, fc, name, posn, early = None):
         return ("func", pre["funcs"][name])  # a builtin written in Starlark
     if name == "proto" and pre["funcs"].get("_proto_module") != None:
         return ("protomod", pre["funcs"]["_proto_module"])  # starlark-go's lib/proto (lib/proto.star)
+    if name == "time" and pre["funcs"].get("_time_module") != None:
+        return ("protomod", pre["funcs"]["_time_module"])  # starlark-go's lib/time (lib/time.star)
     if BUILTINS.get(name) != None and (in_prelude or not name.startswith("_")) and (mc["test"] or not TEST_BUILTINS.get(name, False)):
         return ("builtin", name)
     cerr(mc, posn, "undefined: " + name + spell_hint(name, early if early != None else visible_names(mc, fc)))
@@ -803,10 +808,11 @@ def gen_call(mc, fc, e, no_obj = False):
         m = mc["m"]
         x = fn["x"]
         if x["kind"] == "name" and lookup(mc, fc, x["id"], x["pos"])[0] == "protomod":
-            # proto.<member>(...): a direct call of the prelude's _mod_proto__<member>
-            key = mc["prelude"]["funcs"].get("_mod_proto__" + name)
+            # proto.<member>(...): a direct call of the prelude's
+            # _mod_proto__<member> (time.<member>: _mod_time__<member>)
+            key = mc["prelude"]["funcs"].get("_mod_" + x["id"] + "__" + name)
             if key != None and not has_star_args(e):
-                code = gen_user_call(mc, fc, mc["allfuncs"][key], e, "proto." + name)
+                code = gen_user_call(mc, fc, mc["allfuncs"][key], e, "proto." + name if x["id"] == "proto" else name)
                 if code != None:
                     return code
         known = METHODS.get(name) != None or mc["prelude"]["funcs"].get("_m_" + name) != None
@@ -1825,6 +1831,8 @@ def declare_module(mc, mod):
                 s["prelude"] = True
                 if s["name"].startswith("_m_"):
                     s["display"] = s["name"][3:]  # method name, for messages
+                elif s["name"].startswith("_mod_time__"):
+                    s["display"] = s["name"][11:]  # _mod_time__now: now, as starlark-go's lib/time names it
                 elif s["name"].startswith("_mod_"):
                     s["display"] = s["name"][5:].replace("__", ".")  # _mod_proto__file: proto.file
             mod["funcs"][s["name"]] = key
@@ -1942,15 +1950,27 @@ def add_prelude(mc):
     ext_stmts, ext_roots = ext_prelude(mc)  # runtime support of extensions in use
     stmts = stmts + ext_stmts
     # the proto module (lib/proto.star), if the program names it
+    # and the time module (lib/time.star), likewise
     uses_proto = False
+    uses_time = False
     for mod in mc["mods"]:
         r = new_refs()
         collect_refs(mod["stmts"], r)
         if r["names"].get("proto", False):
             uses_proto = True
+        if r["names"].get("time", False):
+            uses_time = True
     if uses_proto:
         stmts = stmts + parse_file(PROTO_PRELUDE, "lib/proto.star")
-    mc["has_obj"] = uses_proto
+    if uses_time:
+        stmts = stmts + parse_file(TIME_PRELUDE, "lib/time.star")
+    if uses_proto or uses_time:
+        # every operation on a library object comes here: to the module
+        # the object is of, by its kind
+        both = "_tm_dispatch(op, x, a, b) if _obj_kind(x) & 224 == 32 else _pr_dispatch(op, x, a, b)"
+        one = both if uses_proto and uses_time else "_pr_dispatch(op, x, a, b)" if uses_proto else "_tm_dispatch(op, x, a, b)"
+        stmts = stmts + parse_file("def _obj_dispatch(op, x, a, b):\n    return " + one + "\n", "lib/prelude.star")
+    mc["has_obj"] = uses_proto or uses_time
     defs = {}  # name -> the def or top-level assignment that binds it
     rest = []  # other top-level statements (always kept)
     for s in stmts:
@@ -2022,6 +2042,9 @@ def add_prelude(mc):
         for n in defs:
             if n.startswith("_mod_proto__"):
                 want(n)
+    if uses_time:
+        for n in ["_time_module", "_obj_dispatch", "_attr"]:
+            want(n)
     want_refs(rest, False)
     for n in ext_roots:
         want(n)

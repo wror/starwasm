@@ -28,6 +28,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     lib/unicode_tables.star  Unicode properties (generated from Go)
     lib/proto.star        the proto module (starlark-go's lib/proto) in
                           Starlark: descriptors, messages, wire and text format
+    lib/time.star         the time module (starlark-go's lib/time) in
+                          Starlark: times, durations, Go's layouts
     tools/gen_unicode.go  generates lib/unicode_tables.star
     tools/protoc/         .proto -> binary FileDescriptorSet, in pure Go (its
                           own module; regenerates tests/proto/test.binpb)
@@ -768,6 +770,69 @@ never name `proto` don't contain any of it.
     starlark-go reads it live, so appending through *another* wrapper of
     the same field inside the loop runs more iterations there.
 
+## The time module (milestone 22)
+
+`time` is predeclared, as starlark-go's go.starlark.net/lib/time (which
+bin/starhost and bin/upstreamhost now predeclare too): time.now,
+time.time, time.from_timestamp, time.parse_time, time.parse_duration,
+time.is_valid_timezone, the constants time.nanosecond ... time.hour, and
+the two types, `time.time` (year, month, day, hour, minute, second,
+nanosecond, unix, unix_nano; format(layout), in_location(name)) and
+`time.duration` (hours, minutes, seconds, milliseconds, microseconds,
+nanoseconds), with their arithmetic, order, equality, hashing, truth and
+printing. Programs that never name `time` don't contain any of it.
+
+    t = time.parse_time("2021-03-28T01:30:00Z").in_location("Europe/Berlin")
+    print(t, t + time.hour, (t + time.hour).format("Mon 3:04PM MST"))
+    # 2021-03-28 03:30:00 +0200 CEST 2021-03-28 04:30:00 +0200 CEST Sun 4:30AM CEST
+
+- All of it is Starlark, lib/time.star, added to the prelude like
+  lib/proto.star (`time.<member>(...)` is a direct call of
+  `_mod_time__<member>`; in messages the functions are named as
+  starlark-go's are: "Error in parse_time: ..."). Values are library
+  objects ($Obj): a time is (unix seconds, nanoseconds, location), a
+  duration its nanoseconds. Go's int64 arithmetic is kept: durations wrap,
+  time - time saturates, integer division truncates.
+- Library objects gained two operations for it (OBJ_BINARY, OBJ_CMP in
+  lib/runtime.star): where an arithmetic operator finds no builtin types
+  it knows and an operand is an object, rt_obj_binary asks the left one,
+  then the right one (asked for "r+"), as starlark-go's HasBinary; `<`
+  and the other comparisons (and sorted, min, max) ask OBJ_CMP for -1, 0
+  or 1. Without an answer the errors are the usual ones ("unknown binary
+  op: time.duration + int", "time.time < int not implemented"). With
+  both modules in a program, the `_obj_dispatch` codegen writes sends an
+  operation to `_pr_dispatch` or `_tm_dispatch` by the object's kind.
+- Layouts: Time.Format and time.Parse are ports of Go's
+  src/time/format.go (nextStdChunk, appendFormat, parse, with the same
+  ParseError texts), and so are Duration.String and ParseDuration.
+  Calendar arithmetic is on days since 1970 (proleptic Gregorian, any
+  year: ints are unbounded here, so years Go can't represent work too).
+- Time zones are the host's: one import, `time_query(ptr, len)`
+  (`_time_host` in the prelude; `timeQuery` in host/wasmhost.mjs), answers
+  "now", "zone <name> <unix seconds>" (the offset and abbreviation in
+  effect, or that there is no such zone) and "names <name> <sec>" (the
+  zone's abbreviations, for parsing "PST"). The rest of Go's Location
+  logic (local time to instant in time.Date, the zone a parsed offset or
+  abbreviation means) is in lib/time.star. The host reads the system's
+  time zone database as Go does (TZif files in /usr/share/zoneinfo and
+  the other directories Go searches, $ZONEINFO first; the footer's POSIX
+  TZ rule for times after the last transition; "Local" is $TZ, else
+  /etc/localtime). A zone that has no file there, or any zone where there
+  is no file system (the browser), comes from Intl: the same offsets, but
+  Intl has abbreviations only for some zones ("EST", "PST"), and others
+  print as Go prints nameless zones: "+01" where Go has "CET".
+- Tests: tests/compile/time_basic.star (formats, parsing, zones,
+  arithmetic: 257 lines) and 92 error programs (tests/errors/time_*.star)
+  match starlark-go byte for byte; starlark-go's own
+  starlark/testdata/time.star passes in tests/upstream.
+- Where it differs:
+  - time.now() has the host's clock: microseconds in Node and browsers,
+    not Go's nanoseconds.
+  - The abbreviations above, when the zone database isn't in files; and
+    Intl takes zone names without regard to case.
+  - Values out of Go's range (a year beyond 292 billion, a time.time
+    field given as 1 << 62) are computed exactly here, where Go wraps.
+
 ## Known deviations / not yet done
 
 - Lists, tuples and materialized ranges hold at most 134,217,724
@@ -856,6 +921,11 @@ never name `proto` don't contain any of it.
        both off by default; upstream: 148 pass, 13 first-error,
        3 compile-time, 16 dialect, 1 n/a, 2 known (the static recursion
        check).
+
+22. [x] The time module (starlark-go's lib/time) in Starlark, on library
+       objects with arithmetic and order; Go's layouts ported; zones from
+       the host (TZif files, else Intl); tests/compile/time_basic.star, 92
+       error programs, upstream time.star.
 
 Possible next steps: performance (unboxed int fast
 paths in codegen, static calls to nested defs, avoiding rt_iter snapshots);

@@ -73,6 +73,8 @@ const FILES = [
   // the proto module, with the descriptor pool starlark-go's test gives it;
   // starwasm has proto predeclared (load("proto.star") is the Go test's)
   EXEC("proto", { fds: "starlark/testdata/proto/test.fds", unload: 'load("proto.star", "proto")' }),
+  // the time module: predeclared too
+  EXEC("time", { unload: "load('time.star', 'time')" }),
   { path: "starlarkstruct/testdata/struct.star", mode: "exec", lines: 19 },  // line 20 on needs gensym
   { path: "resolve/testdata/resolve.star", mode: "resolve" },
   { path: "syntax/testdata/errors.star", mode: "parse" },
@@ -81,7 +83,6 @@ const FILES = [
 export const SKIPPED = {
   "starlark/testdata/json.star": "json module (Go library)",
   "starlark/testdata/math.star": "math module (Go library)",
-  "starlark/testdata/time.star": "time module (Go library)",
   "starlark/testdata/module.star": "tests starlarkstruct's module type, which the assert shim replaces with struct",
   "starlark/testdata/function_param.star": "not a test script (used by a Go test of parameter names)",
   "starlark/testdata/benchmark.star": "benchmarks",
