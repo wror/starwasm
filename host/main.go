@@ -2,7 +2,7 @@
 // I/O. It is the stage-0 bootstrap interpreter, and the reference the
 // differential tests compare compiled programs with.
 //
-// Usage: starhost [--globalreassign] [--recursion] [--descriptor_set=FILE] <file.star> [args...]
+// Usage: starhost [--globalreassign] [--globalredefine] [--recursion] [--descriptor_set=FILE] <file.star> [args...]
 //
 // The dialect is starlark-go's default, as the compiler's: no reassigning
 // top-level names, no while loops, no if/for at top level, unless
@@ -103,7 +103,9 @@ func main() {
 	for len(args) > 0 {
 		if strings.HasPrefix(args[0], "--descriptor_set=") {
 			fds = strings.TrimPrefix(args[0], "--descriptor_set=")
-		} else if args[0] == "--globalreassign" {
+		} else if args[0] == "--globalreassign" || args[0] == "--globalredefine" {
+			// (--globalredefine, the compiler's option to let functions be
+			// bound again too: starlark-go's AllowGlobalReassign does)
 			reassign = true
 		} else if args[0] == "--recursion" {
 			recursion = true
@@ -113,7 +115,7 @@ func main() {
 		args = args[1:]
 	}
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: starhost [--globalreassign] [--recursion] [--descriptor_set=FILE] <file.star> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: starhost [--globalreassign] [--globalredefine] [--recursion] [--descriptor_set=FILE] <file.star> [args...]")
 		os.Exit(2)
 	}
 	pool, err := descriptorPool(fds)

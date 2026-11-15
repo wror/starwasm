@@ -1648,8 +1648,12 @@ def gen_stmt(mc, fc, s):
     if k == "pass":
         return []
     if k == "def":
-        if fc["is_module"]:
+        if fc["is_module"] and s.get("fkey") != None and not s.get("redef", False):
             return gen_toplevel_def_stmt(mc, fc, s)
+
+        # (at top level: a function whose name is a module variable, as it
+        # is bound again (--globalredefine), or defined inside an if or a
+        # loop: its value is made here, as a nested def's)
         target = {"kind": "name", "id": s["name"], "pos": s["pos"]}
         return gen_assign(mc, fc, target, gen_closure(mc, fc, s, s["name"], s["params"]), s["pos"])
     if k == "load":
@@ -1803,6 +1807,42 @@ def check_loads(mc, stmts, within):
             check_loads(mc, s["body"], within or "conditional")
             check_loads(mc, s["else_"], within or "conditional")
 
+def _bound_besides_defs(stmts, out, top):
+    """Names bound in the top-level statements stmts other than by a def
+    statement of the module itself (top: stmts are the module's, not
+    those of an if or a loop in it): out[name] = True."""
+    for s in stmts:
+        k = s["kind"]
+        names = []
+        if k == "assign":
+            target_names(s["lhs"], names)
+        elif k == "for":
+            target_names(s["target"], names)
+            _bound_besides_defs(s["body"], out, False)
+        elif k == "if":
+            _bound_besides_defs(s["body"], out, False)
+            _bound_besides_defs(s["else_"], out, False)
+        elif k == "while":
+            _bound_besides_defs(s["body"], out, False)
+        elif k == "def" and not top:
+            names.append(s["name"])
+        elif k == "load":
+            names = [local for local, _ in s["names"]]
+        for n in names:
+            out[n] = True
+
+def redefined_funcs(stmts):
+    """The functions of a module that are bound more than once at top
+    level (--globalredefine): name -> True for a name with a top-level def
+    and another def, an assignment or a load."""
+    other = {}
+    _bound_besides_defs(stmts, other, True)
+    ndefs = {}
+    for s in stmts:
+        if s["kind"] == "def":
+            ndefs[s["name"]] = ndefs.get(s["name"], 0) + 1
+    return {n: True for n in ndefs if ndefs[n] > 1 or other.get(n, False)}
+
 def declare_module(mc, mod):
     """Module-level symbols of mod: its defs, globals and loaded names."""
     m = mc["m"]
@@ -1821,8 +1861,20 @@ def declare_module(mc, mod):
         if s["kind"] == "load":
             for local, _ in s["names"]:
                 nloads[local] = nloads.get(local, 0) + 1
+    # --globalredefine: a function bound again is a module variable, set
+    # by each def as it runs (and so called through its value, not
+    # statically); other functions stay as they are.
+    redef = {}
+    if mc["globalredefine"] and not mod.get("prelude", False):
+        redef = redefined_funcs(stmts)
+    nredef = 0
     for s in stmts:
         if s["kind"] == "def":
+            if redef.get(s["name"], False):
+                nredef += 1
+                s["redef"] = True
+                s["fkey"] = qualify(mod, s["name"]) + "%" + str(nredef)  # (for recursion.star)
+                continue
             if mod["funcs"].get(s["name"]) != None:
                 cerr(mc, s["pos"], "function " + s["name"] + " defined twice")
             key = qualify(mod, s["name"])
@@ -1866,7 +1918,7 @@ def compile_module_funcs(mc, mod):
     mc["mod"] = mod
     mc["file"] = mod["path"]
     for s in mod["stmts"]:
-        if s["kind"] == "def":
+        if s["kind"] == "def" and not s.get("redef", False):
             key = s["fkey"]
             shape = param_slots(s["params"])
             for p in shape["slots"]:
@@ -2070,7 +2122,7 @@ def add_prelude(mc):
     mc["order"] = [mod] + mc["order"]
 
 def compile_program(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False,
-                    contagious_none = None, rollback = False):
+                    contagious_none = None, rollback = False, globalredefine = False):
     mc = {
         # with contagious None, in a reactive program: an update in which
         # an error was caught is rolled back (ext/none.star)
@@ -2080,7 +2132,8 @@ def compile_program(src, filename, test = False, descriptor_set = None, globalre
         "contagious_none": contagious_none,
         "m": None,  # the Wasm module, created after parsing (below)
         "test": test,  # test-only builtins visible (TEST_BUILTINS)
-        "globalreassign": globalreassign,  # starlark-go's GlobalReassign option
+        "globalreassign": globalreassign or globalredefine,  # starlark-go's GlobalReassign option
+        "globalredefine": globalredefine,  # ... also of functions (see declare_module)
         "repl": repl,  # compiling a REPL session: `_` may be rebound
         "recursion": recursion,  # starlark-go's Recursion option (else checked statically: recursion.star)
         "file": filename,
@@ -2191,7 +2244,7 @@ def debug_section(mc):
     return list(text.elem_ords())
 
 def compile(src, filename, test = False, descriptor_set = None, globalreassign = False, repl = False, recursion = False,
-            contagious_none = None, rollback = False):
+            contagious_none = None, rollback = False, globalredefine = False):
     """Compile a Starlark program (and the modules it loads, read relative
     to filename) to Wasm bytes (a list of ints). test: make the test-only
     builtins (TEST_BUILTINS) visible. descriptor_set: the contents of a
@@ -2205,5 +2258,8 @@ def compile(src, filename, test = False, descriptor_set = None, globalreassign =
     contagious_none: the "contagious None" extension (EXTENSIONS.md): True
     or False, or None for its default (on in programs with reactive
     variables). rollback: with it, in a reactive program, an update in
-    which an error was turned into None is undone."""
-    return encode(compile_program(src, filename, test, descriptor_set, globalreassign, repl, recursion, contagious_none, rollback))
+    which an error was turned into None is undone. globalredefine:
+    globalreassign, and top-level functions may be bound again too (by
+    another def, an assignment or a load), as starlark-go's
+    AllowGlobalReassign lets them."""
+    return encode(compile_program(src, filename, test, descriptor_set, globalreassign, repl, recursion, contagious_none, rollback, globalredefine))

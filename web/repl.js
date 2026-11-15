@@ -184,7 +184,8 @@ function setBusy() {
 }
 
 function flags() {
-  return [...document.querySelectorAll("input[data-flag]")].filter((c) => c.checked).map((c) => c.dataset.flag);
+  // (a toggle may stand for several options)
+  return [...document.querySelectorAll("input[data-flag]")].filter((c) => c.checked).flatMap((c) => c.dataset.flag.split(" "));
 }
 
 function start(note) {
@@ -385,7 +386,10 @@ for (const b of document.querySelectorAll("[data-example]")) {
 // the previous visit: its dialect and screen
 const saved = load("journal");
 if (saved && Array.isArray(saved.flags)) {
-  for (const c of document.querySelectorAll("input[data-flag]")) c.checked = saved.flags.includes(c.dataset.flag);
+  // (a session saved when the globalreassign toggle was that option alone
+  // runs as well with --globalredefine, which the toggle now adds)
+  for (const c of document.querySelectorAll("input[data-flag]")) c.checked = c.dataset.flag.split(" ").some((f) => saved.flags.includes(f));
+  if (JSON.stringify(saved.flags) !== JSON.stringify(flags())) save("journal", { ...saved, flags: flags() });
 }
 const shown = load("screen");
 if (Array.isArray(shown)) for (const [cls, text, marks] of shown) if (typeof text === "string") write(text, cls, true, Array.isArray(marks) ? marks : null);
