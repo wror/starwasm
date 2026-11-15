@@ -220,6 +220,89 @@ function typedEntries(entries) {
   });
 }
 
+// ---- where a diagnostic is (the checker gives the position only)
+
+const OPERATOR = /[-+*\/%<>=!&|^~]/;
+// The end of the string literal that starts at line[i].
+function stringEnd(line, i) {
+  const q = line.startsWith(line[i].repeat(3), i) ? line[i].repeat(3) : line[i];
+  for (let j = i + q.length; j < line.length; j++) {
+    if (line[j] === "\\") j++;
+    else if (line.startsWith(q, j)) return j + q.length;
+  }
+  return line.length;
+}
+// The end of the bracket opened at line[i] (strings in it skipped).
+function bracketEnd(line, i) {
+  let depth = 0;
+  for (let j = i; j < line.length; j++) {
+    if (line[j] === '"' || line[j] === "'") j = stringEnd(line, j) - 1;
+    else if ("([{".includes(line[j])) depth++;
+    else if (")]}".includes(line[j]) && --depth === 0) return j + 1;
+  }
+  return line.length;
+}
+// The end of the operand that starts at or after line[i]: a name, number,
+// string or bracket, after its unary operators, with what is applied to
+// it (.name, calls, indexes).
+function operandEnd(line, i) {
+  const skip = (re) => (i += re.exec(line.slice(i))[0].length);
+  skip(/^(?:\s|[-+~]|not\b)*/);
+  if (line[i] === '"' || line[i] === "'") i = stringEnd(line, i);
+  else if ("([{".includes(line[i] ?? " ")) i = bracketEnd(line, i);
+  else if (!/^\w/.test(line.slice(i))) return i;
+  else skip(/^[\w.]*/);
+  for (;;) {
+    if (line[i] === "(" || line[i] === "[") i = bracketEnd(line, i);
+    else if (/^\.\w/.test(line.slice(i))) skip(/^\.\w+/);
+    else return i;
+  }
+}
+// The start of the operand that ends before line[i] (the same, backwards;
+// a quote is taken as the end of a string that has no quote in it).
+function operandStart(line, i) {
+  while (i > 0 && line[i - 1] === " ") i--;
+  for (;;) {
+    const c = line[i - 1] ?? " ";
+    if (")]}".includes(c)) {
+      let depth = 0;
+      for (; i > 0; i--) {
+        if (")]}".includes(line[i - 1])) depth++;
+        else if ("([{".includes(line[i - 1]) && --depth === 0) break;
+      }
+      i = Math.max(0, i - 1);
+    } else if (c === '"' || c === "'") {
+      i = Math.max(0, line.lastIndexOf(c, i - 2));
+      while (line[i - 1] === c) i--; // (triple-quoted)
+      return i;
+    } else if (/[\w.]/.test(c)) {
+      while (i > 0 && /[\w.]/.test(line[i - 1])) i--;
+      return i;
+    } else return i;
+  }
+}
+
+/**
+ * What a diagnostic at column `col` (from 0) of `line` is about, as
+ * [from, to): at an operator, it and its operands (1 + "one"); at a ".",
+ * the attribute (.name); else the name, number, string or bracket there.
+ */
+export function diagnosticRange(line, col) {
+  col = Math.max(0, Math.min(col, line.length - 1));
+  const c = line[col] ?? "";
+  let from = col, to = col + 1;
+  if (c === '"' || c === "'") to = stringEnd(line, col);
+  else if ("([{".includes(c) && c !== "") to = bracketEnd(line, col);
+  else if (c === ".") to = col + /^\.\w*/.exec(line.slice(col))[0].length;
+  else if (/\w/.test(c)) to = col + /^\w+/.exec(line.slice(col))[0].length;
+  else if (OPERATOR.test(c)) {
+    while (OPERATOR.test(line[to] ?? "")) to++;
+    from = operandStart(line, col);
+    to = operandEnd(line, to);
+  }
+  return [from, Math.max(to, from + 1)];
+}
+
 // ---- completion
 
 const KEYWORDS = ["and", "break", "continue", "def", "elif", "else", "for", "if", "in", "lambda", "load", "not", "or",
@@ -380,6 +463,40 @@ export class Session {
     const mapped = this.mapPositions(text, typed, path).replace(/<repl>:\d+:(\d+)/g,
       (all, col) => last ? `<input ${last.num}>:${last.code.split("\n").length - last.offset}:${col}` : all);
     return { ok: false, stdout: "", error: mapped };
+  }
+
+  /**
+   * The type errors in the input that `line` would continue (the lines of
+   * the unfinished input, then it), found by the type checker without
+   * running anything: [{line, from, to, message}], the characters
+   * [from, to) of that line of the input (from 0) and the checker's
+   * message, with its notes. None for an input that doesn't parse (yet).
+   */
+  async diagnose(line) {
+    if (!this.checker || (this.buffer.length === 0 && line.trim().startsWith(":"))) return [];
+    const lines = [...this.buffer, line];
+    const src = lines.join("\n");
+    if (src.trim() === "") return [];
+    const r = await this.typecheck(this.history, [], looksLikeStatement(src)
+      ? { num: "?", code: src.replace(/\s+$/, ""), offset: 0 }
+      : { num: "?", code: `_ = (\n${src}\n)`, offset: 1 });
+    if (r.ok) return [];
+    const found = [];
+    let at = null; // the diagnostic that notes belong to, if it is in this input
+    for (const l of r.error.split("\n")) {
+      const m = /^<input ([^>]*)>:(\d+):(\d+): (error|note): (.*)$/.exec(l);
+      if (!m) continue;
+      if (m[4] === "note") {
+        if (at) at.message += `\nnote: ${m[5]}` + (m[1] === "?" ? "" : ` (input ${m[1]}, line ${m[2]})`);
+        continue;
+      }
+      at = null;
+      const n = Number(m[2]) - 1;
+      if (m[1] !== "?" || n >= lines.length) continue;
+      const [from, to] = diagnosticRange(lines[n], Number(m[3]) - 1);
+      found.push(at = { line: n, from, to, message: m[5] });
+    }
+    return found;
   }
 
   /**

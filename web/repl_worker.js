@@ -9,7 +9,11 @@
 // items: [{name, detail}]} (Session.complete). To the page:
 // {type: "restored", count, error} after restoring the journal (error:
 // null, or why the session couldn't be restored), {type: "ready"},
-// {type: "echo", text} (the line, after its prompt) before running it,
+// {type: "echo", text, marks} (the line, after its prompt; marks: the type
+// errors of the input so far, [{line, from, to, message}] as
+// Session.diagnose finds them) before running it; {type: "check", id,
+// text} asks for those of the line being typed, answered with
+// {type: "checked", id, marks};
 // {type: "clear"} instead for :reset (the screen is cleared too),
 // {type: "out" | "err", text}, {type: "prompt", more} after each line,
 // {type: "fatal", text} if the compiler can't be loaded, and
@@ -102,12 +106,30 @@ onmessage = ({ data: m }) => {
       post({ type: "completions", id: m.id, ...r });
     });
   }
+  else if (m.type === "check") {
+    // (after the lines being run: it checks in the session they make)
+    busy = busy.then(async () => {
+      let marks = [];
+      try {
+        if (session) marks = await session.diagnose(m.text);
+      } catch {}
+      post({ type: "checked", id: m.id, marks });
+    });
+  }
   else if (m.type === "line") {
     busy = busy.then(async () => {
       let r = null;
       // echoed here, in order with the output of the lines before it
       if (session && session.buffer.length === 0 && m.line.trim() === ":reset") post({ type: "clear" });
-      else post({ type: "echo", text: (session?.buffer.length ? "... " : ">>> ") + m.line + "\n" });
+      else {
+        // with the type errors of the input so far (Session.diagnose),
+        // for the page to mark in the lines echoed
+        let marks = [];
+        try {
+          if (session) marks = await session.diagnose(m.line);
+        } catch {}
+        post({ type: "echo", text: (session?.buffer.length ? "... " : ">>> ") + m.line + "\n", marks });
+      }
       try {
         r = session ? await session.feed(m.line) : null;
       } catch (e) {

@@ -315,6 +315,21 @@ compiler as compiler.wasm. Differences from the terminal REPL:
   with its error. :reset clears it and the screen; tabs share it (the
   last save wins).
   tests/repl/browser_mode.mjs checks that a restored session.in is the same.
+- Type errors are marked in red in what is typed, with the type
+  checker's message (and its notes) shown when the pointer is on a mark.
+  Session.diagnose(line) in host/repl_core.mjs runs the checker on the
+  session plus the input being typed, as :check does, and returns
+  [{line, from, to, message}]. The checker reports a position only, so
+  diagnosticRange picks what to mark from the text: at an operator, it
+  and its operands; at a ".", the attribute; else the name, number,
+  string or bracket there. An input that doesn't parse (yet) has no marks.
+  The worker sends the marks of the input so far with each line it echoes
+  (kept with the screen saved), and answers {type: "check"} for the line
+  in the input field, which web/repl.js asks 200 ms after the last edit.
+  An <input> can't color part of its text: when the line has marks,
+  #marks shows it over the field, whose own text is then transparent; any
+  edit removes the marks until the next check. Nothing is blocked: the
+  input runs as before unless :check is on. tests/repl/diagnose.mjs.
 - Stop terminates the worker (a long computation) and restores the session
   without that input; Stop during a restore drops the saved session. A
   change of dialect (--globalreassign, --recursion) starts over.
