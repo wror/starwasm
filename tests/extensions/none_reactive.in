@@ -4,7 +4,7 @@ item = "apple"
 qty = 4
 qty = [None][0] + 1
 qty = len([abs(None), len(*[None][0]), [None][0].foo, [None][0][1:], -[None][0], not [None][0], [None][0](), [i for i in [None][0]]])
-qty = 0 if [None][0] == [None][0] or [None][0] != [None][0] else 1
+qty = (0 if [None][0] == [None][0] else 5) ?? ([i for i in [None][0]] or 6) ?? ([1 for i in [1] if [None][0]] and 7) ?? 1
 item = {}.get("x")
 qty = None + 1
 qty = 1 if 2 == None else 0
@@ -12,4 +12,7 @@ qty = 5; item = [len(*None), 1]
 qty = [-None, not None]
 qty = [None.foo, None(), [1][None], [1][None:]]
 qty = [i for i in None]
-item = "apple"; qty = 7 if None else 2
+qty = 7 if None else 2
+qty = [None or 1, 2]
+qty = [1 for i in [1] if None]
+item = "apple"; qty = None ?? 2

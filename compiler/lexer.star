@@ -599,6 +599,11 @@ def next_token(st):
             skip_ascii(st, i + 1)
             emit(st, c, None, line, col)
             return False
+        if c == "?" and nxt == "?":
+            # the coalescing operator (an extension: EXTENSIONS.md)
+            skip_ascii(st, i + 2)
+            emit(st, "??", None, line, col)
+            return False
         if c == ":" or c == ";" or c == "~":
             skip_ascii(st, i + 1)
             emit(st, c, None, line, col)

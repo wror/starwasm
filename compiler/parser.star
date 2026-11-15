@@ -5,7 +5,7 @@
 # Expressions:
 #   name {id}  int {val}  string {val}
 #   list {elems}  tuple {elems}  dict {entries: [(k, v)]}
-#   binop {op, x, y}        op: "or" "and" "==" "!=" "<" ">" "<=" ">=" "in"
+#   binop {op, x, y}        op: "??" "or" "and" "==" "!=" "<" ">" "<=" ">=" "in"
 #                               "not in" "|" "^" "&" "<<" ">>" "+" "-" "*"
 #                               "/" "//" "%"
 #   unop {op, x}            op: "-" "+" "~" "not"
@@ -41,32 +41,33 @@
 
 load("lexer.star", "lex")
 
-# Binary operator precedence levels, as starlark-go's preclevels (2 is
-# unary "not").
+# Binary operator precedence levels, as starlark-go's preclevels, each one
+# higher to make room for "??" (3 is unary "not").
 PREC = {
-    "or": 0,
-    "and": 1,
-    "==": 3,
-    "!=": 3,
-    "<": 3,
-    ">": 3,
-    "<=": 3,
-    ">=": 3,
-    "in": 3,
-    "not in": 3,
-    "|": 4,
-    "^": 5,
-    "&": 6,
-    "<<": 7,
-    ">>": 7,
-    "-": 8,
-    "+": 8,
-    "*": 9,
-    "%": 9,
-    "/": 9,
-    "//": 9,
+    "??": 0,  # an extension (EXTENSIONS.md): below every other operator
+    "or": 1,
+    "and": 2,
+    "==": 4,
+    "!=": 4,
+    "<": 4,
+    ">": 4,
+    "<=": 4,
+    ">=": 4,
+    "in": 4,
+    "not in": 4,
+    "|": 5,
+    "^": 6,
+    "&": 7,
+    "<<": 8,
+    ">>": 8,
+    "-": 9,
+    "+": 9,
+    "*": 10,
+    "%": 10,
+    "/": 10,
+    "//": 10,
 }
-NUM_PREC = 10
+NUM_PREC = 11
 
 AUG_OPS = {
     "=": True,
@@ -520,7 +521,7 @@ def parse_test_prec(p, prec):
     if prec >= NUM_PREC:
         return parse_primary_with_suffix(p)
     t = peek(p)
-    if t["kind"] == "not" and prec == 2:
+    if t["kind"] == "not" and prec == 3:
         advance(p)
         n = node("unop", t)
         n["op"] = "not"
@@ -541,7 +542,7 @@ def parse_binop_expr(p, prec):
         opprec = PREC.get(op, -1)
         if opprec < prec:
             return x
-        if not first and opprec == 3:
+        if not first and opprec == 4:
             error_here(p, x["op"] + " does not associate with " + op + " (use parens)")
         optok = advance(p)
         n = node("binop", optok)  # at the operator ("in" of "not in"), as starlark-go

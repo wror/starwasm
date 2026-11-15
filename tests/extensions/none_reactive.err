@@ -4,3 +4,6 @@
 <stdin>:12:9: an operation on None is always None (contagious None)
 <stdin>:13:8: an operation on None is always None (contagious None)
 <stdin>:14:19: an operation on None is always None (contagious None)
+<stdin>:15:12: an operation on None is always None (contagious None)
+<stdin>:16:8: an operation on None is always None (contagious None)
+<stdin>:17:26: an operation on None is always None (contagious None)

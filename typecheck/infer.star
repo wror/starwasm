@@ -999,6 +999,16 @@ def _numeric(t):
 def _infer_binop(st, fc, e):
     op = e["op"]
     pos = e["pos"]
+    if op == "??":
+        # x ?? y: x unless it is None, else y
+        a = infer_expr(st, fc, e["x"])
+        b = infer_expr(st, fc, e["y"])
+        s = _strip_opt(a)
+        if s != None:
+            a = s
+        elif is_con(resolve(a), "None"):
+            return b
+        return _quiet_join(st, fc, a, b, "or")
     if op == "and" or op == "or":
         a = infer_expr(st, fc, e["x"])
         yes, no = cond_narrow(st, fc, e["x"])

@@ -1,31 +1,39 @@
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:24:13: in <toplevel>
+  tests/extensions/none_reactive_errors.star:31:13: in <toplevel>
   tests/extensions/none_reactive_errors.star:9:14: in ratio
 Error: floored division by zero
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:26:12: in <toplevel>
+  tests/extensions/none_reactive_errors.star:33:12: in <toplevel>
   tests/extensions/none_reactive_errors.star:12:14: in pick
 Error: list index -4 out of range [-3:2]
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:40:24: in <toplevel>
+  tests/extensions/none_reactive_errors.star:49:24: in <toplevel>
 Error: list index -4 out of range [-3:2]
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:25:14: in <toplevel>
+  tests/extensions/none_reactive_errors.star:32:14: in <toplevel>
 Error: key "zz" not in dict
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:26:12: in <toplevel>
+  tests/extensions/none_reactive_errors.star:36:13: in <toplevel>
+  tests/extensions/none_reactive_errors.star:22:14: in size
+Error: for: cannot iterate over None
+Traceback (most recent call last):
+  tests/extensions/none_reactive_errors.star:33:12: in <toplevel>
   tests/extensions/none_reactive_errors.star:12:14: in pick
 Error: list index 496 out of range [-3:2]
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:26:12: in <toplevel>
+  tests/extensions/none_reactive_errors.star:33:12: in <toplevel>
   tests/extensions/none_reactive_errors.star:12:21: in pick
 Error: list index 497 out of range [-3:2]
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:27:13: in <toplevel>
+  tests/extensions/none_reactive_errors.star:34:13: in <toplevel>
   tests/extensions/none_reactive_errors.star:17:13: in checked
 Error in fail: fail: too big: 500
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:40:24: in <toplevel>
+  tests/extensions/none_reactive_errors.star:49:24: in <toplevel>
 Error: list index 496 out of range [-3:2]
 Error: floored division by zero
+Traceback (most recent call last):
+  tests/extensions/none_reactive_errors.star:34:13: in <toplevel>
+  tests/extensions/none_reactive_errors.star:16:10: in checked
+Error: if: the condition is None
 Error: list has no .missing field or method
