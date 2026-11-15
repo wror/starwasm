@@ -26,8 +26,9 @@ session (Starlark is deterministic, so the state is exactly reproduced).
   :reset          start over
   :quit           exit (or end of input)
   x = 5           with x reactive (x : ...): sent to the program as input
-Blocks, open brackets and triple-quoted strings continue on "..." lines;
-end a block with an empty line. A failing input is not kept.
+Blocks, open brackets and triple-quoted strings continue on "..." lines,
+which start indented as the block is (backspace to dedent); end a block
+with an empty line. A failing input is not kept.
 `;
 
 // ---- classifying input
@@ -66,6 +67,20 @@ export function needsMore(text) {
   const first = lines[0].replace(/#.*$/, "").trimEnd();
   if (first.endsWith(":")) return lines[lines.length - 1].trim() !== ""; // block: ends with an empty line
   return false;
+}
+
+/**
+ * The indentation that the line after `text` (the lines typed so far of an
+ * unfinished input) starts with: that of its last line, and one more tab
+ * if that line opens a block (ends with ":"). None inside a triple-quoted
+ * string, where it would be part of the string.
+ */
+export function nextIndent(text) {
+  const { depth, tripleOpen } = scan(text);
+  if (tripleOpen) return "";
+  const last = text.slice(text.lastIndexOf("\n") + 1);
+  const indent = /^[ \t]*/.exec(last)[0];
+  return depth === 0 && last.replace(/#.*$/, "").trimEnd().endsWith(":") ? indent + "\t" : indent;
 }
 
 function looksLikeStatement(src) {
@@ -655,6 +670,11 @@ export class Session {
     this.buffer = [];
     await this.submit(text);
     return null;
+  }
+
+  /** The indentation to start the next line with (of an unfinished input). */
+  indent() {
+    return this.buffer.length ? nextIndent(this.buffer.join("\n")) : "";
   }
 
   /** The end of input: run what is left of an unfinished input. */

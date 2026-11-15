@@ -39,6 +39,7 @@
     flex: 1; overflow-y: auto; margin: 12px 16px; padding: 12px 14px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; cursor: text;
+    tab-size: 4;
   }
   #out {
     white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit;
@@ -51,7 +52,7 @@
   #prompt { white-space: pre; color: var(--echo); }
   #input {
     flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent;
-    border: 0; outline: 0; padding: 0;
+    border: 0; outline: 0; padding: 0; tab-size: 4;
   }
   #status { color: var(--muted); font-size: 13px; min-width: 6em; }
   footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
@@ -84,7 +85,7 @@ Each input recompiles and replays the session. :help for help.
   <div class="line"><span id="prompt">&gt;&gt;&gt; </span><input id="input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Starlark input" disabled></div>
 </div>
 <footer>
-  Blocks and open brackets continue on <code>...</code> lines; end a block with an empty line.
+  Blocks and open brackets continue on <code>...</code> lines, indented as the block is (backspace dedents); end a block with an empty line.
   ↑/↓ history, Ctrl-L clears, Tab completes names, and after a <code>.</code> the fields or methods of the value's type. Files (<code>read_file</code>, <code>write_file</code>, <code>load</code>) live in memory.
   The session is saved in this browser and restored when you come back; <code>:reset</code> clears it and the screen.
   <a href="https://github.com/wror/starwasm">Source</a><!--sha-->

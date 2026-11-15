@@ -270,6 +270,12 @@ has warmed up the compiler.
   before it; errors and tracebacks are mapped to `<input N>:line:col`.
 - Blocks (first line ends with ":") end with an empty line; open brackets,
   triple-quoted strings and trailing backslashes continue on "..." lines.
+  A "..." line starts indented (Session.indent() in host/repl_core.mjs):
+  as the line before it, and one more tab after a line ending in ":"; not
+  inside a triple-quoted string. The indentation is typed into the line
+  (readline's write() in the terminal, the input's value in the browser),
+  so backspace removes it and the following lines follow suit; a line left
+  with only the indentation ends the block. tests/repl/indent.mjs.
 - load() paths are relative to the current directory (the session file is
   `.starwasm-repl-<pid>.star` there, removed on exit).
 - Cost of replay: slow computations entered earlier rerun on every input.
