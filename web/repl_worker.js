@@ -116,7 +116,7 @@ onmessage = ({ data: m }) => {
         post({ type: "err", text: `internal error: ${stack}\n` });
       }
       if (r === "quit") post({ type: "out", text: "(nothing to quit in a web page: :reset starts over)\n" });
-      post({ type: "prompt", more: r === "more" });
+      post({ type: "prompt", more: r === "more", indent: r === "more" ? session.indent() : "" });
     });
   }
 };

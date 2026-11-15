@@ -171,6 +171,12 @@ if node tests/repl/complete.mjs out/stage2.wasm > out/repl_complete.out 2>&1 &&
 else
   echo "repl completion: MISMATCH"; fail=1
 fi
+# The indentation that "..." lines start with (Session.indent).
+if node tests/repl/indent.mjs > /dev/null; then
+  echo "repl indent: ok"
+else
+  echo "repl indent: FAILED"; fail=1
+fi
 
 # Independent validation, if wasm-tools is installed.
 if command -v wasm-tools > /dev/null; then

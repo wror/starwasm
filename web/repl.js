@@ -117,7 +117,12 @@ function start(note) {
       setBusy();
     } else if (m.type === "prompt") {
       pending--;
-      if (pending === 0) promptEl.textContent = m.more ? "... " : ">>> ";
+      if (pending === 0) {
+        promptEl.textContent = m.more ? "... " : ">>> ";
+        // a "..." line starts at the block's indent (Session.indent()),
+        // unless something was typed meanwhile; backspace removes it
+        if (m.indent && input.value === "") input.value = m.indent;
+      }
       setBusy();
     }
   };
@@ -148,8 +153,9 @@ function complete() {
   if (!worker || loading) return;
   const text = input.value, cursor = input.selectionStart ?? text.length;
   if (/^\s*$/.test(text.slice(0, cursor))) {
-    // at the start of a line Tab indents (a block's lines)
-    input.setRangeText("    ", cursor, input.selectionEnd ?? cursor, "end");
+    // at the start of a line Tab indents (a block's lines), with a tab as
+    // the indentation that "..." lines start with
+    input.setRangeText("\t", cursor, input.selectionEnd ?? cursor, "end");
     return;
   }
   asked = { id: (asked?.id ?? 0) + 1, text, cursor };
