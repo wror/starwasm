@@ -183,6 +183,12 @@ if node tests/repl/paste.mjs > /dev/null; then
 else
   echo "repl paste: FAILED"; fail=1
 fi
+# The type errors that the browser REPL marks (Session.diagnose).
+if node tests/repl/diagnose.mjs out/stage2.wasm > /dev/null; then
+  echo "repl diagnose: ok"
+else
+  echo "repl diagnose: FAILED"; fail=1
+fi
 
 # Independent validation, if wasm-tools is installed.
 if command -v wasm-tools > /dev/null; then
