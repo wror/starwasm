@@ -51,6 +51,7 @@ const v = hash.digest("hex").slice(0, 12);
 const refs = [ // [file, the reference in it, exactly]
   ["index.html", '<script type="module" src="repl.js">'],
   ["repl.js", 'new Worker("repl_worker.js"'],
+  ["repl.js", 'from "./host/repl_core.mjs"'],
   ["repl_worker.js", 'from "./host/repl_core.mjs"'],
   ["repl_worker.js", 'fetch("compiler.wasm")'],
   ["repl_worker.js", 'fetch("typecheck.wasm")'],

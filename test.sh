@@ -177,6 +177,12 @@ if node tests/repl/indent.mjs > /dev/null; then
 else
   echo "repl indent: FAILED"; fail=1
 fi
+# Pasting from a REPL session (pastedInput).
+if node tests/repl/paste.mjs > /dev/null; then
+  echo "repl paste: ok"
+else
+  echo "repl paste: FAILED"; fail=1
+fi
 
 # Independent validation, if wasm-tools is installed.
 if command -v wasm-tools > /dev/null; then
