@@ -1384,7 +1384,7 @@ def _r_primary(p):
     if t["k"] == "kw" and t["v"] in ("None", "True", "False"):
         _r_next(p)
         if t["v"] == "None":
-            return ("const", _n_tag(None, "literal", "None", "<stdin>", p["lineno"]))
+            return ("const", _n_tag(None, "literal", "None", "<stdin>", p["lineno"]), t["pos"])
         return ("const", t["v"] == "True")
     if t["k"] == "op" and t["v"] in ("(", "[", "{"):
         if p["depth"] >= _R_MAX_DEPTH:
@@ -1527,6 +1527,8 @@ def _r_check(p, n, bound, values, names):
         elif n[1] not in names:
             _r_fail(p, "undefined: " + n[1], n[2])
         return
+    if _n_on():
+        _r_none_ops(p, n)
     if n[0] == "comp":
         inner = dict(bound)
         for c in n[3]:
@@ -1574,11 +1576,10 @@ def _r_eval(n, env, names):
     if k == "binop":
         x = _r_eval(n[2], env, names)
         y = _r_eval(n[3], env, names)
-        if not ((n[1] == "==" or n[1] == "!=") and (_r_none_lit(n[2]) or _r_none_lit(n[3]))):
-            if _n_none(x):
-                return x
-            if _n_none(y):
-                return y
+        if _n_none(x):
+            return x
+        if _n_none(y):
+            return y
         return _r_binop(n[1], x, y)
     if k == "cond":
         return _r_eval(n[2], env, names) if _r_eval(n[1], env, names) else _r_eval(n[3], env, names)
@@ -1630,7 +1631,30 @@ def _r_eval(n, env, names):
 
 def _r_none_lit(n):
     """Is node n None written out?"""
-    return n[0] == "const" and n[1] == None
+    return n != None and n[0] == "const" and len(n) == 3
+
+def _r_none_ops(p, n):
+    """With contagious None, an operation on None written out is always
+    None: the line is bad, as the same expression in the program is a
+    compile error (ext/none.star's _block). Calls of builtins with a None
+    argument aren't found here: what is called is only known when it is."""
+    k = n[0]
+    xs = []
+    if k == "unop":
+        xs = [n[2]]
+    elif k == "binop":
+        xs = [n[2], n[3]]
+    elif k == "not" or k == "attr":
+        xs = [n[1]]
+    elif k == "index" or k == "slice":
+        xs = n[1:]
+    elif k == "call":
+        xs = [n[1]] + [a[2] for a in n[2] if a[1] != ""]
+    elif k == "comp":
+        xs = [c[2] for c in n[3] if c[0] == "for"]
+    for x in xs:
+        if _r_none_lit(x):
+            _r_fail(p, "an operation on None is always None (contagious None)", x[2])
 
 def _r_comp(n, i, env, names, out):
     if i == len(n[3]):

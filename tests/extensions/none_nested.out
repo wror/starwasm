@@ -23,5 +23,5 @@ deep: None ["literal None:68"]
 in: None ["literal None:68"]
 not in: None ["literal None:68"]
 lt: None ["literal None:68"]
-True True no True True None
+True True no None True None
 [1, 2] 2 3 3 True a,b

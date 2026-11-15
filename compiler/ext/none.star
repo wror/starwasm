@@ -2,7 +2,7 @@
 #
 #   x = None
 #   x + 1, x.foo, x[0], x > 2, x == x, abs(x), x.upper()    # all None
-#   x == None, x != None                                    # True, False
+#   x == None, None + 1, abs(None), None.foo                # compile errors
 #   provenance(x)      # [("literal", "None", "prog.star", 1), ...]
 #
 # On by default in programs with reactive variables (ext/reactive.star),
@@ -20,6 +20,10 @@
 #    node back to codegen with the operands replaced by "%code" nodes
 #    reading the locals, marked "%core" so that the hooks pass it. So the
 #    operation itself, its errors and their positions are codegen's.
+#
+#    An operand that is None written out makes the operation None whatever
+#    the program does, so it is a compile error (_block), == and != too:
+#    there is no comparing with None.
 #
 #    A None further in (sorted([1, None]), [None] < [1]) fails inside the
 #    runtime, where there is no test: so binary operations, builtin calls
@@ -143,7 +147,11 @@ REACTIVE_OPS = {
     "_r_conv": [1],
 }
 
-EQUALITY = {"==": True, "!=": True}
+
+# Expressions whose value is of a builtin type (never a struct), by kind.
+BUILTIN_KINDS = {"string": True, "bytes": True, "int": True, "float": True, "list": True, "tuple": True, "dict": True, "comp": True}
+REACTIVE_WHAT = {"_r_unop": "unary operation on", "_r_not": "not", "_r_attr": "field of", "_r_index": "index of or by", "_r_slice": "slice of or by", "_r_conv": "conversion of"}
+
 COMPARE = {"==": True, "!=": True, "<": True, ">": True, "<=": True, ">=": True, "in": True, "not in": True}
 
 def _active(mc):
@@ -336,6 +344,7 @@ def _guard(cg, mc, fc, e, keys):
     for key in keys:
         if e[key] == None:
             continue
+        _block(cg, mc, fc, e[key], _what(e))
         t = cg["temp"](fc, V)
         setup.append(set(t, cg["gen"](mc, fc, e[key])))
         temps.append(t)
@@ -385,14 +394,25 @@ def _protect(cg, mc, fc, code, marked = [], result = V, strict = False):
         gset("catch_depth", get(d)),
     ]
 
-def _plain(cg, mc, fc, e, sides):
-    """An == or != with None written out: the comparison as ever (the None
-    is the plain one: it is no origin)."""
-    changes = {}
-    for key in sides:
-        if _literal_none(cg, mc, fc, e[key]):
-            changes[key] = _core(e[key])
-    return _core(e, **changes)
+def _block(cg, mc, fc, x, what):
+    """A compile error if x, an operand of the operation `what`, is None
+    written out: the operation would be None wherever it runs. (Not for a
+    None another extension generated: a missing slice bound.)"""
+    if x != None and not x.get("gen", False) and _literal_none(cg, mc, fc, x):
+        cg["cerr"](mc, x["pos"], what + " None: an operation on None is always None (contagious None)")
+
+def _what(e):
+    """How the error names operation e."""
+    k = e["kind"]
+    if k == "binop":
+        return e["op"]
+    if k == "unop":
+        return "not" if e["op"] == "not" else "unary " + e["op"]
+    if k == "dot":
+        return "." + e["name"] + " of"
+    if k == "index":
+        return "index of or by"
+    return "slice of or by"
 
 # ---------------------------------------------------------------- hooks
 
@@ -413,6 +433,7 @@ def expr(cg, mc, fc, e):
             code = call("rt_none_via", code, _entry(mc, entry))
         return code
     if e.get("%iter", False):
+        _block(cg, mc, fc, e, "iteration over")
         e2 = dict(e)
         e2.pop("%iter")
         t = cg["temp"](fc, V)
@@ -425,8 +446,6 @@ def expr(cg, mc, fc, e):
         op_ = e["op"]
         if op_ == "and" or op_ == "or":
             return None  # they choose an operand; None is false
-        if EQUALITY.get(op_, False) and (_literal_none(cg, mc, fc, e["x"]) or _literal_none(cg, mc, fc, e["y"])):
-            return cg["gen"](mc, fc, _plain(cg, mc, fc, e, ["x", "y"]))
         return _guard(cg, mc, fc, e, ["x", "y"])
     if k == "unop":
         return _guard(cg, mc, fc, e, ["x"])
@@ -448,8 +467,8 @@ def cond(cg, mc, fc, e):
         return None
     k = e["kind"]
     if k == "binop" and COMPARE.get(e["op"], False):
-        if EQUALITY.get(e["op"], False) and (_literal_none(cg, mc, fc, e["x"]) or _literal_none(cg, mc, fc, e["y"])):
-            return cg["gen_cond"](mc, fc, _plain(cg, mc, fc, e, ["x", "y"]))
+        _block(cg, mc, fc, e["x"], e["op"])
+        _block(cg, mc, fc, e["y"], e["op"])
         tx = cg["temp"](fc, V)
         ty = cg["temp"](fc, V)
         e2 = _core(e, x = _code(tx, e["x"]), y = _code(ty, e["y"]))
@@ -460,6 +479,7 @@ def cond(cg, mc, fc, e):
                 _protect(cg, mc, fc, cg["gen_cond"](mc, fc, e2), result = I32, strict = True), result = I32),
         ]
     if k == "unop" and e["op"] == "not":
+        _block(cg, mc, fc, e["x"], "not")
         t = cg["temp"](fc, V)
         return [set(t, cg["gen"](mc, fc, e["x"])), if_(_is_none(t), i32(0), eqz(call("rt_truth", get(t))), result = I32)]
     return None
@@ -472,6 +492,7 @@ def assign(cg, mc, fc, t, value, posn):
         return None
     k = t["kind"]
     if k == "index" and not t.get("gen", False):
+        _block(cg, mc, fc, t["x"], "item assignment to")
         tv = cg["temp"](fc, V)
         tx = cg["temp"](fc, V)
         ti = cg["temp"](fc, V)
@@ -483,6 +504,7 @@ def assign(cg, mc, fc, t, value, posn):
             if_(or_(_is_none(tx), and_(_is_none(ti), eqz(is_("Dict", get(tx))))), [], cg["gen_assign"](mc, fc, t2, get(tv), posn)),
         ]
     if k == "dot":
+        _block(cg, mc, fc, t["x"], "field assignment to")
         tv = cg["temp"](fc, V)
         tx = cg["temp"](fc, V)
         t2 = _core(t, x = _code(tx, t["x"]))
@@ -498,10 +520,17 @@ def assign(cg, mc, fc, t, value, posn):
 def stmt(cg, mc, fc, s):
     """x op= y: None if x or y is (and then x[i] op= y, x.name op= y store
     as assign has it)."""
-    if not _active(mc) or s["kind"] != "assign" or s["op"] == "=":
+    if not _active(mc) or s["kind"] != "assign":
         return None
     t = s["lhs"]
     k = t["kind"]
+    if s["op"] == "=":
+        if k == "tuple" or k == "list":
+            _block(cg, mc, fc, s["rhs"], "unpacking of")
+        return None
+    _block(cg, mc, fc, s["rhs"], s["op"])
+    if k == "index" or k == "dot":
+        _block(cg, mc, fc, t["x"], s["op"] + " to an item or field of")
     setup = []
     if k == "name":
         target = t
@@ -556,6 +585,19 @@ def _args(cg, mc, fc, e):
         args2.append(a2)
         pairs.append((a, t))
     return setup, args2, pairs
+
+def _block_args(cg, mc, fc, e, name):
+    """Compile errors for the arguments of call e that make it None when
+    they are: a *args or **kwargs, and, if name isn't None, an argument
+    that builtin `name` doesn't just store."""
+    i = 0
+    for a in e["args"]:
+        if a["star"] != "":
+            _block(cg, mc, fc, a["value"], "call with " + a["star"])
+        elif name != None and not _tolerant(name, a, i):
+            _block(cg, mc, fc, a["value"], name + "() of")
+        if a["name"] == None and a["star"] == "":
+            i += 1
 
 def _builtin_guards(name, pairs):
     """The locals whose being None makes a call of builtin `name` None."""
@@ -616,11 +658,13 @@ def _call(cg, mc, fc, e):
                 # an error it doesn't catch itself is the call's
                 if name.startswith("%"):
                     return None  # generated
+                _block_args(cg, mc, fc, e, None)
                 setup, args2, pairs = _args(cg, mc, fc, e)
                 code = _protect(cg, mc, fc, cg["gen"](mc, fc, _core(e, args = args2)))
                 stars = [t for a, t in pairs if a["star"] != ""]
                 return [setup, _first_none(stars, code) if stars else code]
     if builtin != None:
+        _block_args(cg, mc, fc, e, builtin)
         setup, args2, pairs = _args(cg, mc, fc, e)
         code = cg["gen"](mc, fc, _core(e, args = args2))
         if builtin != "fail":
@@ -629,6 +673,8 @@ def _call(cg, mc, fc, e):
         return [setup, _first_none(_builtin_guards(builtin, pairs), code)]
 
     # through a value
+    _block(cg, mc, fc, fn, "call of")
+    _block_args(cg, mc, fc, e, None)
     f = cg["temp"](fc, V)
     setup, args2, pairs = _args(cg, mc, fc, e)
     return [set(f, cg["gen"](mc, fc, fn)), setup, if_(_is_none(f), get(f), _dynamic(cg, mc, fc, e, f, args2, pairs), result = V)]
@@ -646,11 +692,17 @@ def _method_call(cg, mc, fc, e):
             return None  # generated (%nodes.append(...))
         if cg["lookup"](mc, fc, x["id"], x["pos"])[0] == "protomod":
             return None
+    known = METHODS.get(name) != None or mc["prelude"]["funcs"].get("_m_" + name) != None
+    _block(cg, mc, fc, x, "." + name + "() of")
+
+    # (an argument: only if `name` is sure to be the builtin's method: x
+    # can't be a struct with a field of that name, which may be a def)
+    sure = known and (BUILTIN_KINDS.get(x["kind"], False) or not (mc["has_struct"] or mc["has_obj"]))
+    _block_args(cg, mc, fc, e, name if sure else None)
     recv = cg["temp"](fc, V)
     setup, args2, pairs = _args(cg, mc, fc, e)
     fn2 = dict(fn)
     fn2["x"] = _code(recv, x)
-    known = METHODS.get(name) != None or mc["prelude"]["funcs"].get("_m_" + name) != None
 
     def through_value():
         f = cg["temp"](fc, V)
@@ -681,17 +733,17 @@ def _reactive_op(cg, mc, fc, e, name):
         return None
     args = e["args"]
     strict = name == "_r_binop" and COMPARE.get(args[0]["value"].get("val"), False)
-    if name == "_r_binop" and EQUALITY.get(args[0]["value"].get("val"), False) and \
-       (_literal_none(cg, mc, fc, args[1]["value"]) or _literal_none(cg, mc, fc, args[2]["value"])):
-        idxs = []
+    what = args[0]["value"]["val"] if name == "_r_binop" else REACTIVE_WHAT.get(name, "operation on")
     setup = []
     temps = []
     args2 = []
     for i, a in enumerate(args):
         v = a["value"]
         a2 = dict(a)
+        if i in idxs:
+            _block(cg, mc, fc, v, what)
         if _literal_none(cg, mc, fc, v):
-            a2["value"] = _core(v)  # written out, or a missing slice bound
+            a2["value"] = _core(v)  # a missing slice bound
         else:
             t = cg["temp"](fc, V)
             setup.append(set(t, cg["gen"](mc, fc, v)))
@@ -828,8 +880,8 @@ def prelude(mc):
     return parse_file(src, "compiler/ext/none.star"), []
 
 # Added to the prelude. _n_iter... are called by generated code; the
-# reactive runtime (ext/reactive.star) calls _n_tag, _n_none, _n_skip and
-# _n_changed, which do nothing when the extension is off (RUNTIME_OFF).
+# reactive runtime (ext/reactive.star) calls _n_on, _n_tag, _n_none, _n_skip
+# and _n_changed, which do nothing when the extension is off (RUNTIME_OFF).
 RUNTIME = r'''
 def _n_tag(v, kind, name, file, line):
     """v, having passed through (kind, name, file, line) if it is None."""
@@ -837,6 +889,9 @@ def _n_tag(v, kind, name, file, line):
 '''
 
 RUNTIME_ON = r'''
+def _n_on():
+    return True
+
 def provenance(x):
     """Where a None comes from: what it passed through, oldest first, as
     tuples (kind, id, file, line); [] for any other value."""
@@ -868,6 +923,9 @@ def _n_changed(old, new):
 '''
 
 RUNTIME_OFF = r'''
+def _n_on():
+    return False
+
 def _n_none(x):
     return False
 

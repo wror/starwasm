@@ -421,8 +421,8 @@ standard input.
     x > None       # None
     x == x         # None
     abs(x)         # None
-    x == None      # True
-    x != None      # False
+    x == None      # compile error: an operation on None is always None
+    None + 1       # compile error, likewise
     provenance(x)  # [("literal", "None", "prog.star", 1)]
 
 Three things about None: an operation on it gives None instead of an
@@ -543,16 +543,40 @@ and `n = 5` prints `half is 20`.
     of a builtin function or method with a None argument: `abs(x)`,
     `len(x)`, `str(x)`, `type(x)`, `bool(x)`, `"a,b".split(x)`,
     `",".join(x)` are all None, and the builtin isn't called.
-  - The one exception: `==` and `!=` when an operand is `None` written
-    out. `x == None` is True and `x != None` False if x is None; they are
-    how a program tells. Any other comparison is an operation: `x == x`,
-    `x == y` and `x != 1` are None when x is.
+  - `==` and `!=` are operations like the others: `x == x`, `x == y`
+    and `x != 1` are None when x is. There is no exception for `None`
+    written out: see the next point.
+  - None written out as an operand is a compile error. Such an operation
+    would be None wherever it runs, whatever the program does, so it is a
+    mistake, most often a test for None that can't work: `print(x ==
+    None)` on line 3 fails with `prog.star:3:12: == None: an operation on
+    None is always None (contagious None)` (the position is the
+    `None`'s). All of the
+    operations above are checked: `None + 1`, `x != None`, `x in None`,
+    `-None`, `not None`, `None.foo`, `None[0]`, `x[None]`, `x[None:]`,
+    `None()`, `None.upper()`, `f(*None)`, `f(**None)`, a builtin function
+    or method given a `None` it doesn't just store (`len(None)`,
+    `"a b".split(None)`, `d.get(None)`), and the statements below: `for v
+    in None` (a comprehension's too), `a, b = None`, `y += None`,
+    `None[i] = v`. Only the literal is checked, and only as a direct
+    operand: a variable that holds None (`x == x`), and a None inside
+    something (`[None][0] + 1`, `x == [None]`) are computed, to None, as
+    ever. None written anywhere else is fine: `x = None`, `return None`,
+    `[None]`, `{k: None}`, a default `v = None`, `f(None)` for a def,
+    `None or 1`, `a if c else None`, and the arguments a builtin only
+    stores (`l.append(None)`, `d.get(k, None)`).
+  - Telling a None, then: by what it does. It is false (`x or default`,
+    `if x:`), and so is everything computed from it, its type too:
+    `type(x)` is a non-empty string for every other value, so `if
+    type(x):` runs for 0, `""` and `[]` but not for a None, and `type(x)
+    or "NoneType"` names the type of anything. `provenance(x)` says where
+    a None comes from.
   - Not operations: `x and y`, `x or y` and `a if x else b` choose an
     operand, with None false as ever (so `x or default` replaces a None);
     `if x:`, `while x:` and a comprehension's `if x` just don't run. As an
     operation on None is None, hence false, `if x > 1:`, `if x != 1:` and
-    `if not x:` don't run either when x is None: only `x == None` is true
-    of it.
+    `if not x:` don't run either when x is None: no condition is true of
+    it.
   - Storing, printing or passing a None is no operation: `[x]`, `{k: x}`,
     `y = x`, and calling a def (or lambda) with it: the function runs,
     and what its body does with the None follows these rules. The same
@@ -575,8 +599,7 @@ and `n = 5` prints `half is 20`.
   the None were an operand: `[x] == [None]`, `[x] == [y]`,
   `(1, x) != (1, 2)`, `1 in [x, 1]` and `{"a": [x]} == {"a": [1]}` are
   all None when x is. So Nones are never equal to anything in a
-  comparison, however they are wrapped; the one exception remains `==`
-  and `!=` with `None` itself written as an operand. A comparison that
+  comparison, however they are wrapped. A comparison that
   ends before reaching the None is as ever (`[1, x] == [2, x]` is False,
   `1 in [1, x]` True). (The runtime's rt_eq_d and rt_lt_d throw the None
   they meet while the global `none_strict` is set, which it is only
@@ -625,7 +648,13 @@ and `n = 5` prints `half is 20`.
 - With reactive variables: a None doesn't fail an update, and nor does
   an error (above); the None flows
   through the definitions and observers that read it. Expressions on
-  standard input are contagious too (`qty = None + 1` assigns None).
+  standard input are contagious too (`qty = [None][0] + 1` assigns None),
+  and an operation on None written out is refused there as it is in the
+  program: `qty = None + 1` is a bad line, reported as `<stdin>:5:7: an
+  operation on None is always None (contagious None)` and ignored. (An
+  operator, field, index, slice, call of None, `*None` or a
+  comprehension over None: a builtin's None argument is only found when
+  the call happens, since the line's names are looked up then.)
   A variable recomputed to a None that came another way than the one it
   held counts as changed, so what reads it is recomputed and holds the
   current trace. In a self-referencing definition (`total : total + n`)
@@ -644,6 +673,10 @@ and `n = 5` prints `half is 20`.
     whose values are never None prints exactly what it does without the
     extension. The prelude is compiled as ever, so builtins written in
     Starlark keep their meaning; the tests are in the callers.
+  - The same hooks report None written out as an operand (`_block`, at
+    each place a test would go in front of the operand), so the check is
+    exactly as wide as the contagion; `_r_none_ops` in reactive.star does
+    it for a line of standard input, when the line is parsed.
   - A None is a `$NoneType {via, prev}` struct: `via` the entry it last
     passed through, `prev` the None it was before. The plain None, the
     only one when the extension is off, has neither; so the core's "is
@@ -678,6 +711,12 @@ and `n = 5` prints `half is 20`.
     `_n_changed`, `_n_try` and `_n_try_at`, which do nothing when the
     extension is off.
 - Not covered:
+  - The compile error for a builtin method's `None` argument needs the
+    method to be sure: in a program with structs, `s.split(None)` is
+    reported only when `s` is written as a string, list, tuple or dict
+    (a struct may have a field `split` holding a def, which takes None
+    as any argument). A call through a value (`f = abs; f(None)`) is
+    never reported: what `f` is is known when it is called.
   - Nones are equal to each other only where the program doesn't
     compare: as dict keys and set elements (a dict has one key None;
     reading it, `d[x]` or `d.get(x)`, is an operation on None, so None
@@ -703,7 +742,9 @@ and `n = 5` prints `half is 20`.
   (the default, with reactive variables and standard input),
   none_nested.star (None inside containers), none_reactive_errors.star
   (errors during updates, with their tracebacks in the .err file),
-  none_reactive_off.star (`--nocontagiousnone`), none_err_provenance.star;
+  none_reactive_off.star (`--nocontagiousnone`), none_err_provenance.star,
+  none_err_literal_*.star (None written out as an operand: the compile
+  errors);
   tests take the options from `# option:contagiousnone` /
   `# option:nocontagiousnone` lines.
 
