@@ -111,6 +111,19 @@ def free_names(e, bound, out):
         for x in (e["body"] if e["comp"] == "dict" else [e["body"]]):
             free_names(x, inner, out)
 
+def called_names(x, out):
+    """out[name] = True for every name that AST x calls (`name(...)`)."""
+    t = type(x)
+    if t == "dict":
+        if x.get("kind") == "call" and x["fn"]["kind"] == "name":
+            out[x["fn"]["id"]] = True
+        for k, v in x.items():
+            if k != "pos":
+                called_names(v, out)
+    elif t == "list" or t == "tuple":
+        for v in x:
+            called_names(v, out)
+
 def new_scope(kind, parent):
     return {"kind": kind, "parent": parent, "bindings": {}, "free": [], "free_index": {}, "wasm": {}}
 

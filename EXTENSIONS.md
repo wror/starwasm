@@ -272,7 +272,10 @@ standard input.
     "Nothing defines it": no reactive definition, no other top-level
     binding (an assignment, a def or a load, anywhere in the file), no
     builtin; and the read isn't of a comprehension's variable or a
-    lambda's parameter. An implicit relation is there from the start of the
+    lambda's parameter, and the name isn't called in the definition
+    (`total(x)` with no `total` is "undefined: total": a member is a
+    struct, and a misspelt function shouldn't silently become a relation
+    that is never set). An implicit relation is there from the start of the
     program, so any definition or observer may read it, even above the
     relation that makes it one; a name that only lone definitions or
     observers read is still "undefined". It is a relation like any other:

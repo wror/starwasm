@@ -29,7 +29,7 @@
 # A function context fc is {scope, ret, narrow, mod, def, reactive, observer}.
 
 load("../compiler/parser.star", "parse_file")
-load("../compiler/resolve.star", "free_names")
+load("../compiler/resolve.star", "called_names", "free_names")
 load("../compiler/spell.star", "nearest")
 load(
     "stubs.star",
@@ -231,9 +231,11 @@ def _implicit_relations(stmts, scope, bound, order):
         uses = []
         free_names(s.get("when"), {}, uses)
         free_names(s["value"], {}, uses)
+        called = {}  # a name that is called is no relation: undefined
+        called_names([s.get("when"), s["value"]], called)
         for u in uses:
             n = u["id"]
-            if n in bound or _find(scope, n) != None:
+            if called.get(n, False) or n in bound or _find(scope, n) != None:
                 continue
             _bound(bound, order, n, u["pos"])["reactive"] = {"relation": True}
             _bound(bound, order, n + "Error", u["pos"])["reactive"] = {"relation": True, "errors_of": n}
