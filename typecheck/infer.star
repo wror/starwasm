@@ -216,6 +216,9 @@ def collect_bound(stmts, bound, order):
                 info["load"] = (s, orig, s["namepos"][i])
         elif k == "reactive":
             _bound(bound, order, s["name"], s["pos"])["reactive"] = s
+            if s.get("relation", False):
+                # its implicit relation of errors (EXTENSIONS.md)
+                _bound(bound, order, s["name"] + "Error", s["pos"])["reactive"] = {"relation": True, "errors_of": s["name"]}
 
 def _bound(bound, order, name, pos):
     info = bound.get(name)
@@ -254,6 +257,18 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
             continue
         if name in scope["vars"]:
             continue  # a parameter, assigned in the body
+        if info["reactive"] != None and info["reactive"].get("errors_of") != None:
+            # relation x's errors: struct(id, x_id, trigger, field, value)
+            at = _ctx(fc, pos, "the errors of relation '" + info["reactive"]["errors_of"] + "'")
+            fields = [
+                field(lit("id"), con("int", [], at), at),
+                field(lit(info["reactive"]["errors_of"] + "_id"), _fresh(st, fc), at),
+                field(lit("trigger"), con("str", [], at), at),
+                field(lit("field"), con("str", [], at), at),
+                field(lit("value"), con("None", [], at), at),
+            ]
+            _declare(scope, name, {"kind": "relation", "type": rec(row(fields), at), "pos": pos})
+            continue
         if info["reactive"] != None and info["reactive"].get("relation", False):
             _declare(scope, name, {"kind": "relation", "type": _fresh(st, fc), "pos": pos})
             continue

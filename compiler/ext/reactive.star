@@ -74,6 +74,7 @@ VALUES = "%reactive"  # module variable holding the reactive values
 NODES = "%nodes"  # module variable listing what to recompute
 STATE = "%rstate"  # module variable: {"lineno": input lines read}
 NAMES = "%rnames"  # module variable: what input expressions can use
+ERRORS = "Error"  # relation x's implicit relation of errors is xError
 
 # Builtins that expressions on standard input may use (struct only in
 # programs that mention it: it makes method calls check for structs).
@@ -437,6 +438,15 @@ def transform(cg, mc):
             reactive[s["name"]] = s
             if s.get("relation", False):
                 relations[s["name"]] = True
+    # each relation has an implicit one, <name>Error (see _r_reject): a
+    # definition with no fields, which is never evaluated
+    for name in list(relations):
+        ename = name + ERRORS
+        if reactive.get(ename) != None:
+            _err(main, reactive[ename]["pos"], "reactive variable " + ename + " defined twice (relation " + name + " defines it: its errors)")
+        r = reactive[name]
+        reactive[ename] = {"kind": "reactive", "name": ename, "relation": True, "pos": r["pos"], "value": {"args": []}}
+        relations[ename] = True
     if not reactive:
         return
     mc["ext"]["reactive"] = True
@@ -463,7 +473,7 @@ def transform(cg, mc):
     out = [
         _assign(_name(VALUES, first), {"kind": "dict", "entries": [], "colons": [], "pos": first}, first),
         _assign(_name(NODES, first), {"kind": "list", "elems": [], "pos": first}, first),
-        _assign(_name(STATE, first), _state_dict(relations, [n for n in relations if reactive[n].get("when") != None], first), first),
+        _assign(_name(STATE, first), _state_dict(reactive, relations, [n for n in relations if reactive[n].get("when") != None], first), first),
         _assign(_name(NAMES, first), _names_table(stmts, bound, reactive, first), first),
     ]
     nthunks = 0
@@ -510,8 +520,11 @@ def transform(cg, mc):
                 unset[name] = True
             if relation:
                 # it starts empty (its definition is evaluated only on updates)
-                init = _prelude_call("_r_relation", [_name(VALUES, posn), _str(name, posn)], s["colon"])
-                out.append({"kind": "expr", "pos": posn, "x": init})
+                # (and so does its implicit relation of errors)
+                for i, n in enumerate([name, name + ERRORS]):
+                    init = _prelude_call("_r_relation", [_name(VALUES, posn), _str(n, posn)], (s["colon"][0], s["colon"][1] + i))
+                    out.append({"kind": "expr", "pos": posn, "x": init})
+                defined[name + ERRORS] = True
             else:
                 if keyed:
                     out.append(_tid_stmt(name, deps, False, posn))
@@ -579,20 +592,38 @@ def _if_ready(e, required, otherwise):
     test = _prelude_call("_r_ready", [_name(VALUES, posn), names], posn)
     return {"kind": "cond", "test": test, "then": e, "else_": otherwise, "pos": posn}
 
-def _state_dict(relations, whens, posn):
-    """{"lineno": 0, "relations": {name: True, ...}, "whens": {name: True,
-    ...}, "tid": None, "wself": None, "changed": {}}: the runtime's state
-    (see _reactive_input); whens are the relations with a condition
-    (`a name when cond:`)."""
-    def table(names):
-        es = [(_str(n, (posn[0], posn[1] + i)), _name("True", (posn[0], posn[1] + i))) for i, n in enumerate(sorted(names))]
+def _shape(block, posn):
+    """The fields of a struct block, as a tuple of (name, shape of the
+    field's own block: () unless it is a nested one)."""
+    elems = []
+    for a in block["args"]:
+        if a["name"] != None:
+            sub = _shape(a["value"], posn) if a["value"].get("block", False) else {"kind": "tuple", "pos": posn, "elems": []}
+            elems.append({"kind": "tuple", "pos": posn, "elems": [_str(a["name"], posn), sub]})
+    return {"kind": "tuple", "pos": posn, "elems": elems}
+
+def _state_dict(reactive, relations, whens, posn):
+    """{"lineno": 0, "relations": {name: shape, ...}, "whens": {name: True,
+    ...}, "tid": None, "wself": None, "trigger": None, "changed": {}}: the
+    runtime's state
+    (see _reactive_input); a relation's shape is its block's fields
+    (_shape; the implicit id isn't one: it is never None), for
+    _r_holds_none; whens are the relations with a condition (`a name when
+    cond:`). (A relation of errors, xError, has no fields here: its members
+    hold a None, and always apply.)"""
+    def table(names, shapes):
+        es = []
+        for i, n in enumerate(sorted(names)):
+            p = (posn[0], posn[1] + i)
+            es.append((_str(n, p), _shape(reactive[n]["value"], p) if shapes else _name("True", p)))
         return {"kind": "dict", "entries": es, "colons": [e[0]["pos"] for e in es], "pos": posn}
     entries = [
         (_str("lineno", posn), {"kind": "int", "val": 0, "pos": posn}),
-        (_str("relations", posn), table(relations)),
-        (_str("whens", posn), table(whens)),
+        (_str("relations", posn), table(relations, True)),
+        (_str("whens", posn), table(whens, False)),
         (_str("tid", posn), _none(posn)),
         (_str("wself", posn), _none(posn)),
+        (_str("trigger", posn), _none(posn)),
         (_str("changed", posn), {"kind": "dict", "entries": [], "colons": [], "pos": posn}),
     ]
     return {"kind": "dict", "entries": entries, "colons": [posn for _ in entries], "pos": posn}
@@ -759,6 +790,7 @@ def _reactive_input(values, nodes, state, names, before):
         state["changed"] = {}
         state["tid"] = None
         state["wself"] = None
+        state["trigger"] = None
         if not ok or _n_failed(errors):
             values.clear()
             values.update(saved)
@@ -776,14 +808,20 @@ def _reactive_update(values, nodes, state, assigns):
     with ext/none.star, is a None that came another way than the old). A
     relation's new value is a member, added to its list or replacing the
     one with the same id (_r_upsert); it always counts as changed: an
-    update removes a member and adds one. A node that reads a variable not
+    update removes a member and adds one. A member that is None or has a
+    None field isn't applied: the relation stays as it was, unchanged, and
+    its relation of errors gets a member for each None (_r_reject). A node
+    that reads a variable not
     set yet (a relation with no member, or a lone variable computed from
     one) is skipped."""
     rels = state["relations"]
     changed = {}
     state["changed"] = changed  # for _r_tid
     for name, v in assigns:
-        if rels.get(name, False):
+        if name in rels:
+            state["trigger"] = name
+            if _r_reject(values, state, name, [v]):
+                continue
             _r_upsert(values, name, v)
         else:
             values[name] = v
@@ -802,14 +840,18 @@ def _reactive_update(values, nodes, state, assigns):
         if name == None:
             _n_try(f)
             continue
+        state["trigger"] = [d for d in deps if changed.get(d, False)][0]  # for _r_reject
         v = _n_try(f)
-        if _n_none(v) and rels.get(name, False):
-            continue  # a relation's member that failed: none is added
         if state["whens"].get(name, False):
-            if v:  # _r_when updated it
+            if _n_none(v):  # the condition or the block failed
+                _r_reject(values, state, name, [v])
+                state["wself"] = None
+            elif v:  # _r_when updated it
                 changed[name] = True
             continue
-        if rels.get(name, False):
+        if name in rels:
+            if _r_reject(values, state, name, [v]):
+                continue  # a member that failed, or with a None field: none is added
             _r_upsert(values, name, v)
             changed[name] = True
             continue
@@ -842,6 +884,51 @@ def _r_relation(values, name):
     values[name + "[]"] = []
     values[name] = _unset
 
+def _r_nones(v, shape, path, out):
+    """Append to out (field, the None) for each None among the fields of
+    v, a relation's new member (shape: its block's fields, ((name, shape of
+    a nested block), ...), see _shape; a nested block's fields are
+    "outer.inner"); if v itself is None, ("", v). (Only with contagious
+    None: without, _n_none is always false.)"""
+    if _n_none(v):
+        out.append((path, v))
+        return
+    for f, sub in shape:
+        if hasattr(v, f):
+            _r_nones(getattr(v, f), sub, path + "." + f if path else f, out)
+
+def _r_reject(values, state, name, members):
+    """Should members, the new members of relation name, not be applied,
+    because one of them is None or has a None field? Then relation name +
+    "Error" gets a member for each of those Nones: struct(id = the next
+    one, <name>_id = the id of the member that wasn't applied, trigger =
+    the name of the variable whose change caused this (the first changed
+    one that the definition reads; the relation itself, if it was
+    assigned), field = the field's name ("" if the member itself is None),
+    value = the None), and counts as changed."""
+    shape = state["relations"][name]
+    found = []
+    for v in members:
+        nones = []
+        _r_nones(v, shape, "", nones)
+        mid = getattr(v, "id", None)
+        if _n_none(mid):
+            mid = _r_rel_id(values, state, name)
+        found += [(mid, f, x) for f, x in nones]
+    ename = name + "Error"
+    if not found or ename not in state["relations"]:
+        return len(found) > 0
+    for mid, f, x in found:
+        _r_upsert(values, ename, struct(**{
+            "id": _r_rel_id(values, {"tid": None}, ename),
+            name + "_id": mid,
+            "trigger": state["trigger"],
+            "field": f,
+            "value": x,
+        }))
+    state["changed"][ename] = True
+    return True
+
 def _r_upsert(values, name, v):
     """Add member v to relation name, first removing the member with v's id
     if there is one; v becomes the current member."""
@@ -860,7 +947,9 @@ def _r_when(values, state, name, cond, value):
     evaluated once more with the self-reference reading the identity (a
     new member), and if true, value() is added as a new member (its
     implicit id one more than the largest). The replaced and new members
-    go at the end, in order. Returns whether the relation changed."""
+    go at the end, in order. If any of them has a None field, none is
+    applied (_r_reject): the relation stays as it was. Returns whether the
+    relation changed."""
     kept = []
     new = []
     for m in values[name + "[]"]:
@@ -878,6 +967,8 @@ def _r_when(values, state, name, cond, value):
     state["wself"] = None
     state["tid"] = None
     if not new:
+        return False
+    if _r_reject(values, state, name, new):
         return False
     for v in new:
         if not hasattr(v, "id"):
@@ -898,7 +989,7 @@ def _r_tid(values, state, name, deps, relation):
     key = name + "_id"
     for only_changed in (True, False):
         for d in deps:
-            if (relation or rels.get(d, False)) and (changed.get(d, False) or not only_changed):
+            if (relation or d in rels) and (changed.get(d, False) or not only_changed):
                 v = values[d]
                 if hasattr(v, key):
                     return getattr(v, key)
