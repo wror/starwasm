@@ -144,7 +144,8 @@ function reactiveDefs(text) {
 const codeOf = (entries) => entries.filter((c) => !c.update);
 
 function reactiveNames(entries) {
-  return new Set(codeOf(entries).flatMap((c) => reactiveDefs(c.code).map((d) => d.name)));
+  // (a relation x also defines xError, its relation of errors)
+  return new Set(codeOf(entries).flatMap((c) => reactiveDefs(c.code).flatMap((d) => d.relation ? [d.name, d.name + "Error"] : [d.name])));
 }
 
 // The code for a statement input. After each definition of a reactive
@@ -166,13 +167,17 @@ function statementCode(src, num, names) {
   for (const { name, rest, relation } of reactiveDefs(code)) {
     const derived = (rest.match(/[A-Za-z_]\w*/g) ?? []).some((w) => w !== name && known.has(w));
     known.add(name);
+    if (relation) known.add(name + "Error");
     if (!derived) continue;
-    const seen = `_shown${num}_${name}`;
-    const shown = JSON.stringify(name + " = ");
-    code += `\n${seen} = []\n` + (relation
-      ? `(lambda v, seen: print(${shown} + repr(v[-1])) if seen and v else None)(${name}, ${seen})`
-      : `(lambda v, seen: print(${shown} + (repr(v) ?? "None")) if seen else None)(${name}, ${seen})`) +
-      `\n${seen}.append(True)`;
+    // (a relation's errors, xError, are echoed like its members)
+    for (const shownName of relation ? [name, name + "Error"] : [name]) {
+      const seen = `_shown${num}_${shownName}`;
+      const shown = JSON.stringify(shownName + " = ");
+      code += `\n${seen} = []\n` + (relation
+        ? `(lambda v, seen: print(${shown} + repr(v[-1])) if seen and v else None)(${shownName}, ${seen})`
+        : `(lambda v, seen: print(${shown} + (repr(v) ?? "None")) if seen else None)(${shownName}, ${seen})`) +
+        `\n${seen}.append(True)`;
+    }
   }
   return { code, offset: 0 };
 }

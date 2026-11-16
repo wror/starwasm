@@ -1,0 +1,40 @@
+orders []
+parcels []
+lines []
+order ids []
+line ids []
+last apple
+orders [struct(count = 1, id = 1, item = "apple", price = 3)]
+parcels [struct(cost = struct(total = 6), id = 1, item = "apple")]
+orderError 1 request "price" [("reactive", "order.price")]
+order ids [1]
+parcelError 1 request "cost.total" [("error", "key \"kiwi\" not in dict")]
+struct(about = 1, id = 1, what = "price of order, after request")
+orderError 1 request "price" [("reactive", "order.price")]
+orderError 2 request "price" [("reactive", "order.price")]
+order ids [1, 2]
+parcelError 1 request "cost.total" [("error", "key \"kiwi\" not in dict")]
+parcelError 2 request "cost.total" [("error", "key \"kiwi\" not in dict")]
+struct(about = 2, id = 2, what = "price of order, after request")
+last pear
+orders [struct(count = 2, id = 1, item = "pear", price = 2)]
+parcels [struct(cost = struct(total = 8), id = 1, item = "pear")]
+orderError 1 request "price" [("reactive", "order.price")]
+orderError 2 request "price" [("reactive", "order.price")]
+orderError 3 order "price" [("literal", "None")]
+order ids [1, 2, 7]
+struct(about = 7, id = 3, what = "price of order, after order")
+last fig
+orders [struct(count = 2, id = 1, item = "pear", price = 2), struct(count = 0, id = 7, item = "fig", price = 9)]
+orderError 1 request "price" [("reactive", "order.price")]
+orderError 2 request "price" [("reactive", "order.price")]
+orderError 3 order "price" [("literal", "None")]
+orderError 4 order "" [("error", "floored division by zero")]
+order ids [1, 2, 7, 8]
+struct(about = 8, id = 4, what = " of order, after order")
+lines [struct(id = 1, qty = 1, share = 20)]
+lines [struct(id = 1, qty = 2, share = 50)]
+line ids [(1, "share")]
+lines [struct(id = 1, qty = 2, share = 50), struct(id = 5, qty = 4, share = 0)]
+line ids [(1, "share"), (5, "share")]
+lines [struct(id = 1, qty = 3, share = 14), struct(id = 5, qty = 5, share = 20)]

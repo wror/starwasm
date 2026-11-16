@@ -257,6 +257,49 @@ standard input.
     field `id`.
   - Only struct blocks can be relations: `an x : expr` is an error, "a
     relation (an x) must be defined by a struct block".
+  - No None fields: a member that would have None in one of its block's
+    fields (a nested block's fields too) isn't applied at all. The
+    relation stays exactly as it was (no member is added or replaced, no
+    field of the old member changes), it doesn't count as changed, and so
+    nothing that reads it is recomputed for that update. The same goes for
+    a member assigned on standard input, and for one whose definition
+    fails altogether. With a condition (`when`), if any of the members it
+    would replace or add has a None field, none of them is applied. This
+    needs contagious None (the default in a reactive program: only there
+    is a None something that went wrong; with `--nocontagiousnone` a None
+    field is a value like any other). A lone struct block is not
+    affected: its fields can be None.
+  - Errors: each relation `x` implicitly defines a second relation,
+    `xError` (`order` gives `orderError`), right after it. Whenever a
+    member of x isn't applied, xError gets a new member for each None
+    that caused it:
+
+        struct(id = 3,              # 1, 2, 3...: each is a new member
+               order_id = 7,        # the id of the member not applied
+               trigger = "request", # the reactive variable whose change
+                                    # caused the update
+               field = "price",     # the field that would have been None
+               value = None)        # that None itself
+
+    `<x>_id` is a reference to x in the sense above (so a relation
+    defined from xError is keyed by it); `trigger` is the name of the
+    first variable the definition (or condition) reads that changed in
+    this update, or x itself when the member was assigned on standard
+    input; `field` is `"cost.total"` for a field of a nested block, and
+    `""` when the definition (or a `when` condition) failed as a whole, so
+    that there is no member; `value` is the None, with its provenance
+    (`provenance(orderError.value)`: where it came from, the error it
+    carries). xError is a relation like any other: an observer reads its
+    list, a definition its current member (and is unset until there is
+    one), it counts as changed when it gets a member, and standard input
+    can assign it. Its own members hold a None by design, and always
+    apply; it has no relation of errors of its own. Defining `xError`
+    yourself is a compile error ("defined twice"). In the REPL, a new
+    member is echoed as `orderError = struct(...)`.
+    Code: reactive.star (`transform` registers xError; `_shape` records
+    each block's fields in `%rstate["relations"]`; at run time `_r_nones`,
+    `_r_reject`). Test: tests/extensions/none_reactive_relation.star,
+    reactive_relation_err_errors.star.
   - In the REPL, the echo of a relation computed from others prints the
     member just added (`order = struct(id = 1, ...)`), on every update that
     adds one. Typing a variable that is unset prints nothing.
@@ -484,7 +527,9 @@ and `n = 5` prints `half is 20`.
   - anything else in a definition: the variable is None; in an observer
     (a top-level expression statement): the statement stops there, and
     the update goes on with the next one; in a relation's struct block
-    or condition: no member is added or replaced;
+    or condition: no member is added or replaced (as for any None in a
+    member's fields), and the relation's `Error` relation says why (see
+    "No None fields" and "Errors" under relations);
   - an expression on standard input: the variable is assigned None.
 
   So nothing is rolled back (unless `--rollback` says so, below): the variables that could be computed have

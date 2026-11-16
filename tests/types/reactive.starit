@@ -7,5 +7,7 @@ size: float
 total: float
 request: struct[id: int, name: str, qty: int]
 order: list[struct[id: int, product: str, size: int]]
+orderError: list[struct[id: int, order_id: Any, trigger: str, field: str, value: None]]
 line: list[struct[product: str, count: int, id: int]]
+lineError: list[struct[id: int, line_id: Any, trigger: str, field: str, value: None]]
 summary: struct[id: int, last: str, lines: int]

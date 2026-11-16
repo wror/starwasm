@@ -27,3 +27,6 @@ summary:
 
 print(order)
 print([o.size for o in order])
+
+# a relation's errors (orderError) are a relation too
+print([e.field + " after " + e.trigger for e in orderError])
