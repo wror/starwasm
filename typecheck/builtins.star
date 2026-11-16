@@ -6,6 +6,9 @@
 # dict, d.get(k, default), ...) are also handled where they are called
 # (typecheck/infer.star, SPECIAL); the signatures here are what they have
 # when used as values.
+#
+# provenance() is the "contagious None" extension's (compiler/ext/none.star):
+# declared always, though the compiler knows it only with the extension on.
 
 load("stubs.star", "declare_tparams", "new_scope", "parse_stubs", "to_params", "to_type")
 load("types.star", "GENERIC", "fn")
@@ -44,6 +47,7 @@ def zip(*args: Any) -> list[Any]
 def dict(*args: Any, **kwargs: Any) -> dict[Any, Any]
 def read_file(path: str) -> str
 def write_file(path: str, data: Any) -> None
+def provenance(x: Any) -> list[tuple[str, str, str, int]]
 argv: list[str]
 proto: Any
 time: Any

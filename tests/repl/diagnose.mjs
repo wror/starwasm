@@ -49,6 +49,9 @@ for (const l of ["def area(shape):", "\treturn shape.width * shape.height", "", 
 assert.deepEqual(await marks("area(box) + 1"), []);
 assert.deepEqual(await marks('total = 1 + "one"'), [[0, '1 + "one"', "cannot apply + to int and str"]]);
 assert.deepEqual(await marks("nosuch"), [[0, "nosuch", "undefined: nosuch"]]);
+// the "contagious None" extension's builtin is known
+assert.deepEqual(await marks("provenance(box)"), []);
+assert.deepEqual(await marks('provenance(box) + 1'), [[0, "provenance(box) + 1", "cannot apply + to list[tuple[str, str, str, int]] and int"]]);
 // the checker's notes follow its message
 assert.deepEqual(await marks("box.nme"), [[0, ".nme", "struct has no field 'nme' (did you mean 'name'?); it has 'width', 'height', 'name'\n" +
   "note: the struct is struct[width: int, height: int, name: str] (a struct made here) (input 2, line 1)"]]);
