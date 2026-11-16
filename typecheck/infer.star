@@ -29,6 +29,7 @@
 # A function context fc is {scope, ret, narrow, mod, def, reactive, observer}.
 
 load("../compiler/parser.star", "parse_file")
+load("../compiler/resolve.star", "called_names", "free_names")
 load("../compiler/spell.star", "nearest")
 load(
     "stubs.star",
@@ -220,6 +221,25 @@ def collect_bound(stmts, bound, order):
                 # its implicit relation of errors (EXTENSIONS.md)
                 _bound(bound, order, s["name"] + "Error", s["pos"])["reactive"] = {"relation": True, "errors_of": s["name"]}
 
+def _implicit_relations(stmts, scope, bound, order):
+    """Implicit relations (EXTENSIONS.md): a name that a relation's
+    definition reads and that nothing defines (the module doesn't bind it,
+    and it is no builtin) is a relation too, with its relation of errors."""
+    for s in stmts:
+        if s["kind"] != "reactive" or not s.get("relation", False):
+            continue
+        uses = []
+        free_names(s.get("when"), {}, uses)
+        free_names(s["value"], {}, uses)
+        called = {}  # a name that is called is no relation: undefined
+        called_names([s.get("when"), s["value"]], called)
+        for u in uses:
+            n = u["id"]
+            if called.get(n, False) or n in bound or _find(scope, n) != None:
+                continue
+            _bound(bound, order, n, u["pos"])["reactive"] = {"relation": True}
+            _bound(bound, order, n + "Error", u["pos"])["reactive"] = {"relation": True, "errors_of": n}
+
 def _bound(bound, order, name, pos):
     info = bound.get(name)
     if info == None:
@@ -237,6 +257,8 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
     bound = {}
     order = []
     collect_bound(stmts, bound, order)
+    if where == "":
+        _implicit_relations(stmts, scope, bound, order)
     for name in order:
         info = bound[name]
         pos = info["pos"]

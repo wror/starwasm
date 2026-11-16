@@ -30,3 +30,9 @@ print([o.size for o in order])
 
 # a relation's errors (orderError) are a relation too
 print([e.field + " after " + e.trigger for e in orderError])
+
+# an implicit relation (shipment: nothing defines it) has the fields read
+a delivery:
+    to: shipment.address.upper()
+    weight: shipment.kg * 2
+print([s.kg for s in shipment], shipmentError)

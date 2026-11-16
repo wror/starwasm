@@ -145,7 +145,13 @@ const codeOf = (entries) => entries.filter((c) => !c.update);
 
 function reactiveNames(entries) {
   // (a relation x also defines xError, its relation of errors)
-  return new Set(codeOf(entries).flatMap((c) => reactiveDefs(c.code).flatMap((d) => d.relation ? [d.name, d.name + "Error"] : [d.name])));
+  const names = new Set(codeOf(entries).flatMap((c) => reactiveDefs(c.code).flatMap((d) => d.relation ? [d.name, d.name + "Error"] : [d.name])));
+  // An update accepted earlier names a reactive variable too: an implicit
+  // relation, which has no definition (a name that a relation reads and
+  // nothing defines; the first update of one is found by the compiler's
+  // "cannot assign to reactive variable", see submit).
+  for (const c of entries) if (c.update) names.add(/^[A-Za-z_]\w*/.exec(c.src)[0]);
+  return names;
 }
 
 // The code for a statement input. After each definition of a reactive
@@ -165,7 +171,11 @@ function statementCode(src, num, names) {
   let code = src.replace(/\s+$/, "");
   const known = new Set(names);
   for (const { name, rest, relation } of reactiveDefs(code)) {
-    const derived = (rest.match(/[A-Za-z_]\w*/g) ?? []).some((w) => w !== name && known.has(w));
+    // (a relation reading `other.field`, other not known: an implicit
+    // relation, or a module; echoing costs nothing if it is never updated)
+    const derived = (rest.match(/[A-Za-z_]\w*/g) ?? []).some((w) => w !== name && known.has(w)) ||
+      (relation && [...rest.replace(/#[^\n]*|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/g, '""').matchAll(/(?<![\w.])([A-Za-z_]\w*)[ \t]*\.(?!\d)/g)]
+        .some((m) => m[1] !== name));
     known.add(name);
     if (relation) known.add(name + "Error");
     if (!derived) continue;

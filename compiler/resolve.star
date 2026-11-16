@@ -49,6 +49,81 @@ def collect_bindings(stmts, out):
             if n not in out:
                 out[n] = s["pos"]
 
+def free_names(e, bound, out):
+    """Append to out the name nodes of expression e that it doesn't bind
+    itself (as a comprehension variable or a lambda's parameter) and that
+    aren't in bound (name -> True), in source order."""
+    if e == None:
+        return
+    k = e["kind"]
+    if k == "name":
+        if not bound.get(e["id"], False):
+            out.append(e)
+    elif k == "list" or k == "tuple":
+        for x in e["elems"]:
+            free_names(x, bound, out)
+    elif k == "dict":
+        for key, val in e["entries"]:
+            free_names(key, bound, out)
+            free_names(val, bound, out)
+    elif k == "binop":
+        free_names(e["x"], bound, out)
+        free_names(e["y"], bound, out)
+    elif k == "unop" or k == "dot":
+        free_names(e["x"], bound, out)
+    elif k == "cond":
+        free_names(e["test"], bound, out)
+        free_names(e["then"], bound, out)
+        free_names(e["else_"], bound, out)
+    elif k == "call":
+        free_names(e["fn"], bound, out)
+        for a in e["args"]:
+            free_names(a["value"], bound, out)
+    elif k == "index":
+        free_names(e["x"], bound, out)
+        free_names(e["i"], bound, out)
+    elif k == "slice":
+        for part in [e["x"], e["lo"], e["hi"], e["step"]]:
+            free_names(part, bound, out)
+    elif k == "lambda":
+        inner = dict(bound)
+        for p in e["params"]:
+            free_names(p["default"], bound, out)  # evaluated where the lambda is
+            if p["name"] != None:
+                inner[p["name"]] = True
+        free_names(e["body"], inner, out)
+    elif k == "comp":
+        inner = dict(bound)
+        for c in e["clauses"]:
+            if c["kind"] == "for":
+                names = []
+                target_names(c["target"], names)
+                for n in names:
+                    inner[n] = True
+        first = True
+        for c in e["clauses"]:
+            if c["kind"] == "for":
+                # the first iterable is evaluated in the enclosing scope
+                free_names(c["iter"], bound if first else inner, out)
+                first = False
+            else:
+                free_names(c["test"], inner, out)
+        for x in (e["body"] if e["comp"] == "dict" else [e["body"]]):
+            free_names(x, inner, out)
+
+def called_names(x, out):
+    """out[name] = True for every name that AST x calls (`name(...)`)."""
+    t = type(x)
+    if t == "dict":
+        if x.get("kind") == "call" and x["fn"]["kind"] == "name":
+            out[x["fn"]["id"]] = True
+        for k, v in x.items():
+            if k != "pos":
+                called_names(v, out)
+    elif t == "list" or t == "tuple":
+        for v in x:
+            called_names(v, out)
+
 def new_scope(kind, parent):
     return {"kind": kind, "parent": parent, "bindings": {}, "free": [], "free_index": {}, "wasm": {}}
 

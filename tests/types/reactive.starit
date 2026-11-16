@@ -11,3 +11,7 @@ orderError: list[struct[id: int, order_id: Any, trigger: str, field: str, value:
 line: list[struct[product: str, count: int, id: int]]
 lineError: list[struct[id: int, line_id: Any, trigger: str, field: str, value: None]]
 summary: struct[id: int, last: str, lines: int]
+delivery: list[struct[id: int, to: str, weight: int]]
+deliveryError: list[struct[id: int, delivery_id: Any, trigger: str, field: str, value: None]]
+shipment: list[struct[address: str, kg: int, **Any]]
+shipmentError: list[struct[id: int, shipment_id: Any, trigger: str, field: str, value: None]]
