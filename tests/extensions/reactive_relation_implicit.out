@@ -1,0 +1,15 @@
+orders []
+shelves []
+requests []
+request errors []
+orders [struct(id = 1, product = "foo", size = 2)]
+requests [struct(id = 1, name = "foo", qty = 2)]
+last struct(id = 1, name = "foo")
+orders [struct(id = 1, product = "foo", size = 2), struct(id = 2, product = "bar", size = 10)]
+requests [struct(id = 1, name = "foo", qty = 2), struct(id = 2, name = "bar", qty = 30)]
+last struct(id = 2, name = "bar")
+shelves [struct(count = 2, id = 1, name = "foo")]
+orders [struct(id = 2, product = "bar", size = 10), struct(id = 1, product = "foo", size = 4)]
+requests [struct(id = 2, name = "bar", qty = 30), struct(id = 1, name = "foo", qty = 4)]
+last struct(id = 1, name = "foo")
+shelves [struct(count = 3, id = 1, name = "foo")]

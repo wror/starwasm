@@ -257,6 +257,39 @@ standard input.
     field `id`.
   - Only struct blocks can be relations: `an x : expr` is an error, "a
     relation (an x) must be defined by a struct block".
+  - Implicit relations: a name that a relation's definition (its block or
+    its `when` condition) reads and that nothing defines is a relation
+    too, one without a definition:
+
+        an order:
+            product: request.name
+            size: request.qty
+
+    is a whole program: `request` is a relation that is empty until
+    standard input assigns it members (`request = struct(id = 1, name =
+    "foo", qty = 2)`, which must have a field `id`), each of which updates
+    `order` as a member of a relation defined in the program would.
+    "Nothing defines it": no reactive definition, no other top-level
+    binding (an assignment, a def or a load, anywhere in the file), no
+    builtin; and the read isn't of a comprehension's variable or a
+    lambda's parameter. An implicit relation is there from the start of the
+    program, so any definition or observer may read it, even above the
+    relation that makes it one; a name that only lone definitions or
+    observers read is still "undefined". It is a relation like any other:
+    it has its relation of errors (`requestError`, which only gets a
+    member, with field `""`, when the value assigned is None: its fields
+    aren't known, so a None in one is not an error), and the type checker
+    gives it the fields that are read (`request: list[struct[name: Any,
+    qty: int, **Any]]`). In the REPL, where an input is compiled when it
+    is typed, a name bound only after the relation that reads it is
+    implicit too (so that later `request = ...` is an update, not a new
+    global: the compiler's `--repl`).
+    Code: reactive.star (`transform`, with `free_names` of resolve.star
+    and codegen's `is_builtin`), typecheck/infer.star
+    (`_implicit_relations`), host/repl_core.mjs (`reactiveNames`). Tests:
+    tests/extensions/reactive_relation_implicit.star,
+    reactive_relation_err_implicit.star, the end of tests/types/reactive.star
+    and of tests/repl/session.in.
   - No None fields: a member that would have None in one of its block's
     fields (a nested block's fields too) isn't applied at all. The
     relation stays exactly as it was (no member is added or replaced, no

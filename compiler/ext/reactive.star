@@ -51,7 +51,7 @@ load("../../lib/dsl.star", "arr_len", "arr_new_default", "arr_set", "as_", "call
 load("../../lib/runtime.star", "S")
 load("../../lib/wasm.star", "EQREF", "I32", "add_func", "import_func", "ref")
 load("../parser.star", "parse_file")
-load("../resolve.star", "collect_bindings", "target_names")
+load("../resolve.star", "collect_bindings", "free_names", "target_names")
 
 V = EQREF
 U8A = ref("U8")
@@ -438,6 +438,44 @@ def transform(cg, mc):
             reactive[s["name"]] = s
             if s.get("relation", False):
                 relations[s["name"]] = True
+    if not reactive:
+        return
+    mc["ext"]["reactive"] = True
+
+    # what else is bound at top level
+    bound = {}
+    collect_bindings([s for s in stmts if s["kind"] != "reactive"], bound)
+    for s in stmts:
+        if s["kind"] == "load":
+            for i, (local, _) in enumerate(s["names"]):
+                if local not in bound:
+                    bound[local] = s["namepos"][i]
+    # implicit relations: a name that a relation's definition reads and
+    # that nothing defines (no reactive definition, no other top-level
+    # binding, no builtin) is a relation too, with no definition of its
+    # own: it is empty until standard input assigns it members. (In a
+    # REPL session, --repl, what is bound only after the relation doesn't
+    # count: there, the relation was accepted before that binding was
+    # typed, which is then an error, "cannot assign to reactive
+    # variable", as for any other one.)
+    implicit = []
+    for s in stmts:
+        if s["kind"] != "reactive" or not s.get("relation", False):
+            continue
+        uses = []
+        free_names(s.get("when"), {}, uses)
+        free_names(s["value"], {}, uses)
+        for u in uses:
+            n = u["id"]
+            if reactive.get(n) != None or n.startswith("%"):
+                continue
+            if bound.get(n) != None and not (mc["repl"] and bound[n] > s["pos"]):
+                continue
+            if cg["is_builtin"](mc, n):
+                continue
+            reactive[n] = {"kind": "reactive", "name": n, "relation": True, "pos": u["pos"], "value": {"args": []}}
+            relations[n] = True
+            implicit.append(n)
     # each relation has an implicit one, <name>Error (see _r_reject): a
     # definition with no fields, which is never evaluated
     for name in list(relations):
@@ -447,18 +485,8 @@ def transform(cg, mc):
         r = reactive[name]
         reactive[ename] = {"kind": "reactive", "name": ename, "relation": True, "pos": r["pos"], "value": {"args": []}}
         relations[ename] = True
-    if not reactive:
-        return
-    mc["ext"]["reactive"] = True
 
     # nothing else may bind a reactive variable at top level
-    bound = {}
-    collect_bindings([s for s in stmts if s["kind"] != "reactive"], bound)
-    for s in stmts:
-        if s["kind"] == "load":
-            for i, (local, _) in enumerate(s["names"]):
-                if local not in bound:
-                    bound[local] = s["namepos"][i]
     for n in bound:
         r = reactive.get(n)
         if r != None:
@@ -476,6 +504,14 @@ def transform(cg, mc):
         _assign(_name(STATE, first), _state_dict(reactive, relations, [n for n in relations if reactive[n].get("when") != None], first), first),
         _assign(_name(NAMES, first), _names_table(stmts, bound, reactive, first), first),
     ]
+    # implicit relations are there from the start, empty (and so are
+    # their relations of errors)
+    for name in implicit:
+        posn = reactive[name]["pos"]
+        for i, n in enumerate([name, name + ERRORS]):
+            init = _prelude_call("_r_relation", [_name(VALUES, posn), _str(n, posn)], (posn[0], posn[1] + i))
+            out.append({"kind": "expr", "pos": posn, "x": init})
+            defined[n] = True
     nthunks = 0
     # what may be unset (relations' current members, and lone variables
     # computed from them, until a relation has a member)

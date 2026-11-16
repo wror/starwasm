@@ -102,3 +102,13 @@ request = struct(id = 3, name = "baz", qty = 2)
 request = struct(id = 3, name = "baz", qty = 5)
 request = struct(id = 4, name = "baz", qty = 6)
 big_order
+:reset
+an invoice:
+    total: purchase.price * purchase.qty
+
+purchase
+purchase = struct(id = 1, price = 3, qty = 2)
+purchase = struct(id = 2, price = 5, qty = 1)
+invoice
+purchase
+:type purchase

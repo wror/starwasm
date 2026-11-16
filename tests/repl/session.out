@@ -130,3 +130,10 @@ product_request = struct(id = 4, product = "baz")
 response = struct(id = 4, name = "baz", qty = 6)
 big_order = struct(id = 1, product = "baz", times = 2)
 [struct(id = 1, product = "baz", times = 2)]
+session cleared
+[]
+invoice = struct(id = 1, total = 6)
+invoice = struct(id = 2, total = 5)
+[struct(id = 1, total = 6), struct(id = 2, total = 5)]
+[struct(id = 1, price = 3, qty = 2), struct(id = 2, price = 5, qty = 1)]
+purchase: list[struct[price: Any, qty: Any, **Any]]
