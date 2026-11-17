@@ -371,22 +371,24 @@ term.addEventListener("click", (e) => {
   input.focus();
 });
 
-// Typing shows the end of the session. Focus hides controls on a touch
-// screen and raises its keyboard, which shrink the terminal: it scrolls to
-// the bottom after each. The page takes the height left by the keyboard
-// (iOS otherwise scrolls the page under it, header and input with it).
+// Typing shows the end of the session: focusing the input scrolls the
+// terminal to the bottom, after the controls hide (on a touch screen) and
+// as the on-screen keyboard comes up.
 const bottom = () => (term.scrollTop = term.scrollHeight);
-input.addEventListener("focus", () => requestAnimationFrame(bottom));
-if (window.visualViewport) {
-  const fit = () => {
-    const atBottom = term.scrollTop + term.clientHeight >= term.scrollHeight - 4;
-    // (not while zoomed in, which makes the visual viewport smaller too)
-    if (Math.abs(visualViewport.scale - 1) > 0.01) return;
-    document.body.style.height = `${visualViewport.height}px`;
-    window.scrollTo(0, 0);
-    if (atBottom || document.activeElement === input) bottom();
-  };
-  visualViewport.addEventListener("resize", fit);
+input.addEventListener("focus", () => {
+  requestAnimationFrame(bottom);
+  setTimeout(bottom, 400); // (the keyboard's animation)
+});
+window.visualViewport?.addEventListener("resize", () => {
+  if (document.activeElement === input) bottom();
+});
+
+// iOS zooms the page in to focus a text field with text under 16px (the
+// input's is 14px), and leaves it zoomed. maximum-scale stops that; iOS
+// still lets the user zoom by pinching.
+if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+  const vp = document.querySelector('meta[name="viewport"]');
+  vp.content += ", maximum-scale=1";
 }
 
 // Stop: the input running is dropped (it isn't in the journal); stopping
