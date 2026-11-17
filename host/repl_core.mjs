@@ -21,9 +21,9 @@ const concatText = (chunks) => {
 export function helpText({ web = false } = {}) {
   const prose = (text) => (web ? text : wrap(text, 76)) + "\n";
   return prose("Starlark REPL on the starwasm compiler. Each input recompiles and replays the session " +
-    "(Starlark is deterministic, so the state is exactly reproduced).") +
+    "(Starlark is deterministic, so the state is exactly reproduced).") + "\n" +
     `  :history        show inputs so far
-  :type expr      of name or expression
+  :type expr      name or expression
   :types          all types so far
   :check on|off   types on each line
   :reset          start over
