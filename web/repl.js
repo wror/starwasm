@@ -226,7 +226,14 @@ function start(note) {
       echoes.push(write(m.text, "echo"));
       mark(m.marks ?? [], null);
     }
-    else if (m.type === "out") write(m.text);
+    else if (m.type === "out") {
+      const { span } = write(m.text);
+      // :help taller than the terminal (a phone's): show it from its start
+      if (m.text.startsWith("Starlark REPL on")) {
+        const r = span.getBoundingClientRect();
+        if (r.height > term.clientHeight - 40) term.scrollTop += r.top - term.getBoundingClientRect().top - 12;
+      }
+    }
     else if (m.type === "err") write(m.text, "err");
     else if (m.type === "fatal") {
       write(m.text, "err");

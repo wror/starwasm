@@ -16,21 +16,34 @@ const concatText = (chunks) => {
   return decoder.decode(out);
 };
 
-export const HELP = `Starlark REPL on the starwasm compiler. Each input recompiles and replays the
-session (Starlark is deterministic, so the state is exactly reproduced).
-  expression      prints its repr and sets _
-  :history        show the inputs so far
+// :help's text. In a web page (web: true) there is no :quit, and the prose
+// isn't broken into lines: the page wraps it to its width.
+export function helpText({ web = false } = {}) {
+  const prose = (text) => (web ? text : wrap(text, 76)) + "\n";
+  return prose("Starlark REPL on the starwasm compiler. Each input recompiles and replays the session " +
+    "(Starlark is deterministic, so the state is exactly reproduced).") +
+    `  :history        show inputs so far
   :type expr      the type of an expression, or of a name (not evaluated)
-  :types          the types of everything defined so far
+  :types          all types so far
   :check on|off   check the types of each input before running it (off)
   :reset          start over
-  :quit           exit (or end of input)
-  x = 5           with x reactive (x : ...): sent to the program as input
-Blocks, open brackets and triple-quoted strings continue on "..." lines,
-which start indented as the block is (backspace to dedent); end a block
-with an empty line. Pasting from a REPL session (lines with the
-">>> " prompt) enters the lines typed there, not what was printed. A failing input is not kept.
-`;
+${web ? "" : "  :quit           exit (or end of input)\n"}  x = 5           with x reactive (x : ...): sent to the program as input
+` + prose('Blocks, open brackets and triple-quoted strings continue on "..." lines, ' +
+    "which start indented as the block is (backspace to dedent); end a block with an empty line. " +
+    'Pasting from a REPL session (lines with the ">>> " prompt) enters the lines typed there, ' +
+    "not what was printed. A failing input is not kept.");
+}
+export const HELP = helpText();
+
+// text's words in lines of at most width characters (a longer word alone)
+function wrap(text, width) {
+  const lines = [];
+  for (const word of text.split(" ")) {
+    if (lines.length && lines[lines.length - 1].length + 1 + word.length <= width) lines[lines.length - 1] += " " + word;
+    else lines.push(word);
+  }
+  return lines.join("\n");
+}
 
 // ---- classifying input
 
@@ -803,7 +816,7 @@ export class Session {
     } else if (cmd === ":history") {
       for (const c of this.history) this.out(`# <input ${c.num}>${c.update ? " (update)" : ""}\n${c.src.replace(/\s+$/, "")}\n`);
     } else {
-      this.out(HELP);
+      this.out(this.help ?? HELP);
     }
     return null;
   }
