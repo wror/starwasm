@@ -23,11 +23,12 @@ export function helpText({ web = false } = {}) {
   return prose("Starlark REPL on the starwasm compiler. Each input recompiles and replays the session " +
     "(Starlark is deterministic, so the state is exactly reproduced).") +
     `  :history        show inputs so far
-  :type expr      the type of an expression, or of a name (not evaluated)
+  :type expr      of name or expression
   :types          all types so far
-  :check on|off   check the types of each input before running it (off)
+  :check on|off   types on each line
   :reset          start over
-${web ? "" : "  :quit           exit (or end of input)\n"}  x = 5           with x reactive (x : ...): sent to the program as input
+${web ? "" : "  :quit           exit (or end of input)\n"}  x = 5           refresh reactive x
+
 ` + prose('Blocks, open brackets and triple-quoted strings continue on "..." lines, ' +
     "which start indented as the block is (backspace to dedent); end a block with an empty line. " +
     'Pasting from a REPL session (lines with the ">>> " prompt) enters the lines typed there, ' +
