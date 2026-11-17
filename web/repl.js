@@ -360,16 +360,34 @@ input.addEventListener("paste", (e) => {
 });
 
 // A click in the terminal focuses the input line, unless it selected text.
-// On a touch screen, only a short tap outside the output does: a tap on
-// the output may start selecting it to copy (a long press, which iOS ends
-// with a click), and focusing the input would drop that selection.
+// On a touch screen, only a short tap does: a long press may start
+// selecting the output to copy (iOS ends it with a click), and focusing the
+// input would drop that selection.
 let pointer = { type: "mouse", at: 0 };
 term.addEventListener("pointerdown", (e) => (pointer = { type: e.pointerType, at: e.timeStamp }));
 term.addEventListener("click", (e) => {
   if (getSelection().toString()) return;
-  if (pointer.type !== "mouse" && (out.contains(e.target) || e.timeStamp - pointer.at > 400)) return;
+  if (pointer.type !== "mouse" && e.timeStamp - pointer.at > 400) return;
   input.focus();
 });
+
+// Typing shows the end of the session. Focus hides controls on a touch
+// screen and raises its keyboard, which shrink the terminal: it scrolls to
+// the bottom after each. The page takes the height left by the keyboard
+// (iOS otherwise scrolls the page under it, header and input with it).
+const bottom = () => (term.scrollTop = term.scrollHeight);
+input.addEventListener("focus", () => requestAnimationFrame(bottom));
+if (window.visualViewport) {
+  const fit = () => {
+    const atBottom = term.scrollTop + term.clientHeight >= term.scrollHeight - 4;
+    // (not while zoomed in, which makes the visual viewport smaller too)
+    if (Math.abs(visualViewport.scale - 1) > 0.01) return;
+    document.body.style.height = `${visualViewport.height}px`;
+    window.scrollTo(0, 0);
+    if (atBottom || document.activeElement === input) bottom();
+  };
+  visualViewport.addEventListener("resize", fit);
+}
 
 // Stop: the input running is dropped (it isn't in the journal); stopping
 // the restore drops the saved session
