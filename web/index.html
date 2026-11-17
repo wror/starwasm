@@ -76,6 +76,11 @@
   }
   #status { color: var(--muted); font-size: 13px; min-width: 6em; }
   footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+  /* on touch screens the on-screen keyboard leaves little room while typing:
+     hide the help text then, so the session gets the space */
+  @media (pointer: coarse) {
+    body:has(#input:focus) footer { display: none; }
+  }
   a { color: var(--accent); }
   code { font: 13px ui-monospace, Menlo, Consolas, monospace; }
 </style>
@@ -107,7 +112,7 @@ Each input recompiles and replays the session. :help for help.
 <footer>
   Blocks and open brackets continue on <code>...</code> lines, indented as the block is (backspace dedents); end a block with an empty line.
   Pasting from a REPL session (lines with the <code>&gt;&gt;&gt;</code> prompt) enters what was typed there, not what was printed.
-  ↑/↓ history, Ctrl-L clears, Tab completes names, and after a <code>.</code> the fields or methods of the value's type. Files (<code>read_file</code>, <code>write_file</code>, <code>load</code>) live in memory.
+  ↑/↓ history, Ctrl-L clears, Tab completes names, and after a <code>.</code> the fields or methods of the value's type.
   Type errors in what you type are marked in red; point at one for the type checker's message.
   The session is saved in this browser and restored when you come back; <code>:reset</code> clears it and the screen.
   <a href="https://github.com/wror/starwasm">Source</a><!--sha-->
