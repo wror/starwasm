@@ -205,7 +205,9 @@ function start(note) {
       loading = false;
       setBusy();
       input.disabled = false;
-      input.focus();
+      // (not on a touch screen, where focus raises the keyboard and hides
+      // the controls before anything is tapped)
+      if (!matchMedia("(pointer: coarse)").matches) input.focus();
     } else if (m.type === "restored") {
       if (m.error) {
         write(`(the saved session no longer runs, so it was dropped:)\n${m.error}`, "err");
@@ -378,19 +380,26 @@ for (const c of document.querySelectorAll("input[data-flag]")) {
 }
 for (const b of document.querySelectorAll("[data-example]")) {
   b.addEventListener("click", () => {
+    // (no focus to the input: on a phone that would raise the keyboard
+    // over the example's output)
     for (const line of b.dataset.example.split("\n")) send(line);
-    input.focus();
   });
 }
 
 // the previous visit: its dialect and screen
 const saved = load("journal");
+let dropped = [];
 if (saved && Array.isArray(saved.flags)) {
   // (a session saved when the globalreassign toggle was that option alone
   // runs as well with --globalredefine, which the toggle now adds)
   for (const c of document.querySelectorAll("input[data-flag]")) c.checked = c.dataset.flag.split(" ").some((f) => saved.flags.includes(f));
-  if (JSON.stringify(saved.flags) !== JSON.stringify(flags())) save("journal", { ...saved, flags: flags() });
+  // (a session saved with an option no toggle offers any more, such as
+  // --recursion, may not run without it: it starts over)
+  const offered = new Set([...document.querySelectorAll("input[data-flag]")].flatMap((c) => c.dataset.flag.split(" ")));
+  dropped = saved.flags.filter((f) => !offered.has(f));
+  if (dropped.length) save("journal", null);
+  else if (JSON.stringify(saved.flags) !== JSON.stringify(flags())) save("journal", { ...saved, flags: flags() });
 }
 const shown = load("screen");
 if (Array.isArray(shown)) for (const [cls, text, marks] of shown) if (typeof text === "string") write(text, cls, true, Array.isArray(marks) ? marks : null);
-start();
+start(dropped.length ? `\n(the saved session used ${dropped.join(" ")}, which this REPL no longer offers; the session starts over)\n` : undefined);
