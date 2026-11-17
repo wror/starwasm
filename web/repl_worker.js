@@ -27,7 +27,7 @@
 // A session with reactive variables is replayed on each update (no
 // program is kept alive waiting for input, which would need
 // SharedArrayBuffer and so cross-origin isolation).
-import { Session } from "./host/repl_core.mjs";
+import { helpText, Session } from "./host/repl_core.mjs";
 
 let session = null;
 const files = new Map();
@@ -59,6 +59,7 @@ async function init(flags, journal) {
   session = new Session({
     compiler,
     dialectFlags: flags,
+    help: helpText({ web: true }),
     sessionPath: "session.star",
     wasmPath: "session.wasm",
     readFile(p) {
