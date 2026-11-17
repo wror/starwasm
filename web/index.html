@@ -77,9 +77,9 @@
   #status { color: var(--muted); font-size: 13px; min-width: 6em; }
   footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
   /* on touch screens the on-screen keyboard leaves little room while typing:
-     hide the help text then, so the session gets the space */
+     keep only the title and the Tab button then, so the session gets the space */
   @media (pointer: coarse) {
-    body:has(#input:focus) footer { display: none; }
+    body:has(#input:focus) :is(footer, .more) { display: none; }
   }
   a { color: var(--accent); }
   code { font: 13px ui-monospace, Menlo, Consolas, monospace; }
@@ -89,14 +89,13 @@
 <header>
   <h1>starwasm <span>Starlark REPL</span></h1>
   <div class="opts">
-    <label title="--globalreassign and --globalredefine: top-level names, functions too, may be bound again; while loops; if, for and while at top level"><input type="checkbox" data-flag="--globalreassign --globalredefine"> globalreassign, globalredefine</label>
-    <label><input type="checkbox" data-flag="--recursion"> recursion</label>
-    <label title="Operations on None give None, and provenance(x) says where a None comes from; always on in a session with reactive variables"><input type="checkbox" data-flag="--contagiousnone"> contagious None</label>
-    <button id="stop" title="Stop the running input (the rest of the session is kept)">Stop</button>
+    <label class="more" title="--globalreassign and --globalredefine: top-level names, functions too, may be bound again; while loops; if, for and while at top level"><input type="checkbox" data-flag="--globalreassign --globalredefine"> allow redefining globals</label>
+    <label class="more" title="Operations on None give None, and provenance(x) says where a None comes from; always on in a session with reactive variables"><input type="checkbox" data-flag="--contagiousnone"> contagious None</label>
+    <button id="stop" class="more" title="Stop the running input (the rest of the session is kept)">Stop</button>
     <button id="tab" title="Complete the name, field or method being typed (the Tab key)">Tab ⇥</button>
-    <span id="status"></span>
+    <span id="status" class="more"></span>
   </div>
-  <div class="opts">
+  <div class="opts more">
     Try:
     <button data-example="def fib(n):&#10;    a, b = 0, 1&#10;    for _ in range(n):&#10;        a, b = b, a + b&#10;    return a&#10;&#10;[fib(i) for i in range(12)]">a function</button>
     <button data-example="price : 10&#10;qty : 3&#10;total : price * qty&#10;total&#10;qty = 5&#10;price = 7">reactive variables</button>
