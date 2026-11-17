@@ -273,10 +273,13 @@ standard input.
     "Nothing defines it": no reactive definition, no other top-level
     binding (an assignment, a def or a load, anywhere in the file), no
     builtin; and the read isn't of a comprehension's variable or a
-    lambda's parameter, and the name isn't called in the definition
-    (`total(x)` with no `total` is "undefined: total": a member is a
-    struct, and a misspelt function shouldn't silently become a relation
-    that is never set). An implicit relation is there from the start of the
+    lambda's parameter; and the definition reads a field of it
+    (`request.name`) and doesn't call it. Any other undefined name is
+    "undefined", as without relations: `total(x)` with no `total`, or a
+    bare `qty` (in `qty: request.qty ?? qty`, meaning the previous value,
+    which is `order.qty`). A member is a struct, and a misspelling
+    shouldn't silently become a relation that is never set, leaving the
+    relation that reads it unset too. An implicit relation is there from the start of the
     program, so any definition or observer may read it, even above the
     relation that makes it one; a name that only lone definitions or
     observers read is still "undefined". It is a relation like any other:

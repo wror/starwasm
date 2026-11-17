@@ -124,6 +124,20 @@ def called_names(x, out):
         for v in x:
             called_names(v, out)
 
+def dotted_names(x, out):
+    """out[name] = True for every name that AST x reads a field of
+    (`name.field`)."""
+    t = type(x)
+    if t == "dict":
+        if x.get("kind") == "dot" and x["x"]["kind"] == "name":
+            out[x["x"]["id"]] = True
+        for k, v in x.items():
+            if k != "pos":
+                dotted_names(v, out)
+    elif t == "list" or t == "tuple":
+        for v in x:
+            dotted_names(v, out)
+
 def new_scope(kind, parent):
     return {"kind": kind, "parent": parent, "bindings": {}, "free": [], "free_index": {}, "wasm": {}}
 

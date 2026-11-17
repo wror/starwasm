@@ -51,7 +51,7 @@ load("../../lib/dsl.star", "arr_len", "arr_new_default", "arr_set", "as_", "call
 load("../../lib/runtime.star", "S")
 load("../../lib/wasm.star", "EQREF", "I32", "add_func", "import_func", "ref")
 load("../parser.star", "parse_file")
-load("../resolve.star", "called_names", "collect_bindings", "free_names", "target_names")
+load("../resolve.star", "called_names", "collect_bindings", "dotted_names", "free_names", "target_names")
 
 V = EQREF
 U8A = ref("U8")
@@ -465,11 +465,15 @@ def transform(cg, mc):
         uses = []
         free_names(s.get("when"), {}, uses)
         free_names(s["value"], {}, uses)
-        called = {}  # a name that is called is no relation: "undefined"
+        # only a name whose fields are read (`name.field`) and that isn't
+        # called: any other is "undefined" (a misspelling, a missing def)
+        called = {}
         called_names([s.get("when"), s["value"]], called)
+        dotted = {}
+        dotted_names([s.get("when"), s["value"]], dotted)
         for u in uses:
             n = u["id"]
-            if reactive.get(n) != None or n.startswith("%") or called.get(n, False):
+            if reactive.get(n) != None or n.startswith("%") or called.get(n, False) or not dotted.get(n, False):
                 continue
             if bound.get(n) != None and not (mc["repl"] and bound[n] > s["pos"]):
                 continue
