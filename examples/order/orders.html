@@ -1,0 +1,19 @@
+<!doctype html>
+<title>Orders</title>
+<h1>Orders</h1>
+<p><a href="/order/new">New order</a></p>
+<table>
+  <tr>
+    <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+    <th>Last update</th><th>Version</th><th></th>
+  </tr>
+  <tr $for="order">
+    <td>$order.clordid</td>
+    <td>$order.symbol</td>
+    <td>$order.qty</td>
+    <td>$order.price</td>
+    <td>$order.lastupdate</td>
+    <td>$order.version</td>
+    <td><a href="/order/$order.clordid">Edit</a></td>
+  </tr>
+</table>

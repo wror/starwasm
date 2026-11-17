@@ -3,3 +3,4 @@ out/
 scratch/
 .starwasm-repl-*
 __wasmcache__/
+*.serve.star

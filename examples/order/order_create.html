@@ -1,0 +1,11 @@
+<!doctype html>
+<title>New order</title>
+<h1>New order</h1>
+<p class="error" $if="error">$error</p>
+<form method="post" action="/order">
+  <label>Symbol <input name="symbol" required></label>
+  <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+  <label>Price <input name="price" type="number" min="0" step="any" required></label>
+  <button>Create</button>
+</form>
+<p><a href="/order">Back to orders</a></p>
