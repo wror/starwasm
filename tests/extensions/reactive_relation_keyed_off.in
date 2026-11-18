@@ -1,4 +1,4 @@
-request = struct(id = 5, qty = 100)
-request = struct(id = 6, qty = 200)
-fill = struct(id = 2, order_id = 5, shipment_id = 5, qty = 30)
-fill = struct(id = 3, order_id = 5, shipment_id = 5, qty = 20)
+request : struct(id = 5, qty = 100)
+request : struct(id = 6, qty = 200)
+fill : struct(id = 2, order_id = 5, shipment_id = 5, qty = 30)
+fill : struct(id = 3, order_id = 5, shipment_id = 5, qty = 20)

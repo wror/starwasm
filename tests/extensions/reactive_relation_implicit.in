@@ -1,7 +1,9 @@
-request = struct(id = 1, name = "foo", qty = 2)
-request = struct(id = 2, name = "bar", qty = 30)
-stock = struct(id = 1, name = "foo", added = [1, 2])
-request = struct(id = 1, name = "foo", qty = 4)
-stock = struct(id = 2, name = "foo", added = [3])
-request = None + 1
-request = 5
+request : struct(id = 1, name = "foo", qty = 2)
+request : struct(id = 2, name = "bar", qty = 30)
+stock : struct(id = 1, name = "foo", added = [1, 2])
+request : struct(id = 1, name = "foo", qty = 4)
+stock : struct(id = 2, name = "foo", added = [3])
+request : None + 1
+request : 5
+request = struct(id = 9, name = "old", qty = 1)
+request : struct(name = "noid", qty = 3)

@@ -5,7 +5,7 @@
 #   print("y is", y)      # re-run whenever y changes
 #
 # A program with reactive variables doesn't exit at the end of its top
-# level: it reads lines like `x = 5` or `x = f(4)` from standard input, sets the
+# level: it reads lines like `x : 5` or `x : f(4)` from standard input, sets the
 # variables, and recomputes everything that depends on them, transitively.
 #
 # Almost all of it is Starlark: the checks and the rewriting of the program
@@ -497,7 +497,7 @@ def transform(cg, mc):
                 # relation that made request implicit gives it a new value,
                 # as `request = value` does: the REPL sends it as standard
                 # input when the compiler says so (host/repl_core.mjs).
-                _err(main, r["pos"], "cannot assign to reactive variable " + n + " (only standard input changes it)")
+                _err(main, r["pos"], "cannot assign to reactive variable " + n + " (only standard input changes it: " + n + " : value)")
             if r != None or n.startswith("%") or called.get(n, False) or not dotted.get(n, False):
                 continue
             if bound.get(n) != None and not (mc["repl"] and bound[n] > s["pos"]):
@@ -524,7 +524,7 @@ def transform(cg, mc):
             if bound[n] < r["pos"]:
                 # bound first: the reactive definition is what's wrong
                 _err(main, r["pos"], "cannot define reactive variable " + n + ": " + n + " is already bound")
-            _err(main, bound[n], "cannot assign to reactive variable " + n + " (only standard input changes it)")
+            _err(main, bound[n], "cannot assign to reactive variable " + n + " (only standard input changes it: " + n + " : value)")
 
     cx = {"mod": main, "reactive": reactive, "relations": relations, "uses": []}
     defined = {}
@@ -896,7 +896,7 @@ def prelude(mc):
 # line numbers counted from the start of the string.
 RUNTIME = r'''
 def _reactive_input(values, nodes, state, names, before):
-    """Read lines of assignments `x = expression` (or `x : expression`),
+    """Read lines of assignments `x : expression`,
     separated by ";", set those reactive variables, and recompute what
     depends on them (_reactive_update). An expression may use the
     program's other top-level names and builtins (names: name -> function
@@ -957,6 +957,7 @@ def _reactive_update(values, nodes, state, assigns):
     changed = {}
     state["changed"] = changed  # for _r_tid
     for name, v in assigns:
+        v = _r_with_id(values, name, v, name in rels)
         if name in rels:
             state["trigger"] = name
             if _r_reject(values, state, name, [v]):
@@ -1180,6 +1181,23 @@ def _r_reject(values, state, name, members):
         }))
     state["changed"][ename] = True
     return True
+
+def _r_with_id(values, name, v, relation):
+    """v, assigned to name on standard input: if it is a struct with no
+    field id, with one as a struct block would have: for a relation, the
+    next free one (the largest + 1: a new member); for a lone variable
+    whose value has an id, that id + 1. Else v."""
+    if type(v) != "struct" or hasattr(v, "id"):
+        return v
+    if relation:
+        id = _r_rel_id(values, {"tid": None}, name)
+    elif hasattr(values[name], "id") and type(values[name].id) == "int":
+        id = values[name].id + 1
+    else:
+        return v
+    fields = {k: getattr(v, k) for k in dir(v)}
+    fields["id"] = id
+    return struct(**fields)
 
 def _r_upsert(values, name, v):
     """Add member v to relation name, first removing the member with v's id
@@ -1536,11 +1554,13 @@ def _r_line(p, values, names):
             break
         t = _r_next(p)
         if t["k"] != "name":
-            return _r_fail(p, "want a reactive variable name, then = and an expression", t["pos"])
+            return _r_fail(p, "want a reactive variable name, then : and an expression", t["pos"])
         if t["v"] not in values:
             return _r_fail(p, t["v"] + " is not a reactive variable", t["pos"])
-        if not _r_is(p, "=") and not _r_is(p, ":"):
-            return _r_fail(p, "want = after " + t["v"], _r_tok(p)["pos"])
+        if _r_is(p, "="):
+            return _r_fail(p, "want : after " + t["v"] + " (a new value is given as " + t["v"] + " : value)", _r_tok(p)["pos"])
+        if not _r_is(p, ":"):
+            return _r_fail(p, "want : after " + t["v"], _r_tok(p)["pos"])
         _r_next(p)
         e = _r_exprs(p)
         if p["err"] != None:

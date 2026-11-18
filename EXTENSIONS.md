@@ -81,7 +81,7 @@ as in Python.
 A variable defined at top level with `:` instead of `=` is *reactive*. A
 program that has any doesn't exit at the end of its top level: it reads
 standard input, where each line assigns new values to reactive
-variables (`width = 10`, `width = area(2, 3) + 1`, or `width = 6; height = 2`
+variables, in the syntax that defines them (`width : 10`, `width : area(2, 3) + 1`, or `width : 6; height : 2`
 to change several at once), and then recomputes every reactive variable that depends on them,
 transitively, and re-runs every top-level expression statement that reads
 one of them (`print("size is", size)` above). It stops at the end of
@@ -301,8 +301,9 @@ standard input.
             size: request.qty
 
     is a whole program: `request` is a relation that is empty until
-    standard input assigns it members (`request = struct(id = 1, name =
-    "foo", qty = 2)`, which must have a field `id`), each of which updates
+    standard input assigns it members (`request : struct(id = 1, name =
+    "foo", qty = 2)`; without a field `id`, it gets the next free one),
+    each of which updates
     `order` as a member of a relation defined in the program would.
     "Nothing defines it": no reactive definition, no other top-level
     binding (an assignment, a def or a load, anywhere in the file), no
@@ -323,12 +324,11 @@ standard input.
     gives it the fields that are read (`request: list[struct[name: Any,
     qty: int, **Any]]`). In the REPL, where an input is compiled when it
     is typed, a name bound only after the relation that reads it is
-    implicit too (so that later `request = ...` is an update, not a new
-    global: the compiler's `--repl`). Likewise `request : value`, with or
-    without `--globalreassign`: typed after the relation, it gives
-    `request` a new value (a member) as `request = value` does, instead of
+    implicit too, so that `request : value` (or a struct block `request:`)
+    typed after the relation gives it a new value, a member, instead of
     defining a lone variable that the relation would read before its
-    definition.
+    definition (the compiler's `--repl`), with or without
+    `--globalreassign`.
     Code: reactive.star (`transform`, with `free_names` of resolve.star
     and codegen's `is_builtin`), typecheck/infer.star
     (`_implicit_relations`), host/repl_core.mjs (`reactiveNames`). Tests:
@@ -417,9 +417,10 @@ standard input.
     relation keeps its members (only new updates use the new block), may
     gain or lose a `when` condition, and its `xError` is unchanged.
   - The type checker types the variable by its last definition.
-  - In the REPL, with redefining allowed, `x : ...` on one line is a
-    redefinition (and `x = ...` an update, as ever); a redefined variable
-    is echoed once, as before.
+  - In the REPL, `x : value` (one line, or a struct block) for a reactive
+    x gives it a new value (below); with redefining allowed, if the value
+    reads reactive variables (which a new value can't), it is a
+    redefinition instead. A redefined variable is echoed once, as before.
   - Without `--globalreassign`, a second definition is still "reactive
     variable x defined twice".
   - Code: reactive.star (`transform`, `_cycle`; at run time `_r_add_node`,
@@ -448,8 +449,9 @@ standard input.
   it to `rt_freeze` of each of the main module's globals and function
   values, except the runtime's `%` variables. Test:
   tests/extensions/reactive_frozen.star.
-- Input lines: `name = expression` (`:` also works), several separated
-  by `;`; blank lines and `#` comments are ignored. The expression may be
+- Input lines: `name : expression`, the syntax of a definition, several
+  separated by `;` (`name = expression` is refused: "want : after
+  name"); blank lines and `#` comments are ignored. The expression may be
   any Starlark expression except a lambda (literals of every kind,
   operators, `x if c else y`, calls with keyword and `*`/`**` arguments,
   indexing, slices, attributes and methods, list/tuple/dict displays and
@@ -458,7 +460,10 @@ standard input.
   values at the time) and the builtins abs, all, any, bool, bytes, chr,
   dict, enumerate, fail, float, getattr, hasattr, hash, int, len, list,
   max, min, ord, print, range, repr, reversed, set, sorted, str, tuple,
-  type, zip (and struct, if the program mentions it). Any reactive
+  type, zip (and struct, if the program mentions it). A struct assigned
+  without a field `id` gets one as a struct block would: for a relation
+  the next free one (a new member), for a lone variable whose value has
+  an `id`, that + 1. Any reactive
   variable can be set, derived ones too; a derived one keeps that value
   until something it depends on changes. A line that isn't valid (not a
   reactive variable, syntax, an undefined name, a reactive variable in
@@ -492,8 +497,11 @@ standard input.
   and the program stops (an internal error, exit status 3) without
   applying it. Programs without reactive variables never open FILE. Code:
   `journaled` in host/run.mjs; test: tests/journal.sh.
-- In the REPL (host/repl.mjs), an input assigning to reactive variables
-  (`x = 5`, `x = f(2)`) is sent to the program as a line of standard input.
+- In the REPL (host/repl.mjs), an input giving reactive variables new
+  values (`x : 5`, `x : f(2)`, or a struct block `x:` + `field: value`
+  lines, sent as `x : struct(field = value, ...)`) is sent to the program
+  as a line of standard input. (`x = 5` is an error, "cannot assign to
+  reactive variable x".)
   Replay keeps it in the session as an update and delivers it right after
   the inputs it followed (see sync points below), so later inputs see the
   new value. A failing update is not kept (with
@@ -506,7 +514,7 @@ standard input.
   update that program is dropped, and the next input replays the session
   to get a new one.) Whenever a reactive variable
   computed from others is recomputed to a new value, the REPL prints it
-  as `name = value` (e.g. `b = 12` after `a = 2`, with `b : a + 10`), via a
+  as `name = value` (e.g. `b = 12` after `a : 2`, with `b : a + 10`), via a
   hidden observer it adds after the definition; variables defined by
   literals change only when assigned, which isn't echoed. An expression
   typed at the prompt is evaluated once, like any other, even if it reads
@@ -609,7 +617,7 @@ reactive variables, unless it is compiled with `--nocontagiousnone`.)
     half : ratio(100, n)         # line 5
     print("half is", half)
 
-Sending `n = 0` on standard input prints, on stderr,
+Sending `n : 0` on standard input prints, on stderr,
 
     Traceback (most recent call last):
       prog.star:5:13: in <toplevel>
@@ -617,7 +625,7 @@ Sending `n = 0` on standard input prints, on stderr,
     Error: floored division by zero
 
 and on stdout `half is None`; the program then waits for the next line,
-and `n = 5` prints `half is 20`.
+and `n : 5` prints `half is 20`.
 
 - When: during updates, i.e. whenever a line of standard input (or, in
   the REPL, an assignment to a reactive variable) is being applied: the
@@ -842,9 +850,9 @@ and `n = 5` prints `half is 20`.
   through the definitions and observers that read it. (A relation's
   `when` condition that is None holds of no member, as before.)
   Expressions on standard input are contagious too, `or`, `and`, `if`-`else`
-  and comprehensions included, and they have `??` (`qty = [None][0] + 1` assigns None),
+  and comprehensions included, and they have `??` (`qty : [None][0] + 1` assigns None),
   and an operation on None written out is refused there as it is in the
-  program: `qty = None + 1` is a bad line, reported as `<stdin>:5:7: an
+  program: `qty : None + 1` is a bad line, reported as `<stdin>:5:7: an
   operation on None is always None (contagious None)` and ignored. (An
   operator, field, index, slice, call of None, `*None`, a test of None's
   truth or a comprehension over None: a builtin's None argument is only found when
@@ -1242,7 +1250,7 @@ of different types from one input to the next.
   file would have them.
 - `:check on` checks each input before it runs: one with type errors is
   reported and not run (so not kept). `:check off` (the default) runs
-  everything, as before. Updates of reactive variables (`x = 5`) are not
+  everything, as before. Updates of reactive variables (`x : 5`) are not
   checked.
 - Modules that the session `load()`s are checked with their `.start`
   files, if they have any; the session itself has none.

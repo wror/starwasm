@@ -1,2 +1,3 @@
 <stdin>:6:11: an operation on None is always None (contagious None)
 Error: fail: a member of relation request must have a field id, got int
+<stdin>:8:9: want : after request (a new value is given as request : value)

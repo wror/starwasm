@@ -85,15 +85,15 @@ h : half(r)
 # <input 33>
 print("h is", h)
 # <input 34> (update)
-r = 5
+r : 5
 # <input 35>
 h
 # <input 38> (update)
-r = 1; h = 99
+r : 1; h : 99
 # <input 40>
 print("g", h * 2)
 # <input 41> (update)
-r = 10
+r : 10
 session cleared
 11
 b = 12
@@ -102,6 +102,7 @@ b = 13
 13
 7
 b = 14
+<input 51>:1:1: cannot assign to reactive variable a (only standard input changes it: a : value)
 b = 20
 <input 54>:1:5: b is a reactive variable: a new value can't refer to one
 session cleared
@@ -142,3 +143,8 @@ session cleared
 order = struct(id = 1, qty = 100)
 order = struct(id = 2, qty = 5)
 [struct(id = 1, qty = 100), struct(id = 2, qty = 5)]
+session cleared
+order = struct(id = 1, qty = 100, size = 3)
+order = struct(id = 1, qty = [1, 2], size = 4)
+[struct(id = 1, qty = [1, 2], size = 4)]
+[struct(id = 1, qty = [1, 2], size = struct(w = 4))]

@@ -1,13 +1,13 @@
-request = struct(id = 1, item = "apple", qty = 2)
-request = struct(id = 1, item = "kiwi", qty = 5)
-request = struct(id = 2, item = "kiwi", qty = 1)
-request = struct(id = 1, item = "pear", qty = 4)
-order = struct(id = 7, item = "fig", price = [None][0], count = 0)
-order = struct(id = 7, item = "fig", price = 9, count = 0)
-order = 1 // 0
-rate = 5
-rate = 3
-rate = 2
-line = struct(id = 5, qty = 4, share = 0)
-rate = 4
-rate = 9
+request : struct(id = 1, item = "apple", qty = 2)
+request : struct(id = 1, item = "kiwi", qty = 5)
+request : struct(id = 2, item = "kiwi", qty = 1)
+request : struct(id = 1, item = "pear", qty = 4)
+order : struct(id = 7, item = "fig", price = [None][0], count = 0)
+order : struct(id = 7, item = "fig", price = 9, count = 0)
+order : 1 // 0
+rate : 5
+rate : 3
+rate : 2
+line : struct(id = 5, qty = 4, share = 0)
+rate : 4
+rate : 9
