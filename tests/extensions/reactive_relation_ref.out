@@ -1,5 +1,6 @@
 accounts []
 ledger []
+report struct(amount = None, id = 1)
 accounts [struct(balance = 10, deposits = 1, id = 7)]
 ledger [struct(amount = 10, id = 1, report_id = 5)]
 report struct(amount = 10, id = 5)

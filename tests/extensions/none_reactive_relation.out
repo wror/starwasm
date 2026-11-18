@@ -1,8 +1,10 @@
+last None
 orders []
 parcels []
 lines []
 order ids []
 line ids []
+struct(about = None, id = 1, what = None)
 last apple
 orders [struct(count = 1, id = 1, item = "apple", price = 3)]
 parcels [struct(cost = struct(total = 6), id = 1, item = "apple")]

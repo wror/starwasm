@@ -1,6 +1,7 @@
 orders []
 shelves []
 requests []
+last struct(id = 1, name = None)
 request errors []
 orders [struct(id = 1, product = "foo", size = 2)]
 requests [struct(id = 1, name = "foo", qty = 2)]

@@ -106,6 +106,7 @@ b = 20
 <input 54>:1:5: b is a reactive variable: a new value can't refer to one
 session cleared
 []
+struct(id = 1, name = None, qty = None)
 order = struct(id = 1, product = "foo", size = 2)
 product_request = struct(id = 1, product = "foo")
 response = struct(id = 1, name = "foo", qty = 2)

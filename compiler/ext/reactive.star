@@ -228,7 +228,7 @@ def _stmts(cx, stmts, bound, fn):
         elif k == "return":
             _expr(cx, s["value"], bound, fn)
 
-def _top_uses(cx, defined, e, self = None, observer = False):
+def _top_uses(cx, defined, e, self = None, observer = False, reader = None):
     """The reactive variables top-level expression e reads, checked to be
     defined already; each read is rewritten to %reactive["x"] (for a
     relation, its current member; in an observer, %reactive["x[]"], the
@@ -236,7 +236,10 @@ def _top_uses(cx, defined, e, self = None, observer = False):
     whether e reads `self` (the variable e defines): such reads become
     %prelude._r_self(%reactive, "self"), its previous value or, the first
     time, the identity element (see _in_context); in a relation,
-    _r_rel_self(%reactive, %rstate, "self"), the member being replaced."""
+    _r_rel_self(%reactive, %rstate, "self"), the member being replaced.
+    In a definition, a relation is read by _r_read: reader is the relation
+    being defined (one without a condition), whose update's key picks the
+    member read (see _r_read), or None."""
     cx["uses"] = []
     _expr(cx, e, {}, None)
     deps = []
@@ -257,7 +260,12 @@ def _top_uses(cx, defined, e, self = None, observer = False):
         if n not in deps:
             deps.append(n)
         u.clear()
-        u.update(_value_ref(n + "[]" if observer and cx["relations"].get(n, False) else n, posn))
+        if cx["relations"].get(n, False) and not observer:
+            args = [_name(VALUES, posn), _name(STATE, posn), _str(n, posn), _str(reader, posn) if reader != None else _none(posn),
+                    _str(cx["mod"]["path"], posn), {"kind": "int", "val": posn[0], "pos": posn}]
+            u.update(_prelude_call("_r_read", args, posn))
+        else:
+            u.update(_value_ref(n + "[]" if observer and cx["relations"].get(n, False) else n, posn))
     return deps, has_self
 
 # ---------------------------------------------------------------- self-reference
@@ -520,24 +528,28 @@ def transform(cg, mc):
             defined[n] = True
     nthunks = 0
     # what may be unset (relations' current members, and lone variables
-    # computed from them, until a relation has a member)
-    unset = dict(relations)
+    # computed from them, until a relation has a member). With contagious
+    # None (the default here), nothing: a relation with no member for an
+    # update reads as None (_r_read).
+    unset = {} if mc["contagious_none"] != False else dict(relations)
     for s in stmts:
         k = s["kind"]
         if defined:
             out.append(_input_call(s["pos"][0], s["pos"]))  # a sync point
         thunk = None
+        first = False  # a relation that reads no reactive variable: evaluated once now
         if k == "reactive":
             name = s["name"]
             posn = s["pos"]
             relation = relations.get(name, False)
             cond = s.get("when")  # `a name when cond:`
             cdeps = []
+            reader = name if relation and cond == None else None
             if cond != None:
                 cdeps, cond_self = _top_uses(cx, defined, cond, name)
                 if cond_self:
                     _in_context(cond)
-            deps, has_self = _top_uses(cx, defined, s["value"], name)
+            deps, has_self = _top_uses(cx, defined, s["value"], name, reader = reader)
             if has_self:
                 _in_context(s["value"])
             deps = cdeps + [d for d in deps if d not in cdeps]
@@ -574,6 +586,7 @@ def transform(cg, mc):
                 if required:
                     value = _if_ready(value, required, _name("%prelude._unset", posn))
                 out.append(_assign(_value_ref(name, posn), value, s["colon"]))
+            first = relation and not deps
             if cond != None:
                 # %r.<n>() = _r_when(%reactive, %rstate, name, %r.<n>.when,
                 # %r.<n>.value): the condition and the definition are
@@ -622,6 +635,10 @@ def transform(cg, mc):
                 {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in required]},
             ]}
             out.append({"kind": "expr", "pos": p, "x": _call({"kind": "dot", "x": _name(NODES, p), "name": "append", "pos": p}, [entry], p)})
+            if first:
+                # its first member, now: _r_first(%reactive, %rstate, name, %r.<n>)
+                args = [_name(VALUES, p), _name(STATE, p), _str(s["name"], p), _name(fname, p)]
+                out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_first", args, p)})
     p = stmts[-1]["pos"]
     out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_freeze", [], p)})
     out.append(_input_call(0, p))
@@ -883,19 +900,11 @@ def _reactive_update(values, nodes, state, assigns):
             _n_try(f)
             continue
         state["trigger"] = [d for d in deps if changed.get(d, False)][0]  # for _r_reject
+        if name in rels and not _n_on() and _r_unmatched(values, state, name, deps):
+            continue  # (without contagious None) what it reads has no member for this update
         v = _n_try(f)
-        if state["whens"].get(name, False):
-            if _n_none(v):  # the condition or the block failed
-                _r_reject(values, state, name, [v])
-                state["wself"] = None
-            elif v:  # _r_when updated it
-                changed[name] = True
-            continue
         if name in rels:
-            if _r_reject(values, state, name, [v]):
-                continue  # a member that failed, or with a None field: none is added
-            _r_upsert(values, name, v)
-            changed[name] = True
+            _r_apply(values, state, name, v, changed)
             continue
         if v != values[name] or _n_changed(values[name], v):
             changed[name] = True
@@ -920,6 +929,75 @@ def _r_ready(values, names):
         if _is_unset(values[n]):
             return False
     return True
+
+def _r_apply(values, state, name, v, changed):
+    """Apply v, the value of relation name's definition: a member, added
+    or replacing the one with its id (for a relation with a condition,
+    whether _r_when changed it). A member that failed, or has a None
+    field, isn't applied (_r_reject)."""
+    if state["whens"].get(name, False):
+        if _n_none(v):  # the condition or the block failed
+            _r_reject(values, state, name, [v])
+            state["wself"] = None
+        elif v:  # _r_when updated it
+            changed[name] = True
+        return
+    if _r_reject(values, state, name, [v]):
+        return
+    _r_upsert(values, name, v)
+    changed[name] = True
+
+def _r_first(values, state, name, f):
+    """The first run of the definition of relation name, which reads no
+    reactive variable: its first member (f: the definition's function)."""
+    state["changed"] = {}
+    state["trigger"] = name
+    _r_apply(values, state, name, f(), state["changed"])
+    state["changed"] = {}
+    state["tid"] = None
+    state["wself"] = None
+    state["trigger"] = None
+
+def _r_member(values, name, reader, tid):
+    """The member of relation name for the update of reader's member tid:
+    the last one whose field reader + "_id" is tid, or, for a member
+    without that field, whose id is; _unset if there is none."""
+    key = reader + "_id"
+    found = _unset
+    for m in values[name + "[]"]:
+        k = getattr(m, key) if hasattr(m, key) else getattr(m, "id", None)
+        if k == tid:
+            found = m
+    return found
+
+def _r_read(values, state, name, reader, file, line):
+    """Relation name, read in a definition (at file:line): in that of
+    relation reader (without a condition), its member for the update's
+    key (_r_member); else, or if the update has no key, its current
+    member. With contagious None, if there is none (it is empty, or no
+    member matches), a None that says so (provenance: ("relation", name,
+    file, line)); without, _unset (the update skips such a definition:
+    _r_unmatched)."""
+    v = values[name]
+    tid = state["tid"]
+    if reader != None and tid != None and not _is_unset(v):
+        v = _r_member(values, name, reader, tid)
+    if _is_unset(v) and _n_on():
+        return _n_tag(None, "relation", name, file, line)
+    return v
+
+def _r_unmatched(values, state, name, deps):
+    """Without contagious None: does a relation that relation name's
+    definition reads have no member for this update (_r_read)?"""
+    if state["whens"].get(name, False):
+        return False
+    tid = _r_tid(values, state, name, deps, True)
+    if tid == None:
+        return False
+    for d in deps:
+        if d != name and d in state["relations"] and _is_unset(_r_member(values, d, name, tid)):
+            return True
+    return False
 
 def _r_relation(values, name):
     """Relation name, empty."""
@@ -1103,7 +1181,17 @@ def _r_unit(op, other):
 def _r_self(values, name):
     return values[name] if name in values and not _is_unset(values[name]) else _identity
 
+def _r_isnone(x):
+    """Is x a None, with contagious None (which passes through the
+    functions below as through any operation)? (By its type: comparing
+    _identity with None fails during an update.)"""
+    return type(x) == "NoneType" and _n_on()
+
 def _r_binop(op, x, y):
+    if _r_isnone(x):
+        return x
+    if _r_isnone(y):
+        return y
     xi = _is_id(x)
     yi = _is_id(y)
     if xi and yi:
@@ -1156,6 +1244,8 @@ def _r_binop(op, x, y):
 def _r_unop(op, x):
     if _is_id(x):
         return _identity
+    if _r_isnone(x):
+        return x
     if op == "-":
         return -x
     if op == "+":
@@ -1169,13 +1259,13 @@ def _r_not(x):
     return not _r_truth(x)
 
 def _r_attr(x, name):
-    return _identity if _is_id(x) else _attr(x, name)
+    return _identity if _is_id(x) else x if _r_isnone(x) else _attr(x, name)
 
 def _r_index(x, i):
-    return _identity if _is_id(x) else x[i]
+    return _identity if _is_id(x) else x if _r_isnone(x) else i if _r_isnone(i) else x[i]
 
 def _r_slice(x, lo, hi, step):
-    return _identity if _is_id(x) else x[lo:hi:step]
+    return _identity if _is_id(x) else x if _r_isnone(x) else x[lo:hi:step]
 
 def _r_iter(x):
     return [] if _is_id(x) else x
