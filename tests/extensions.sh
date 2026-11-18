@@ -9,7 +9,8 @@
 # with a message containing <text>.
 # A test with a line "# option:globalreassign", "# option:globalredefine", "# option:recursion",
 # "# option:contagiousnone" or "# option:nocontagiousnone" is
-# compiled with that option. Each is compiled (if needed) and run by
+# compiled with that option. A test with a line "# skip:globalreassign" is
+# skipped when RUNFLAGS has --globalreassign (it tests what that allows). Each is compiled (if needed) and run by
 # node host/run.mjs, with the options RUNFLAGS as in tests/compile.sh.
 cd "$(dirname "$0")/.."
 mkdir -p out
@@ -17,6 +18,7 @@ fail=0
 nerr=0
 for src in tests/extensions/*.star; do
   name=$(basename "$src" .star)
+  case " $RUNFLAGS " in *" --globalreassign "*) grep -q '^# skip:globalreassign' "$src" && continue;; esac
   want=$(head -1 "$src" | sed -n 's/^# error: //p')
   opts="$(grep -q '^# option:globalreassign' "$src" && printf ' --globalreassign')$(grep -q '^# option:globalredefine' "$src" && printf ' --globalredefine')$(grep -q '^# option:recursion' "$src" && printf ' --recursion')$(grep -q '^# option:contagiousnone' "$src" && printf ' --contagiousnone')$(grep -q '^# option:nocontagiousnone' "$src" && printf ' --nocontagiousnone')$(grep -q '^# option:rollback' "$src" && printf ' --rollback')"
   if [ -n "$want" ]; then

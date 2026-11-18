@@ -181,7 +181,7 @@ function reactiveNames(entries) {
 // is None, and so is a string + None: `??` replaces it. And None is told by
 // its type: there `v == None` doesn't compile, and type(v) is None; without
 // contagious None it is "NoneType".)
-function statementCode(src, num, names) {
+function statementCode(src, num, names, echoed = new Set()) {
   let code = src.replace(/\s+$/, "");
   const known = new Set(names);
   for (const { name, rest, relation } of reactiveDefs(code)) {
@@ -195,6 +195,10 @@ function statementCode(src, num, names) {
     if (!derived) continue;
     // (a relation's errors, xError, are echoed like its members)
     for (const shownName of relation ? [name, name + "Error"] : [name]) {
+      // (a redefinition, with --globalreassign: an earlier input's echo
+      // shows it already)
+      if (echoed.has(shownName)) continue;
+      echoed.add(shownName);
       const seen = `_shown${num}_${shownName}`;
       const shown = JSON.stringify(shownName + " = ");
       code += `\n${seen} = []\n` + (relation
@@ -206,11 +210,17 @@ function statementCode(src, num, names) {
   return { code, offset: 0 };
 }
 
+// The reactive variables that earlier inputs echo (statementCode).
+function echoedNames(entries) {
+  return new Set(codeOf(entries).flatMap((c) => [...c.code.matchAll(/^_shown\d+_(\w+) = \[\]$/gm)].map((m) => m[1])));
+}
+
 // `x = expression...` (or `x : ...`) on one line, x a reactive variable: an
-// update, for the program's standard input.
-function isUpdate(src, names) {
+// update, for the program's standard input. (Where reactive variables may
+// be redefined, with --globalreassign, `x : ...` is a redefinition.)
+function isUpdate(src, names, redefine = false) {
   const t = src.trim();
-  const m = /^([A-Za-z_]\w*)\s*(=(?!=)|:)/.exec(t);
+  const m = (redefine ? /^([A-Za-z_]\w*)\s*(=(?!=))/ : /^([A-Za-z_]\w*)\s*(=(?!=)|:)/).exec(t);
   return !t.includes("\n") && m !== null && names.has(m[1]);
 }
 
@@ -702,7 +712,7 @@ export class Session {
     const num = ++this.inputNum;
     const history = this.history;
     const candidates = [];
-    if (isUpdate(src, reactiveNames(history))) {
+    if (isUpdate(src, reactiveNames(history), this.dialectFlags.includes("--globalreassign"))) {
       const c = { src: src.trim(), num, update: true };
       if (this.live) {
         // the program is waiting for input: just send it the line
@@ -723,7 +733,7 @@ export class Session {
       candidates.push({ src, num, ...echoCode(src) });
       candidates.push({ src, num, ...onceCode(src, num) });
     }
-    if (!candidates.length || !candidates[0].update) candidates.push({ src, num, ...statementCode(src, num, reactiveNames(history)) });
+    if (!candidates.length || !candidates[0].update) candidates.push({ src, num, ...statementCode(src, num, reactiveNames(history), echoedNames(history)) });
 
     if (this.checking && !candidates[0].update) {
       // :check on: an input with type errors is not run

@@ -389,6 +389,42 @@ standard input.
     variables it reads that may be unset, and runs only when they are set.
     Tests: tests/extensions/reactive_relation*.star, the end of
     tests/repl/session.in.
+- Redefinitions: with `--globalreassign` (in the browser REPL, "allow
+  redefining globals"), a reactive variable may be defined again, and the
+  last definition replaces the earlier one everywhere:
+
+      a : 1
+      x : a + 1
+      y : x * 10
+      x : a + 2      # y is now 30, and follows a + 2 from here on
+
+  - On the first run each definition runs where it is, as written; a
+    redefinition's value counts as a change of x, so what reads x
+    (definitions and observers, wherever they are) is recomputed right
+    away, as for standard input.
+  - From then on updates evaluate the new definition only, and in an
+    order where each definition comes after the variables it reads (not
+    source order: `y` above, defined between the two, runs after the new
+    `x`). So the definitions in force may not form a cycle: with `y : x +
+    1` in between, `x : y * 2` is a compile error, "reactive variable x
+    would depend on itself: x -> y -> x".
+  - A relation stays a relation, and a lone variable lone ("can't be
+    redefined as a relation", or "as a lone variable"). A redefined
+    relation keeps its members (only new updates use the new block), may
+    gain or lose a `when` condition, and its `xError` is unchanged.
+  - The type checker types the variable by its last definition.
+  - In the REPL, with redefining allowed, `x : ...` on one line is a
+    redefinition (and `x = ...` an update, as ever); a redefined variable
+    is echoed once, as before.
+  - Without `--globalreassign`, a second definition is still "reactive
+    variable x defined twice".
+  - Code: reactive.star (`transform`, `_cycle`; at run time `_r_add_node`,
+    which replaces the node and reorders `%nodes`, `_r_redefine`,
+    `_r_meta`), typecheck/infer.star (`collect_bound`, `_infer_reactive`),
+    host/repl_core.mjs (`isUpdate`, `echoedNames`). Tests:
+    tests/extensions/reactive_redefine.star, reactive_err_redefine_*.star,
+    tests/types/redefine.star, tests/repl/redefine.in (run with
+    `--globalreassign`).
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
 - Freezing: once the first run reaches the end of the top level, the main

@@ -437,12 +437,22 @@ def transform(cg, mc):
             if r != None:
                 _err(mod, r["pos"], "reactive variable " + r["name"] + " must be defined at top level")
     stmts = main["stmts"]
-    reactive = {}  # name -> its definition
+    reactive = {}  # name -> its (last) definition
+    redefined = {}  # name -> True, for a name defined more than once (--globalreassign)
     relations = {}  # name -> True, for relations (`a name:`)
     for s in stmts:
         if s["kind"] == "reactive":
-            if reactive.get(s["name"]) != None:
-                _err(main, s["pos"], "reactive variable " + s["name"] + " defined twice")
+            prev = reactive.get(s["name"])
+            if prev != None:
+                # with --globalreassign, a later definition replaces it
+                # (see "redefinitions" below); it must be of the same kind
+                if not mc["globalreassign"]:
+                    _err(main, s["pos"], "reactive variable " + s["name"] + " defined twice")
+                if prev.get("relation", False) != s.get("relation", False):
+                    what = "a relation" if s.get("relation", False) else "a lone variable (not a relation)"
+                    _err(main, s["pos"], "reactive variable " + s["name"] + " can't be redefined as " + what +
+                                         " (defined at " + str(prev["pos"][0]) + ":" + str(prev["pos"][1]) + ")")
+                redefined[s["name"]] = True
             reactive[s["name"]] = s
             if s.get("relation", False):
                 relations[s["name"]] = True
@@ -526,6 +536,16 @@ def transform(cg, mc):
             init = _prelude_call("_r_relation", [_name(VALUES, posn), _str(n, posn)], (posn[0], posn[1] + i))
             out.append({"kind": "expr", "pos": posn, "x": init})
             defined[n] = True
+    # Redefinitions (--globalreassign): every definition of x assigns it
+    # in place on the first run, as written; once a later one has run, its
+    # node replaces the earlier one's in %nodes (_r_add_node), which puts
+    # %nodes back in an order where each node comes after the variables it
+    # reads (not source order: a definition between the two that reads x
+    # now runs after x's new one). The redefinition's value counts as a
+    # change of x (_r_redefine): what reads x is recomputed. The active
+    # definitions may not form a cycle (checked below, as each is added).
+    active = {}  # name -> the variables its active definition reads
+    seen_def = {}  # names whose first definition was seen
     nthunks = 0
     # what may be unset (relations' current members, and lone variables
     # computed from them, until a relation has a member). With contagious
@@ -542,6 +562,8 @@ def transform(cg, mc):
             name = s["name"]
             posn = s["pos"]
             relation = relations.get(name, False)
+            redef = seen_def.get(name, False)  # a later definition of it (--globalreassign)
+            seen_def[name] = True
             cond = s.get("when")  # `a name when cond:`
             cdeps = []
             reader = name if relation and cond == None else None
@@ -572,7 +594,16 @@ def transform(cg, mc):
             required = [d for d in deps if unset.get(d, False)]
             if required:
                 unset[name] = True
-            if relation:
+            if redefined.get(name, False):
+                # its kind, field shapes and condition are this definition's
+                # (_r_apply, _r_reject)
+                args = [_name(STATE, posn), _str(name, posn), _shape(s["value"], posn) if relation else _none(posn),
+                        _name("True" if cond != None else "False", posn)]
+                out.append({"kind": "expr", "pos": posn, "x": _prelude_call("_r_meta", args, posn)})
+            redef_value = None
+            if relation and redef:
+                pass  # a redefined relation keeps its members
+            elif relation:
                 # it starts empty (its definition is evaluated only on updates)
                 # (and so does its implicit relation of errors)
                 for i, n in enumerate([name, name + ERRORS]):
@@ -585,8 +616,17 @@ def transform(cg, mc):
                 value = s["value"]
                 if required:
                     value = _if_ready(value, required, _name("%prelude._unset", posn))
-                out.append(_assign(_value_ref(name, posn), value, s["colon"]))
+                if redef:
+                    redef_value = value  # assigned once its node is in place
+                else:
+                    out.append(_assign(_value_ref(name, posn), value, s["colon"]))
             first = relation and not deps
+            if redefined:
+                active[name] = [d for d in deps if d != name]
+                cyc = _cycle(active, name)
+                if cyc:
+                    _err(main, posn, "reactive variable " + name + " would depend on itself: " + " -> ".join(cyc) +
+                                     " (a redefinition replaces the earlier definition everywhere)")
             if cond != None:
                 # %r.<n>() = _r_when(%reactive, %rstate, name, %r.<n>.when,
                 # %r.<n>.value): the condition and the definition are
@@ -634,7 +674,15 @@ def transform(cg, mc):
                 {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in deps]},
                 {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in required]},
             ]}
-            out.append({"kind": "expr", "pos": p, "x": _call({"kind": "dot", "x": _name(NODES, p), "name": "append", "pos": p}, [entry], p)})
+            if redefined.get(s.get("name"), False) and k == "reactive":
+                # (replacing an earlier definition's node)
+                out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_add_node", [_name(NODES, p), entry], p)})
+            else:
+                out.append({"kind": "expr", "pos": p, "x": _call({"kind": "dot", "x": _name(NODES, p), "name": "append", "pos": p}, [entry], p)})
+            if k == "reactive" and redef_value != None:
+                # x's new value, as a change of x: what reads it is recomputed
+                args = [_name(VALUES, p), _name(NODES, p), _name(STATE, p), _str(s["name"], p), redef_value]
+                out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_redefine", args, s["colon"])})
             if first:
                 # its first member, now: _r_first(%reactive, %rstate, name, %r.<n>)
                 args = [_name(VALUES, p), _name(STATE, p), _str(s["name"], p), _name(fname, p)]
@@ -643,6 +691,31 @@ def transform(cg, mc):
     out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_freeze", [], p)})
     out.append(_input_call(0, p))
     main["stmts"] = out
+
+def _cycle(active, name):
+    """A path name -> ... -> name through the variables the active
+    definitions read, or None."""
+    path = [name]
+    seen = {}
+    stack = [(name, 0)]
+    for _ in range(1 << 30):
+        if not stack:
+            return None
+        n, i = stack[-1]
+        deps = active.get(n, [])
+        if i >= len(deps):
+            stack.pop()
+            path.pop()
+            continue
+        stack[-1] = (n, i + 1)
+        d = deps[i]
+        if d == name:
+            return path + [name]
+        if d in active and not seen.get(d, False):
+            seen[d] = True
+            stack.append((d, 0))
+            path.append(d)
+    return None
 
 def _if_ready(e, required, otherwise):
     """`e if %prelude._r_ready(%reactive, required) else otherwise`."""
@@ -946,6 +1019,58 @@ def _r_apply(values, state, name, v, changed):
         return
     _r_upsert(values, name, v)
     changed[name] = True
+
+def _r_meta(state, name, shape, when):
+    """Relation name's kind as its (re)definition says (--globalreassign):
+    its fields' shape (or None: not a relation) and whether it has a
+    condition."""
+    if shape != None:
+        state["relations"][name] = shape
+    state["whens"][name] = when
+
+def _r_add_node(nodes, entry):
+    """Add node entry (name, function, deps, required), replacing the node
+    of the same name (an earlier definition of it, --globalreassign), and
+    put nodes in an order in which each comes after the nodes of the
+    variables it reads (else in the order they were added)."""
+    name = entry[0]
+    rest = [n for n in nodes if n[0] == None or n[0] != name]
+    rest.append(entry)
+    producers = {}
+    for n in rest:
+        if n[0] != None:
+            producers[n[0]] = True
+    done = {}  # names whose node is placed
+    placed = [False for _ in rest]
+    out = []
+    for _ in range(len(rest)):
+        for i, n in enumerate(rest):
+            if placed[i]:
+                continue
+            ready = True
+            for d in n[2]:
+                if d != n[0] and producers.get(d, False) and not done.get(d, False):
+                    ready = False
+                    break
+            if ready:
+                placed[i] = True
+                out.append(n)
+                if n[0] != None:
+                    done[n[0]] = True
+                break
+    if len(out) != len(rest):
+        fail("reactive variables depend on each other in a cycle")
+    nodes.clear()
+    nodes.extend(out)
+
+def _r_redefine(values, nodes, state, name, v):
+    """A redefinition of lone variable name (--globalreassign) gave value
+    v: set it, and recompute what reads it, as for standard input."""
+    _reactive_update(values, nodes, state, [(name, v)])
+    state["changed"] = {}
+    state["tid"] = None
+    state["wself"] = None
+    state["trigger"] = None
 
 def _r_first(values, state, name, f):
     """The first run of the definition of relation name, which reads no
