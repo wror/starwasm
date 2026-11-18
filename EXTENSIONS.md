@@ -1132,8 +1132,14 @@ types (but see None below) and no classes; types are structural.
   A division, `x / y` or `x // y`, is optional too, since it is None
   where `y` is zero (see "Errors in a reactive program"), unless `y` is a
   nonzero number literal: `n / 2` is a `float`, `a / b` a `float | None`
-  (`(a / b) ?? 0.0` is a `float`). So `x /= y` is an error unless `y` is
-  such a literal: `x` can't be both; write `x = (x / y) ?? 0.0`.
+  (`(a / b) ?? 0.0` is a `float`).
+  Arithmetic needs no test: as None is contagious, an operator (`+ - * /
+  // % | & ^ << >>`) with an operand that may be None gives a result that
+  may be None, and with operands that can't, one that can't. So
+  `d.get("k") + 1` is an `int | None`, `total /= n` makes `total` a `float
+  | None`, and `best = None` then `best += x` is fine. This is only for an
+  operator applied to the value itself: a def whose parameter is used
+  with `+` still wants a non-None argument.
 - **Numbers**: an `int` is accepted where a `float` is wanted. An int
   literal is an `int` unless it is put where a float is kept: after `total
   = 0`, `total += 1.5` makes `total` a float; `[1, 2.5]` is a

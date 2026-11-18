@@ -39,3 +39,18 @@ def ratio_or[T: Div[U, float], U](a: T, b: U) -> float
 def scaled(total: float) -> float
 def ratio_tested[T: Div[U, int], U](a: T, b: U) -> float:
     r: int | None
+def divide_in_place[T: Div[U, T], U](total: T | None, n: U) -> T | None
+def average[X: Sized & Iterable[float]](xs: X) -> float | None:
+    total: float
+    x: float
+def plus_one(d: dict[str, int]) -> int | None
+def product[T: Mul[T, U], U](d: dict[str, T]) -> U | None
+def accumulate[T: Iterable[U], U, V: Add[U, V]](xs: T) -> V | None:
+    best: V | None
+    x: U
+def plain(a: int, b: int) -> int
+def suffixed(d: dict[str, str]) -> str | None
+in_place: float | None
+plus: int | None
+prod: float | None
+acc: int | None

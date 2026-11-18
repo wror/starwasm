@@ -821,8 +821,7 @@ def _infer_assign(st, fc, s):
     res = _fresh(st, fc)
     bop = op[:-1]
     ctx = _ctx(fc, s.get("oppos") or s["pos"], "operand of " + op)
-    add_pred(st, binop_pred(bop, lt, rt, res, ctx), ctx)
-    res = _maybe_div_none(fc, bop, s["rhs"], res, s.get("oppos") or s["pos"])
+    res = _arith(st, fc, bop, lt, rt, s["rhs"], res, ctx, s.get("oppos") or s["pos"])
     if lhs["kind"] in ["name", "index", "dot"]:
         assign_target(st, fc, lhs, res, "result of " + op)
 
@@ -1090,8 +1089,7 @@ def _infer_binop(st, fc, e):
         return con("bool", [], _ctx(fc, pos, "a membership test"))
     res = _fresh(st, fc)
     ctx = _ctx(fc, pos, "operand of " + op)
-    add_pred(st, binop_pred(op, a, b, res, ctx), ctx)
-    return _maybe_div_none(fc, op, e["y"], res, pos)
+    return _arith(st, fc, op, a, b, e["y"], res, ctx, pos)
 
 def _nonzero_literal(e):
     """e is a number literal other than zero (or its negation)."""
@@ -1099,10 +1097,17 @@ def _nonzero_literal(e):
         return _nonzero_literal(e["x"])
     return (e["kind"] == "int" or e["kind"] == "float") and e["val"] != 0
 
-def _maybe_div_none(fc, op, divisor, res, pos):
-    """x / y and x // y are None where y is zero (an error becomes a None),
-    so their result is optional, unless y is a nonzero number literal."""
-    if (op == "/" or op == "//") and not _nonzero_literal(divisor):
+def _arith(st, fc, op, a, b, divisor, res, ctx, pos):
+    """The type of a <op> b, with res for its result as the operator
+    gives it. x / y and x // y are None where y is zero (an error becomes
+    a None), so they are optional, unless y is a nonzero number literal.
+    (An operand that may be None makes the result optional too: the
+    solver does that, but not again where it is optional already.)"""
+    p = binop_pred(op, a, b, res, ctx)
+    div = (op == "/" or op == "//") and not _nonzero_literal(divisor)
+    p["optional"] = div
+    add_pred(st, p, ctx)
+    if div:
         return mk_opt(res, _ctx(fc, pos, "a division (None if the divisor is zero)"))
     return res
 

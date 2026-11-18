@@ -929,6 +929,28 @@ def solve_binop(st, p, ctx):
     if is_con(l, "Any") or is_con(r, "Any"):
         unify(st, p["res"], T_ANY, pctx)
         return
+    if is_con(l, "opt") or is_con(r, "opt"):
+        # an operand that may be None: the operation on it is None (None
+        # is contagious), so the result is optional: solve it for the
+        # operands without None, then make the result optional (unless
+        # it is already: a division's, or one that is the operand again,
+        # as in x += 1)
+        p["l"] = l["args"][0] if is_con(l, "opt") else l
+        p["r"] = r["args"][0] if is_con(r, "opt") else r
+        p["kind"] = "binop"
+        p["subj"] = p["l"]
+        res = resolve(p["res"])
+        if is_con(res, "opt"):
+            p["res"] = res["args"][0]
+        elif not p.get("optional", False):
+            inner = new_var(st, "type", _level_of(res) if res["k"] == "var" else 0)
+            if not _check(st, p, ctx, con("opt", [inner], pctx), res, "result of " + op, False):
+                return
+            p["res"] = inner
+            p["optional"] = True
+        p["args"] = [p["r"], p["res"]]
+        solve_binop(st, p, ctx)
+        return
     if op in NUMERIC_OPS and (_is_num(l) or _is_num(r)):
         # an operand is an int literal (or a variable that so far only
         # held one): the result is a float if the other operand is, and

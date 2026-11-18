@@ -76,6 +76,8 @@ hit = lookup({"a": 1}, "a")
 
 # Division: x / y and x // y are None where y is zero (the error becomes
 # a None), so they may be None, unless y is a nonzero number literal.
+# And arithmetic on a value that may be None may be None (None is
+# contagious): only operands that can't be None give a result that can't.
 
 def ratio(a, b):
     return a / b
@@ -101,3 +103,36 @@ def ratio_tested(a, b):
     if r == None:
         return 0.0
     return r + 1
+
+def divide_in_place(total, n):
+    total /= n
+    return total
+
+def average(xs):
+    total = 0.0
+    for x in xs:
+        total += x
+    return total / len(xs) + 1
+
+def plus_one(d):
+    return d.get("k") + 1
+
+def product(d):
+    return d.get("a") * d.get("b")
+
+def accumulate(xs):
+    best = None
+    for x in xs:
+        best += x
+    return best
+
+def plain(a, b):
+    return a + b * 2
+
+def suffixed(d):
+    return d.get("k") + "!"
+
+in_place = divide_in_place(1.0, 2)
+plus = plus_one({"k": 1})
+prod = product({"a": 2.0})
+acc = accumulate([1, 2])

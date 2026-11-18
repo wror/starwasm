@@ -10,10 +10,6 @@ def shout(d):
     v = d.get("k")
     return v.upper()
 
-def next_after(xs):
-    r = find(xs, 1)
-    return r + 1
-
 def count(n = None):
     return range(n)
 
@@ -25,10 +21,3 @@ def pass_on(d):
 
 def fields(p = None):
     return p.name
-
-def tested_too_late(d):
-    v = d.get("k")
-    w = v + 1
-    if v != None:
-        return w
-    return 0
