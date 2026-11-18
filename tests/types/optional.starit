@@ -31,3 +31,11 @@ zero: int
 three: int
 steps: list[int]
 hit: int | None
+def ratio[T: Div[U, V], U, V](a: T, b: U) -> V | None
+def floor_ratio[T: FloorDiv[U, V], U, V](a: T, b: U) -> V | None
+def halves(n: float) -> tuple[float, float, float]
+def by_zero(n: float) -> float | None
+def ratio_or[T: Div[U, float], U](a: T, b: U) -> float
+def scaled(total: float) -> float
+def ratio_tested[T: Div[U, int], U](a: T, b: U) -> float:
+    r: int | None

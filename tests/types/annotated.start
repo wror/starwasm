@@ -15,7 +15,7 @@ def first[T](xs: list[T]) -> T
 def pick[L: str, T, **R](r: struct[L: T, **R], field: L) -> T
 
 # locals (and nested defs) are annotated in the def's block
-def mean(values: list[float], weight: float) -> float:
+def mean(values: list[float], weight: float) -> float | None:
     total: float
 
 def describe[**R](p: struct[name: str, age: int, **R]) -> str:

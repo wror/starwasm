@@ -1129,6 +1129,11 @@ types (but see None below) and no classes; types are structural.
   ...`, `x if x else ...`, an early `if x == None: return` (or `fail`,
   `break`, `continue`), or an assignment of a non-None value, `x` is a
   `T`. Only variables are narrowed (not `p.x`), and only by these forms.
+  A division, `x / y` or `x // y`, is optional too, since it is None
+  where `y` is zero (see "Errors in a reactive program"), unless `y` is a
+  nonzero number literal: `n / 2` is a `float`, `a / b` a `float | None`
+  (`(a / b) ?? 0.0` is a `float`). So `x /= y` is an error unless `y` is
+  such a literal: `x` can't be both; write `x = (x / y) ?? 0.0`.
 - **Numbers**: an `int` is accepted where a `float` is wanted. An int
   literal is an `int` unless it is put where a float is kept: after `total
   = 0`, `total += 1.5` makes `total` a float; `[1, 2.5]` is a

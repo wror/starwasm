@@ -73,3 +73,31 @@ zero = length(None)
 three = length("abc")
 steps = previous([1, 4, 9])
 hit = lookup({"a": 1}, "a")
+
+# Division: x / y and x // y are None where y is zero (the error becomes
+# a None), so they may be None, unless y is a nonzero number literal.
+
+def ratio(a, b):
+    return a / b
+
+def floor_ratio(a, b):
+    return a // b
+
+def halves(n):
+    return n / 2, n // 2, n / -2.5
+
+def by_zero(n):
+    return n / 0
+
+def ratio_or(a, b):
+    return (a / b) ?? 0.0
+
+def scaled(total):
+    total /= 4
+    return total
+
+def ratio_tested(a, b):
+    r = a / b
+    if r == None:
+        return 0.0
+    return r + 1

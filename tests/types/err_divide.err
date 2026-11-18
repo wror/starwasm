@@ -1,0 +1,10 @@
+tests/types/err_divide.star:5:28: error: left operand of + may be None (it is float | None): test it against None first
+    5 |     return total / len(xs) + 1
+      |                            ^
+tests/types/err_divide.star:10:5: error: result of /= to 'total': left operand of / may be None (it is _ | None): test it against None first
+   10 |     total /= n
+      |     ^
+tests/types/err_divide.star:10:11: note: required here (operand of /=)
+   10 |     total /= n
+      |           ^
+2 type errors in tests/types/err_divide.star

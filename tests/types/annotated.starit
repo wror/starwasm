@@ -4,7 +4,7 @@
 def area(shape: struct[width: int, height: int]) -> int
 def first[T](xs: list[T]) -> T
 def pick[L: str, T, **R](r: struct[L: T, **R], field: L) -> T
-def mean(values: list[float], weight: float) -> float:
+def mean(values: list[float], weight: float) -> float | None:
     total: float
     v: float
 def describe[**R](p: struct[name: str, age: int, **R]) -> str:
@@ -25,5 +25,5 @@ handler: ((str) -> None) | None
 r: int
 f: str
 p: int
-m: float
+m: float | None
 c: int

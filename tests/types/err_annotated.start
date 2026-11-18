@@ -2,7 +2,7 @@ def area(shape: struct[width: int, height: int]) -> int
 def first[T](xs: list[T]) -> T
 def identity[T](x: T) -> T
 def find[T](xs: list[T], want: T) -> T
-def mean(values: list[float]) -> float:
+def mean(values: list[float]) -> float | None:
     total: float
 def size[X: Sized](x: X) -> int
 limit: int

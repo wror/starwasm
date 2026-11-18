@@ -822,6 +822,7 @@ def _infer_assign(st, fc, s):
     bop = op[:-1]
     ctx = _ctx(fc, s.get("oppos") or s["pos"], "operand of " + op)
     add_pred(st, binop_pred(bop, lt, rt, res, ctx), ctx)
+    res = _maybe_div_none(fc, bop, s["rhs"], res, s.get("oppos") or s["pos"])
     if lhs["kind"] in ["name", "index", "dot"]:
         assign_target(st, fc, lhs, res, "result of " + op)
 
@@ -1090,6 +1091,19 @@ def _infer_binop(st, fc, e):
     res = _fresh(st, fc)
     ctx = _ctx(fc, pos, "operand of " + op)
     add_pred(st, binop_pred(op, a, b, res, ctx), ctx)
+    return _maybe_div_none(fc, op, e["y"], res, pos)
+
+def _nonzero_literal(e):
+    """e is a number literal other than zero (or its negation)."""
+    if e["kind"] == "unop" and e["op"] in ["-", "+"]:
+        return _nonzero_literal(e["x"])
+    return (e["kind"] == "int" or e["kind"] == "float") and e["val"] != 0
+
+def _maybe_div_none(fc, op, divisor, res, pos):
+    """x / y and x // y are None where y is zero (an error becomes a None),
+    so their result is optional, unless y is a nonzero number literal."""
+    if (op == "/" or op == "//") and not _nonzero_literal(divisor):
+        return mk_opt(res, _ctx(fc, pos, "a division (None if the divisor is zero)"))
     return res
 
 def _infer_comp(st, fc, e):
