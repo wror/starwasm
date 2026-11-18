@@ -136,3 +136,11 @@ in_place = divide_in_place(1.0, 2)
 plus = plus_one({"k": 1})
 prod = product({"a": 2.0})
 acc = accumulate([1, 2])
+
+# Formatting: "%s" % x is None where x is (None is contagious through
+# %), but a None inside a tuple of values is formatted as "None".
+def formatted(d):
+    return "%s" % d.get("k")
+
+def formatted_in_tuple(d):
+    return "%s!" % (d.get("k"),)

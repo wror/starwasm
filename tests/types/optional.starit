@@ -54,3 +54,5 @@ in_place: float | None
 plus: int | None
 prod: float | None
 acc: int | None
+def formatted[T](d: dict[str, T]) -> str | None
+def formatted_in_tuple[T](d: dict[str, T]) -> str
