@@ -155,6 +155,20 @@ standard input.
   not, e.g. `id: a.id + 10`) nothing is added and the struct is exactly
   as written. Nested blocks get no `id`, nor does a plain
   `a : struct(...)`.
+  Partial updates: when an update recomputes a struct block (lone or a
+  relation's), a field that reads other reactive variables is recomputed
+  only if one of them changed in this update (directly or through others);
+  else it keeps its value from the previous one (for a relation, the
+  member being replaced). So `executed: order.executed + (fill.qty ?? 0)`
+  adds a fill once, when the fill arrives, and not again when the order's
+  request changes. A field that reads no other reactive variable (a
+  constant, or a counter like `updates: order.updates + 1` reading only
+  the variable itself) is recomputed on every update, as is every field of
+  a new member or one missing from the previous value. The fields of a
+  nested block follow the same rule each on its own. (The first run, a
+  redefinition and an assignment on standard input compute every field.)
+  Code: reactive.star (`_field_deps`, `_partial`; at run time `_r_fresh`,
+  `_r_sub`); test: tests/extensions/reactive_partial.star.
   Code: parser.star (`parse_struct_block`; it sets `implicit_id`) and
   reactive.star (`_next_id` adds the field). Tests:
   tests/extensions/reactive_struct.star, reactive_struct_id.star,

@@ -1,0 +1,9 @@
+orders []
+tag struct(id = 1, seen = "x", size = 1)
+orders [struct(cost = struct(total = 0, unit = 0), executed = 0, id = 5, qty = 100, status = "open", updates = 1)]
+orders [struct(cost = struct(total = 0, unit = 0), executed = 30, id = 5, qty = 100, status = "open", updates = 2)]
+orders [struct(cost = struct(total = 0, unit = 0), executed = 30, id = 5, qty = 150, status = "open", updates = 3)]
+orders [struct(cost = struct(total = 300, unit = 2), executed = 30, id = 5, qty = 150, status = "open", updates = 4)]
+tag struct(id = 2, seen = "x", size = 2)
+tag struct(id = 3, seen = "xy", size = 2)
+tag struct(id = 4, seen = "xy", size = 3)

@@ -578,6 +578,8 @@ def transform(cg, mc):
                 cdeps, cond_self = _top_uses(cx, defined, cond, name)
                 if cond_self:
                     _in_context(cond)
+            if s["value"].get("block", False):
+                _field_deps(s["value"], name, cx["reactive"])  # (before reads are rewritten)
             deps, has_self = _top_uses(cx, defined, s["value"], name, reader = reader)
             if has_self:
                 _in_context(s["value"])
@@ -641,13 +643,16 @@ def transform(cg, mc):
                 fname = "%r." + str(nthunks)
                 fns = []
                 for suffix, e in [(".when", cond), (".value", s["value"])]:
+                    e = _copy(e)
+                    if suffix == ".value":
+                        e = _partial(e, name, True)
                     out.append({"kind": "def", "name": fname + suffix, "params": [], "pos": posn, "display": "<toplevel>",
-                                "body": [{"kind": "return", "value": _copy(e), "pos": posn}]})
+                                "body": [{"kind": "return", "value": e, "pos": posn}]})
                     fns.append(_name(fname + suffix, posn))
                 call = _prelude_call("_r_when", [_name(VALUES, posn), _name(STATE, posn), _str(name, posn)] + fns, posn)
                 thunk = ([{"kind": "return", "value": call, "pos": posn}], _str(name, posn))
             elif deps or relation:
-                body = [{"kind": "return", "value": _copy(s["value"]), "pos": posn}]
+                body = [{"kind": "return", "value": _partial(_copy(s["value"]), name, relation), "pos": posn}]
                 if keyed:
                     body = [_tid_stmt(name, deps, relation, posn)] + body
                 thunk = (body, _str(name, posn))
@@ -698,6 +703,64 @@ def transform(cg, mc):
     out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_freeze", [], p)})
     out.append(_input_call(0, p))
     main["stmts"] = out
+
+# ---- partial updates: in an update, a struct block's field that reads
+# other reactive variables is recomputed only if one of them changed in
+# the update; else it keeps its value from the previous one (for a
+# relation, the member being replaced). A field that reads none (a
+# constant, or a counter reading only the variable's own previous value,
+# `n: x.n + 1`) is always recomputed. Fields of nested blocks likewise, each on its own. A new
+# member, or a previous value without the field, gets every field computed.
+
+def _field_deps(block, self, reactive):
+    """Mark each field of struct block `block` (of variable self) with the
+    reactive variables it reads ("%deps", self excluded); nested blocks'
+    fields too. (The block's implicit id isn't one of its fields here.)"""
+    for a in block["args"]:
+        if a["name"] == None or a["name"] == "id":
+            continue
+        v = a["value"]
+        if v.get("block", False):
+            _field_deps(v, self, reactive)
+            continue
+        uses = []
+        free_names(v, {}, uses)
+        deps = []
+        for u in uses:
+            n = u["id"]
+            if n != self and reactive.get(n) != None and n not in deps:
+                deps.append(n)
+        a["%deps"] = deps
+
+def _partial(block, name, relation, prev = None):
+    """block, a copy of variable name's struct block for an update, with
+    each field marked by _field_deps that reads other reactive variables
+    becoming `value if _r_fresh(%rstate, prev, field, deps) else
+    _r_sub(prev, field)`; prev: the previous value (for a relation, the member being
+    replaced), or for a nested block, its field of that."""
+    if not block.get("block", False):
+        return block
+    posn = block["pos"]
+    if prev == None:
+        if relation:
+            prev = _prelude_call("_r_rel_self", [_name(VALUES, posn), _name(STATE, posn), _str(name, posn)], posn)
+        else:
+            prev = _prelude_call("_r_self", [_name(VALUES, posn), _str(name, posn)], posn)
+    for a in block["args"]:
+        if a["name"] == None or a["name"] == "id":
+            continue
+        v = a["value"]
+        p = v["pos"]
+        if v.get("block", False):
+            _partial(v, name, relation, _prelude_call("_r_sub", [_copy(prev), _str(a["name"], p)], p))
+            continue
+        if not a.get("%deps"):
+            continue  # (none: always recomputed)
+        names = {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in a["%deps"]]}
+        test = _prelude_call("_r_fresh", [_name(STATE, p), _copy(prev), _str(a["name"], p), names], p)
+        old = _prelude_call("_r_sub", [_copy(prev), _str(a["name"], p)], p)
+        a["value"] = {"kind": "cond", "test": test, "then": v, "else_": old, "pos": p}
+    return block
 
 def _cycle(active, name):
     """A path name -> ... -> name through the variables the active
@@ -1079,6 +1142,25 @@ def _r_redefine(values, nodes, state, name, v):
     state["tid"] = None
     state["wself"] = None
     state["trigger"] = None
+
+def _r_sub(x, f):
+    """Field f of x, a previous value (_partial); the identity if it has
+    none."""
+    if type(x) == "struct" and hasattr(x, f):
+        return getattr(x, f)
+    return _identity
+
+def _r_fresh(state, prev, f, deps):
+    """Is field f of a struct block, which reads reactive variables deps,
+    recomputed in this update (_partial)? Yes if one of them changed in
+    it, or if the previous value prev has no field f (a new member)."""
+    if type(prev) != "struct" or not hasattr(prev, f):
+        return True
+    changed = state["changed"]
+    for d in deps:
+        if changed.get(d, False):
+            return True
+    return False
 
 def _r_first(values, state, name, f):
     """The first run of the definition of relation name, which reads no

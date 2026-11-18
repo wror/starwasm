@@ -1,0 +1,7 @@
+request : struct(id = 5, qty = 100)
+fill : struct(id = 2, order_id = 5, qty = 30)
+request : struct(id = 5, qty = 150)
+price : struct(id = 1, order_id = 5, amount = 2)
+a_size : 2
+a_name : "y"
+a_size : 3
