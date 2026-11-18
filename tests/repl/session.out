@@ -138,3 +138,7 @@ invoice = struct(id = 2, total = 5)
 [struct(id = 1, total = 6), struct(id = 2, total = 5)]
 [struct(id = 1, price = 3, qty = 2), struct(id = 2, price = 5, qty = 1)]
 purchase: list[struct[price: Any, qty: Any, **Any]]
+session cleared
+order = struct(id = 1, qty = 100)
+order = struct(id = 2, qty = 5)
+[struct(id = 1, qty = 100), struct(id = 2, qty = 5)]

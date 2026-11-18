@@ -9,3 +9,6 @@ order = struct(id = 1, qty = 3)
 order = struct(id = 2, qty = 400)
 [struct(id = 1, qty = 3), struct(id = 2, qty = 400)]
 <input 14>:1:1: reactive variable x would depend on itself: x -> z -> x (a redefinition replaces the earlier definition everywhere)
+session cleared
+order = struct(id = 1, qty = 100)
+[struct(id = 1, qty = 100)]

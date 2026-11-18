@@ -491,7 +491,14 @@ def transform(cg, mc):
         dotted_names([s.get("when"), s["value"]], dotted)
         for u in uses:
             n = u["id"]
-            if reactive.get(n) != None or n.startswith("%") or called.get(n, False) or not dotted.get(n, False):
+            r = reactive.get(n)
+            if r != None and mc["repl"] and r["pos"] > s["pos"] and not r.get("relation", False) and dotted.get(n, False) and not called.get(n, False):
+                # In a REPL session, `request : value` typed after a
+                # relation that made request implicit gives it a new value,
+                # as `request = value` does: the REPL sends it as standard
+                # input when the compiler says so (host/repl_core.mjs).
+                _err(main, r["pos"], "cannot assign to reactive variable " + n + " (only standard input changes it)")
+            if r != None or n.startswith("%") or called.get(n, False) or not dotted.get(n, False):
                 continue
             if bound.get(n) != None and not (mc["repl"] and bound[n] > s["pos"]):
                 continue

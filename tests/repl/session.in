@@ -112,3 +112,10 @@ purchase = struct(id = 2, price = 5, qty = 1)
 invoice
 purchase
 :type purchase
+:reset
+an order:
+	qty: request.qty
+
+request : struct(id=1, qty=100)
+request : struct(id=2, qty=5)
+order

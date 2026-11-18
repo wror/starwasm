@@ -324,7 +324,11 @@ standard input.
     qty: int, **Any]]`). In the REPL, where an input is compiled when it
     is typed, a name bound only after the relation that reads it is
     implicit too (so that later `request = ...` is an update, not a new
-    global: the compiler's `--repl`).
+    global: the compiler's `--repl`). Likewise `request : value`, with or
+    without `--globalreassign`: typed after the relation, it gives
+    `request` a new value (a member) as `request = value` does, instead of
+    defining a lone variable that the relation would read before its
+    definition.
     Code: reactive.star (`transform`, with `free_names` of resolve.star
     and codegen's `is_builtin`), typecheck/infer.star
     (`_implicit_relations`), host/repl_core.mjs (`reactiveNames`). Tests:
