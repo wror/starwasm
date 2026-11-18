@@ -35,7 +35,7 @@
 //   in a terminal with bracketed paste) enters the lines typed there,
 //   without their ">>> " and "... " prompts, and not what the REPL printed.
 // - Reactive variables (compiler/ext/reactive.star): an input that assigns
-//   new values to them (`x = 5`, `x = f(2); y = 2`) is sent to the program
+//   new values to them (`x : 5`, `x : f(2); y : 2`) is sent to the program
 //   as a line of standard input, as host/run.mjs would. It joins the session as
 //   an update, which replay delivers at the sync point right after the
 //   inputs it followed, so later inputs see the new values.

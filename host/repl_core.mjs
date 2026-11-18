@@ -27,7 +27,7 @@ export function helpText({ web = false } = {}) {
   :types          all types so far
   :check on|off   types on each line
   :reset          start over
-${web ? "" : "  :quit           exit (or end of input)\n"}  x = 5           refresh reactive x
+${web ? "" : "  :quit           exit (or end of input)\n"}  x : 5           new value for reactive x (or a struct block)
 
 ` + prose('Blocks, open brackets and triple-quoted strings continue on "..." lines, ' +
     "which start indented as the block is (backspace to dedent); end a block with an empty line. " +
@@ -215,14 +215,71 @@ function echoedNames(entries) {
   return new Set(codeOf(entries).flatMap((c) => [...c.code.matchAll(/^_shown\d+_(\w+) = \[\]$/gm)].map((m) => m[1])));
 }
 
-// `x = expression...` (or `x : ...`) on one line, x a reactive variable: an
-// update, for the program's standard input. (Where reactive variables may
-// be redefined, with --globalreassign, `x : ...` is a redefinition.)
-function isUpdate(src, names, redefine = false) {
-  const t = src.trim();
-  const m = (redefine ? /^([A-Za-z_]\w*)\s*(=(?!=))/ : /^([A-Za-z_]\w*)\s*(=(?!=)|:)/).exec(t);
-  return !t.includes("\n") && m !== null && names.has(m[1]);
+// A new value for reactive variable x, as one line of the program's
+// standard input (`x : expression`), from `x : expression` on one line or
+// from a struct block (`x:` + indented `field: value` lines, a nested block
+// for a nested struct), which becomes `x : struct(field = value, ...)`; or
+// null if src is neither. (Whether x is reactive is the caller's to say.)
+export function updateLine(src) {
+  const t = src.replace(/\s+$/, "").replace(/^\s+/, "");
+  if (!t.includes("\n")) {
+    const m = /^[A-Za-z_]\w*[ \t]*:(?!=)(.*)$/.exec(t);
+    return m && stripComment(m[1]).trim() !== "" ? t : null;
+  }
+  const lines = t.split("\n").map(stripComment);
+  if (lines.some((l) => l === null)) return null;
+  const head = /^([A-Za-z_]\w*)[ \t]*:$/.exec(lines[0].trimEnd());
+  if (!head) return null;
+  const body = blockExpr(lines.slice(1).filter((l) => l.trim() !== ""));
+  return body === null ? null : `${head[1]} : ${body}`;
 }
+
+// line without its comment (outside strings); null if it has a
+// triple-quoted string (which a one-line form can't hold)
+function stripComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+    } else if (c === "#") return line.slice(0, i).trimEnd();
+    else if (c === '"' || c === "'") {
+      if (line.startsWith(c.repeat(3), i)) return null;
+      quote = c;
+    }
+  }
+  return line;
+}
+
+// `struct(field = value, ...)` for the lines of a struct block's body
+// (comments gone, blank lines dropped), or null if they aren't one
+function blockExpr(lines) {
+  const indentOf = (l) => /^[ \t]*/.exec(l)[0].length;
+  if (!lines.length || indentOf(lines[0]) === 0) return null;
+  const ind = indentOf(lines[0]);
+  const fields = [];
+  for (let i = 0; i < lines.length;) {
+    if (indentOf(lines[i]) !== ind) return null;
+    const m = /^[ \t]*([A-Za-z_]\w*)[ \t]*:(.*)$/.exec(lines[i++]);
+    if (!m) return null;
+    let value = m[2].trim();
+    if (value === "") {
+      const sub = [];
+      while (i < lines.length && indentOf(lines[i]) > ind) sub.push(lines[i++]);
+      value = blockExpr(sub);
+      if (value === null) return null;
+    } else {
+      while (scan(value).depth > 0 && i < lines.length) value += " " + lines[i++].trim();
+    }
+    fields.push(`${m[1]} = ${value}`);
+  }
+  return `struct(${fields.join(", ")})`;
+}
+
+const nameOf = (line) => /^[A-Za-z_]\w*/.exec(line)[0];
+// standard input's "x is a reactive variable: a new value can't refer to one"
+const refersToReactive = (err) => /is a reactive variable: a new value can't refer to one/.test(err);
 
 // The code for an expression input: evaluate into `_`, print its repr.
 function echoCode(src) {
@@ -712,28 +769,39 @@ export class Session {
     const num = ++this.inputNum;
     const history = this.history;
     const candidates = [];
-    if (isUpdate(src, reactiveNames(history), this.dialectFlags.includes("--globalreassign"))) {
-      const c = { src: src.trim(), num, update: true };
-      if (this.live) {
-        // the program is waiting for input: just send it the line
-        const r = await this.live.send(c.src);
-        this.out(r.stdout);
-        if (r.idle && r.err === "") {
-          history.push(c);
-          this.printed += r.stdout;
-          this.onChange?.();
-        } else {
-          this.err(this.mapPositions(r.err, [...history, c]));
-          this.dropLive(); // its state may differ from the session's now
-        }
+    // `x : value` (or a struct block `x:`), x reactive: a new value, sent
+    // to the program as standard input. With --globalreassign, if the
+    // value reads reactive variables, it is a redefinition of x instead.
+    const line = updateLine(src);
+    const redefine = this.dialectFlags.includes("--globalreassign");
+    let asUpdate = line !== null && reactiveNames(history).has(nameOf(line));
+    if (asUpdate && this.live) {
+      // the program is waiting for input: just send it the line
+      const c = { src: line, num, update: true };
+      const r = await this.live.send(c.src);
+      this.out(r.stdout);
+      if (r.idle && r.err === "") {
+        history.push(c);
+        this.printed += r.stdout;
+        this.onChange?.();
         return;
       }
-      candidates.push(c); // replay, which starts a live program
-    } else if (!looksLikeStatement(src)) {
+      if (!(redefine && r.idle && refersToReactive(r.err))) {
+        this.err(this.mapPositions(r.err, [...history, c]));
+        this.dropLive(); // its state may differ from the session's now
+        return;
+      }
+      asUpdate = false; // (the program ignored the line) a redefinition
+    } else if (asUpdate) {
+      candidates.push({ src: line, num, update: true }); // replay, which starts a live program
+    }
+    if (asUpdate && !redefine) {
+      // (only the update)
+    } else if (!asUpdate && !looksLikeStatement(src)) {
       candidates.push({ src, num, ...echoCode(src) });
       candidates.push({ src, num, ...onceCode(src, num) });
     }
-    if (!candidates.length || !candidates[0].update) candidates.push({ src, num, ...statementCode(src, num, reactiveNames(history), echoedNames(history)) });
+    if (!candidates.length || !candidates[0].update || redefine) candidates.push({ src, num, ...statementCode(src, num, reactiveNames(history), echoedNames(history)) });
 
     if (this.checking && !candidates[0].update) {
       // :check on: an input with type errors is not run
@@ -748,14 +816,19 @@ export class Session {
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i];
       result = await this.run([...history, c]);
-      // `x = 5` with x reactive: send it to the program as standard input
-      // (only when that error is in this input: one about an earlier input
-      // means this input is wrong some other way, e.g. `a : 2` after `a = 1`)
-      if (!result.ok && result.compile && i === candidates.length - 1 && !src.trim().includes("\n") &&
-          result.error.includes(`<input ${num}>:`) && result.error.includes("cannot assign to reactive variable")) {
-        candidates.push({ src: src.trim(), num, update: true });
+      // `x : 5` with x reactive but not known as such here (an implicit
+      // relation, which the compiler knows): send it to the program as
+      // standard input (only when that error is in this input: one about an
+      // earlier input means this input is wrong some other way, e.g. `a : 2`
+      // after `a = 1`)
+      if (!result.ok && result.compile && i === candidates.length - 1 && line !== null && !c.update &&
+          result.error.includes(`<input ${num}>:`) && result.error.includes("cannot assign to reactive variable " + nameOf(line) + " ")) {
+        candidates.push({ src: line, num, update: true });
         continue;
       }
+      // a new value that reads reactive variables: with --globalreassign,
+      // a redefinition (the next candidate)
+      if (!result.ok && c.update && i < candidates.length - 1 && refersToReactive(result.error)) continue;
       // An expression wrapper that doesn't compile: try the next form.
       if (!result.ok && result.compile && i < candidates.length - 1) continue;
       if (result.ok) history.push(c);

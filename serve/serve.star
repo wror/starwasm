@@ -21,7 +21,7 @@
 #   print("%serve", "order", order)
 #   print("%serve", "sync", _serve_sync)
 #
-# A POST becomes a line of the program's standard input, `x = struct(...)`
+# A POST becomes a line of the program's standard input, `x : struct(...)`
 # followed by `_serve_sync = "<n>"`; what the program prints up to
 # `%serve sync <n>` is that update's output. (<n> names this run of the
 # server too: a journal replays the lines of earlier runs.)
@@ -163,7 +163,7 @@ def _exchange(server, lines):
     seq = "%s.%d" % (server["run"], server["seq"])  # unlike any in a journal
     for line in lines:
         send(line)
-    send("%s = \"%s\"" % (SYNC, seq))
+    send("%s : \"%s\"" % (SYNC, seq))
     changed = {}
     log = []
     for _ in range(1 << 30):
@@ -308,7 +308,7 @@ def _post(server, req, name, member):
             id = member["id"]
         else:
             id = 1 + max([0] + [m["id"] for m in server["values"][name] if type(m.get("id")) == "int"])
-        changed, log = _exchange(server, ["%s = struct(%s)" % (rel["input"], ", ".join(["id = " + _source(id)] + args))])
+        changed, log = _exchange(server, ["%s : struct(%s)" % (rel["input"], ", ".join(["id = " + _source(id)] + args))])
         if name in changed:
             return 303, {"Location": "/" + name}, ""
         errors = [l for l in log if l.startswith("Error") or l.startswith("<stdin>:")]
