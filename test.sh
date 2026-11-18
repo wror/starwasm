@@ -154,6 +154,13 @@ if node host/repl.mjs out/stage2.wasm < tests/repl/session.in > out/repl.out 2>&
 else
   echo "repl: MISMATCH"; fail=1
 fi
+# Redefining reactive variables (--globalreassign), in a session of its own.
+if node host/repl.mjs out/stage2.wasm --globalreassign < tests/repl/redefine.in > out/repl_redefine.out 2>&1 &&
+   diff -u tests/repl/redefine.out out/repl_redefine.out; then
+  echo "repl redefine: ok"
+else
+  echo "repl redefine: MISMATCH"; fail=1
+fi
 # The same session as the browser REPL (web/) runs it: files in memory, and
 # no live programs (each update of reactive variables replays the session).
 if node tests/repl/browser_mode.mjs out/stage2.wasm < tests/repl/session.in > out/repl_browser.out 2>&1 &&

@@ -310,6 +310,13 @@ $("tab").addEventListener("click", () => {
   complete();
   input.focus();
 });
+// Clear: as Ctrl-L (the screen; the session is kept), without taking the
+// focus from the input (on a phone, the keyboard stays up)
+$("clear").addEventListener("pointerdown", (e) => e.preventDefault());
+$("clear").addEventListener("click", () => {
+  clearScreen();
+  input.focus();
+});
 
 input.addEventListener("keydown", (e) => {
   if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {

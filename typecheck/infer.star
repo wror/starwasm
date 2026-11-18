@@ -29,7 +29,7 @@
 # A function context fc is {scope, ret, narrow, mod, def, reactive, observer}.
 
 load("../compiler/parser.star", "parse_file")
-load("../compiler/resolve.star", "called_names", "free_names")
+load("../compiler/resolve.star", "called_names", "dotted_names", "free_names")
 load("../compiler/spell.star", "nearest")
 load(
     "stubs.star",
@@ -216,7 +216,12 @@ def collect_bound(stmts, bound, order):
                 info = _bound(bound, order, local, s["localpos"][i])
                 info["load"] = (s, orig, s["namepos"][i])
         elif k == "reactive":
-            _bound(bound, order, s["name"], s["pos"])["reactive"] = s
+            info = _bound(bound, order, s["name"], s["pos"])
+            if info["reactive"] != None and info["reactive"].get("kind") == "reactive":
+                # redefined (--globalreassign): the last definition replaces
+                # it everywhere, and gives the variable its type
+                info["reactive"]["superseded"] = True
+            info["reactive"] = s
             if s.get("relation", False):
                 # its implicit relation of errors (EXTENSIONS.md)
                 _bound(bound, order, s["name"] + "Error", s["pos"])["reactive"] = {"relation": True, "errors_of": s["name"]}
@@ -231,11 +236,14 @@ def _implicit_relations(stmts, scope, bound, order):
         uses = []
         free_names(s.get("when"), {}, uses)
         free_names(s["value"], {}, uses)
-        called = {}  # a name that is called is no relation: undefined
+        # only a name whose fields are read, and that isn't called
+        called = {}
         called_names([s.get("when"), s["value"]], called)
+        dotted = {}
+        dotted_names([s.get("when"), s["value"]], dotted)
         for u in uses:
             n = u["id"]
-            if called.get(n, False) or n in bound or _find(scope, n) != None:
+            if called.get(n, False) or not dotted.get(n, False) or n in bound or _find(scope, n) != None:
                 continue
             _bound(bound, order, n, u["pos"])["reactive"] = {"relation": True}
             _bound(bound, order, n + "Error", u["pos"])["reactive"] = {"relation": True, "errors_of": n}
@@ -898,7 +906,7 @@ def _infer_reactive(st, fc, s):
         if h["k"] == "rec":
             idf = field(lit("id"), con("int", [], _ctx(fc, s["pos"], "the id that a struct block gets")), _ctx(fc, s["pos"], "the id that a struct block gets"))
             t = rec(row([idf, h["row"]]), h["at"])
-    if b == None or (b["kind"] != "var" and b["kind"] != "relation"):
+    if b == None or (b["kind"] != "var" and b["kind"] != "relation") or s.get("superseded", False):
         return
     flow_report(st, t, b["type"], _ctx(fc, s["pos"], "definition of '" + s["name"] + "'"))
 

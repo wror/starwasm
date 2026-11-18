@@ -77,7 +77,7 @@
   #status { color: var(--muted); font-size: 13px; min-width: 6em; }
   footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
   /* on touch screens the on-screen keyboard leaves little room while typing:
-     keep only the title and the Tab button then, so the session gets the space */
+     keep only the title and the Tab and Clear buttons then, so the session gets the space */
   @media (pointer: coarse) {
     body:has(#input:focus) :is(footer, .more) { display: none; }
   }
@@ -93,6 +93,7 @@
     <label class="more" title="Operations on None give None, and provenance(x) says where a None comes from; always on in a session with reactive variables"><input type="checkbox" data-flag="--contagiousnone"> contagious None</label>
     <button id="stop" class="more" title="Stop the running input (the rest of the session is kept)">Stop</button>
     <button id="tab" title="Complete the name, field or method being typed (the Tab key)">Tab ⇥</button>
+    <button id="clear" title="Clear the screen (Ctrl-L); the session is kept">Clear</button>
     <span id="status" class="more"></span>
   </div>
   <div class="opts more">
@@ -110,7 +111,7 @@
 <footer>
   Blocks and open brackets continue on <code>...</code> lines, indented as the block is (backspace dedents); end a block with an empty line.
   Pasting from a REPL session (lines with the <code>&gt;&gt;&gt;</code> prompt) enters what was typed there, not what was printed.
-  ↑/↓ history, Ctrl-L clears, Tab completes names, and after a <code>.</code> the fields or methods of the value's type.
+  ↑/↓ history, Ctrl-L (or Clear) clears the screen, Tab completes names, and after a <code>.</code> the fields or methods of the value's type.
   Type errors in what you type are marked in red; point at one for the type checker's message.
   The session is saved in this browser and restored when you come back; <code>:reset</code> clears it and the screen.
   <a href="https://github.com/wror/starwasm">Source</a><!--sha-->

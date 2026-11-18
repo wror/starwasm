@@ -1,0 +1,11 @@
+x = 6
+y = 60
+x = 7
+y = 70
+70
+x = 8
+y = 80
+order = struct(id = 1, qty = 3)
+order = struct(id = 2, qty = 400)
+[struct(id = 1, qty = 3), struct(id = 2, qty = 400)]
+<input 14>:1:1: reactive variable x would depend on itself: x -> z -> x (a redefinition replaces the earlier definition everywhere)

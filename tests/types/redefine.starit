@@ -1,0 +1,7 @@
+# Types inferred from redefine.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in redefine.start instead.
+
+order: list[struct[id: int, qty: int, note: str]]
+orderError: list[struct[id: int, order_id: Any, trigger: str, field: str, value: None]]
+request: list[struct[qty: int, **Any]]
+requestError: list[struct[id: int, request_id: Any, trigger: str, field: str, value: None]]

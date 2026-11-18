@@ -1,0 +1,18 @@
+a : 1
+x : a + 1
+y : x * 10
+a = 5
+x : a + 2
+y
+a = 6
+an order:
+	qty: request.qty
+
+request = struct(id=1, qty=3)
+an order:
+	qty: request.qty * 100
+
+request = struct(id=2, qty=4)
+order
+z : x + y
+x : z

@@ -183,6 +183,10 @@ standard input.
   and `response` is `struct(id = 1, name = "foo", qty = 4)`.
   - A relation starts empty, and its definition isn't evaluated on the
     first run: only an update (a change of what it reads) evaluates it.
+    Except for a relation whose definition reads no reactive variable
+    (`a fill:` with `qty: 0`), which no update would ever evaluate: it is
+    evaluated once where it is defined, and starts with that member
+    (`struct(id = 1, qty = 0)`).
     Each evaluation gives a member: if a member already has its `id`, that
     member is removed and the new one is added (at the end of the list),
     else the new one is just added. Either way the relation counts as
@@ -239,12 +243,42 @@ standard input.
   - Read in a definition, a relation is its *current member*, the one
     last added. Read in an observer (a top-level expression statement, or
     an expression typed in the REPL), it is the list of members.
+  - Keyed reads: in the definition of a relation x (one without `when`),
+    when the update has a key (the triggering change's id, above), a
+    relation y that it reads is instead y's member *for* that key: the
+    last one whose field `x_id` is the key, or, for a member without that
+    field, whose `id` is. So with
+
+        an order:
+            qty: request.qty ?? order.qty
+            executed: order.executed + (fill.qty ?? 0)
+
+    `fill = struct(id = 2, order_id = 5, qty = 30)` updates order 5 and
+    reads request 5 (not the latest request), and a new request 5 reads
+    order 5's latest fill. The trigger itself is always found (it is the
+    member just added). An update without a key (triggered by a variable
+    with no `id`) reads current members as before, and so do lone
+    definitions and relations with `when` (whose condition picks the
+    members).
+  - No member: with contagious None (the default), a relation that has no
+    member for the update (it is empty, or none matches the key) reads as
+    None in a definition, whose provenance says so (`("relation", "fill",
+    file, line)`, the line of the read). `??` replaces it (`fill.qty ??
+    0`); a field left None holds the member back, and its `xError` member
+    says which field and why (see "No None fields"). A lone definition
+    computed from an empty relation is evaluated too, and so may be None
+    or hold None fields (`response struct(id = 1, name = None, qty =
+    None)` before the first order). Tests:
+    tests/extensions/reactive_relation_keyed.star, and
+    reactive_relation_keyed_off.star without contagious None.
   - A lone struct block that reads a relation is always "updated" by the
     relation's member: its implicit `id` is the current member's id of the
     first relation it reads that changed (else of the first one it reads),
     whatever its id was before.
-  - Unset: while a relation has no member, a definition that reads it
-    isn't evaluated, so a lone variable computed from it (directly or
+  - Unset (only with `--nocontagiousnone`; with contagious None, see "No
+    member" above): while a relation has no member, a definition that
+    reads it isn't evaluated, nor is a relation's definition when a
+    relation it reads has no member for the update's key, so a lone variable computed from it (directly or
     through other variables) is unset, and so is everything computed from
     that. Definitions and observers that read an unset variable are
     skipped (on the first run and in updates) until it is set. (Observers
@@ -273,10 +307,13 @@ standard input.
     "Nothing defines it": no reactive definition, no other top-level
     binding (an assignment, a def or a load, anywhere in the file), no
     builtin; and the read isn't of a comprehension's variable or a
-    lambda's parameter, and the name isn't called in the definition
-    (`total(x)` with no `total` is "undefined: total": a member is a
-    struct, and a misspelt function shouldn't silently become a relation
-    that is never set). An implicit relation is there from the start of the
+    lambda's parameter; and the definition reads a field of it
+    (`request.name`) and doesn't call it. Any other undefined name is
+    "undefined", as without relations: `total(x)` with no `total`, or a
+    bare `qty` (in `qty: request.qty ?? qty`, meaning the previous value,
+    which is `order.qty`). A member is a struct, and a misspelling
+    shouldn't silently become a relation that is never set, leaving the
+    relation that reads it unset too. An implicit relation is there from the start of the
     program, so any definition or observer may read it, even above the
     relation that makes it one; a name that only lone definitions or
     observers read is still "undefined". It is a relation like any other:
@@ -292,7 +329,7 @@ standard input.
     and codegen's `is_builtin`), typecheck/infer.star
     (`_implicit_relations`), host/repl_core.mjs (`reactiveNames`). Tests:
     tests/extensions/reactive_relation_implicit.star,
-    reactive_relation_err_implicit.star, the end of tests/types/reactive.star
+    reactive_relation_err_implicit*.star, the end of tests/types/reactive.star
     and of tests/repl/session.in.
   - No None fields: a member that would have None in one of its block's
     fields (a nested block's fields too) isn't applied at all. The
@@ -343,13 +380,51 @@ standard input.
   - Code: parser.star (`starts_relation`, `parse_struct_def`; it sets
     `relation`), reactive.star (`transform`; at run time `_r_relation`,
     `_r_upsert`, `_r_tid`, `_r_rel_id`, `_r_lone_id`, `_r_rel_self`,
-    `_r_ready`). Values: `%reactive["x"]` is the current member (the
+    `_r_ready`, `_r_apply`, `_r_first`; keyed reads: `_r_read`,
+    `_r_member`, `_r_unmatched`). In a self-referencing definition the
+    `_r_*` operations pass a None through, as any operation does. Values: `%reactive["x"]` is the current member (the
     prelude's `_unset` while there is none, as for unset lone variables),
     `%reactive["x[]"]` the list; each update builds a new list, so a failed
     update restores the old one. Each node in `%nodes` also lists the
     variables it reads that may be unset, and runs only when they are set.
     Tests: tests/extensions/reactive_relation*.star, the end of
     tests/repl/session.in.
+- Redefinitions: with `--globalreassign` (in the browser REPL, "allow
+  redefining globals"), a reactive variable may be defined again, and the
+  last definition replaces the earlier one everywhere:
+
+      a : 1
+      x : a + 1
+      y : x * 10
+      x : a + 2      # y is now 30, and follows a + 2 from here on
+
+  - On the first run each definition runs where it is, as written; a
+    redefinition's value counts as a change of x, so what reads x
+    (definitions and observers, wherever they are) is recomputed right
+    away, as for standard input.
+  - From then on updates evaluate the new definition only, and in an
+    order where each definition comes after the variables it reads (not
+    source order: `y` above, defined between the two, runs after the new
+    `x`). So the definitions in force may not form a cycle: with `y : x +
+    1` in between, `x : y * 2` is a compile error, "reactive variable x
+    would depend on itself: x -> y -> x".
+  - A relation stays a relation, and a lone variable lone ("can't be
+    redefined as a relation", or "as a lone variable"). A redefined
+    relation keeps its members (only new updates use the new block), may
+    gain or lose a `when` condition, and its `xError` is unchanged.
+  - The type checker types the variable by its last definition.
+  - In the REPL, with redefining allowed, `x : ...` on one line is a
+    redefinition (and `x = ...` an update, as ever); a redefined variable
+    is echoed once, as before.
+  - Without `--globalreassign`, a second definition is still "reactive
+    variable x defined twice".
+  - Code: reactive.star (`transform`, `_cycle`; at run time `_r_add_node`,
+    which replaces the node and reorders `%nodes`, `_r_redefine`,
+    `_r_meta`), typecheck/infer.star (`collect_bound`, `_infer_reactive`),
+    host/repl_core.mjs (`isUpdate`, `echoedNames`). Tests:
+    tests/extensions/reactive_redefine.star, reactive_err_redefine_*.star,
+    tests/types/redefine.star, tests/repl/redefine.in (run with
+    `--globalreassign`).
 - First run: the program runs top to bottom as written; `x : e` just sets
   x there. Errors and tracebacks are those of the same program with `=`.
 - Freezing: once the first run reaches the end of the top level, the main
@@ -740,6 +815,9 @@ and `n = 5` prints `half is 20`.
     frame of its traceback). It is the first entry of the trace: the
     None starts there. See "Errors in a reactive program" above, and
     "None further in";
+  - `"relation"`, id a relation: read in a definition while it had no
+    member for the update (it was empty, or no member matched the key;
+    see "No member" under relations), at the line of the read;
   - `"reactive"`, id the reactive variable: the line of its definition,
     each time it is computed to None; for a field of a struct block,
     `"order.cost"` and the field's line; and file `<stdin>` with the input
