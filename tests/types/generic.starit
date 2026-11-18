@@ -4,7 +4,7 @@
 def size[X: Sized](x: X) -> int
 def elements[T: Iterable[U], U](x: T) -> list[U]
 def has[T: Container[U], U](c: T, x: U) -> bool
-def at[T: GetItem[U, V], U, V](c: T, i: U) -> V
+def at[T: GetItem[U, V], U, V](c: T, i: U) -> V | None
 def put[T: SetItem[U, V], U, V](c: T, i: U, v: V) -> None
 def add[T: Add[U, V], U, V](a: T, b: U) -> V
 def biggest[T: Ordered](a: T, b: T) -> T
@@ -20,9 +20,9 @@ e3: list[int]
 h1: bool
 h2: bool
 h3: bool
-a1: float
-a2: str
-a3: str
+a1: float | None
+a2: str | None
+a3: str | None
 p1: None
 p2: None
 s1: int

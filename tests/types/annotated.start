@@ -9,7 +9,7 @@ type Point = struct[x: int, y: int]
 def area(shape: Shape) -> int
 
 # type parameters go in brackets after the name
-def first[T](xs: list[T]) -> T
+def first[T](xs: list[T]) -> T | None
 
 # L: str is a field name; **R stands for the rest of a struct's fields
 def pick[L: str, T, **R](r: struct[L: T, **R], field: L) -> T

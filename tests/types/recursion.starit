@@ -9,9 +9,9 @@ def flatten[T: Iterable[U], U](xs: T, out: list[U]) -> list[U]:
     x: U
 def uses_later() -> list[int]
 def later(n: int) -> list[int]
-def counter[T: Add[U, T], U](start: T) -> (by: U) -> T:
-    state: list[T]
-    def bump(by: U) -> T
+def counter[T: Add[U, T], U](start: T | None) -> (by: U) -> T | None:
+    state: list[T | None]
+    def bump(by: U) -> T | None
 def pairs[T: Iterable[U], U](xs: T) -> list[tuple[U, U]]:
     def pair[V](x: V) -> tuple[V, V]
 def outer[T](k: T) -> list[T]:
@@ -33,8 +33,8 @@ ping_int: int
 ping_str: str
 six: int
 even: bool
-c: (by: int) -> int
-eleven: int
+c: (by: int) -> int | None
+eleven: int | None
 twins: list[tuple[str, str]]
 numbers: list[tuple[int, int]]
 triple: list[str]

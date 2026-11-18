@@ -993,7 +993,9 @@ def infer_expr(st, fc, e):
         res = _fresh(st, fc)
         ctx = _ctx(fc, pos, "indexing")
         add_pred(st, pred("getitem", ct, [it, res], ctx, e["i"]["val"] if e["i"]["kind"] == "int" else None), ctx)
-        return res
+        # a lookup is None where the index is out of range or the key is
+        # missing (the error becomes a None), so it may be None
+        return mk_opt(res, _ctx(fc, pos, "a lookup (None if the index or key is missing)"))
     if k == "slice":
         ct = infer_expr(st, fc, e["x"])
         for part in ["lo", "hi", "step"]:

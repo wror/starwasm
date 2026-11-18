@@ -2,7 +2,7 @@
 # Rewritten by every check: put annotations in annotated.start instead.
 
 def area(shape: struct[width: int, height: int]) -> int
-def first[T](xs: list[T]) -> T
+def first[T](xs: list[T]) -> T | None
 def pick[L: str, T, **R](r: struct[L: T, **R], field: L) -> T
 def mean(values: list[float], weight: float) -> float | None:
     total: float
@@ -23,7 +23,7 @@ cache: dict[str, tuple[int, int]]
 origin: struct[x: int, y: int]
 handler: ((str) -> None) | None
 r: int
-f: str
+f: str | None
 p: int
 m: float | None
 c: int

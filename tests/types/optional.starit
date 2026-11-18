@@ -23,7 +23,7 @@ def previous[T: Iterable[U], U: Sub[U, V], V](xs: T) -> list[V]:
     prev: U | None
     out: list[V]
     x: U
-def lookup[T: Container[U] & GetItem[U, V | None], U, V](d: T, key: U, default: V | None = ...) -> V | None
+def lookup[T: Container[U] & GetItem[U, V], U, V](d: T, key: U, default: V | None = ...) -> V | None
 top: int | None
 hi: str
 hi_bob: str
@@ -56,3 +56,14 @@ prod: float | None
 acc: int | None
 def formatted[T](d: dict[str, T]) -> str | None
 def formatted_in_tuple[T](d: dict[str, T]) -> str
+def lookup_key[T: GetItem[U, V], U, V](d: T, k: U) -> V | None
+def lookup_or[T: GetItem[U, int], U](xs: T, i: U) -> int
+def pair_first[T](p: T) -> T:
+    t: tuple[T, str]
+def count_words[T: Iterable[U], U](words: T) -> dict[U, int]:
+    counts: dict[U, int]
+    w: U
+key_found: int | None
+indexed: int
+paired: float
+words: dict[str, int]

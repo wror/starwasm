@@ -13,4 +13,16 @@ tests/types/err_none.star:17:14: note: int is expected because of this (operand 
 tests/types/err_none.star:23:13: error: the value may be None (it is _ | None): test it against None before using .name
    23 |     return p.name
       |             ^
-4 type errors in tests/types/err_none.star
+tests/types/err_none.star:33:19: error: argument 'counts' of bump_all(): expected int, got int | None: the value may be None
+   33 | bumped = bump_all({"a": 1})
+      |                   ^
+tests/types/err_none.star:30:15: note: required here (dict value)
+   30 |         counts[k] += 1
+      |               ^
+tests/types/err_none.star:30:15: note: int is expected because of this (indexing)
+   30 |         counts[k] += 1
+      |               ^
+tests/types/err_none.star:30:19: note: int | None comes from here (operand of +=)
+   30 |         counts[k] += 1
+      |                   ^
+5 type errors in tests/types/err_none.star

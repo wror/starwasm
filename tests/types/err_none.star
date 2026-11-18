@@ -21,3 +21,13 @@ def pass_on(d):
 
 def fields(p = None):
     return p.name
+
+# counts[k] += 1 stores None where k is missing (the lookup is None, and
+# so is None + 1), so the dict's values may be None: a dict[str, int]
+# won't do
+def bump_all(counts):
+    for k in counts:
+        counts[k] += 1
+    return counts
+
+bumped = bump_all({"a": 1})

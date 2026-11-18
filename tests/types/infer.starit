@@ -19,7 +19,7 @@ def twice[T](f: (T) -> T, x: T) -> T
 def inc(x: int) -> int
 def half(x: float) -> float
 def greet(name: str, punctuation: str = ...) -> str
-def first[T: GetItem[int, U], U](xs: T) -> U
+def first[T: GetItem[int, U], U](xs: T) -> U | None
 def total[T: Iterable[int]](xs: T) -> int:
     t: int
     x: int
@@ -35,8 +35,8 @@ s: str
 four: int
 quarter: float
 hello: str
-head: int
-initial: str
+head: int | None
+initial: str | None
 sum_: int
 sum_ages: int
 swapped: tuple[str, int]
@@ -51,7 +51,7 @@ ordered: list[tuple[str, int]]
 longest: int
 zipped: list[tuple[int, str]]
 indexed: list[tuple[int, int]]
-last: int
+last: int | None
 tail: list[int]
 found: int | None
 found_or_zero: int

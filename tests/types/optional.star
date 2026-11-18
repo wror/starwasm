@@ -144,3 +144,27 @@ def formatted(d):
 
 def formatted_in_tuple(d):
     return "%s!" % (d.get("k"),)
+
+# Lookups: x[i] is None where i is out of range or not a key (the error
+# becomes a None), so it may be None; but not a tuple's element at an
+# index that is known to be in range.
+def lookup_key(d, k):
+    return d[k]
+
+def lookup_or(xs, i):
+    return xs[i] ?? 0
+
+def pair_first(p):
+    t = (p, "x")
+    return t[0]
+
+def count_words(words):
+    counts = {}
+    for w in words:
+        counts[w] = (counts.get(w) ?? 0) + 1
+    return counts
+
+key_found = lookup_key({"a": 1}, "a")
+indexed = lookup_or([1, 2], 5)
+paired = pair_first(1.5)
+words = count_words(["a", "b", "a"])

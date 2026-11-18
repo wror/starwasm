@@ -1132,7 +1132,12 @@ types (but see None below) and no classes; types are structural.
   A division, `x / y` or `x // y`, is optional too, since it is None
   where `y` is zero (see "Errors in a reactive program"), unless `y` is a
   nonzero number literal: `n / 2` is a `float`, `a / b` a `float | None`
-  (`(a / b) ?? 0.0` is a `float`).
+  (`(a / b) ?? 0.0` is a `float`). Likewise a lookup, `x[i]` (a list's,
+  a dict's, a string's...), is optional, since it is None where `i` is
+  out of range or not a key, except a tuple's at an index known to be in
+  range: `d[k]` is a `V | None`, `t[0]` of a `tuple[int, str]` an `int`.
+  So `d[k] += 1` makes `d`'s values optional (where `k` is missing, it
+  stores None): write `d[k] = (d.get(k) ?? 0) + 1` to keep them `int`.
   Arithmetic needs no test: as None is contagious, an operator (`+ - * /
   // % | & ^ << >>`) with an operand that may be None gives a result that
   may be None, and with operands that can't, one that can't. So
