@@ -1138,6 +1138,8 @@ types (but see None below) and no classes; types are structural.
   ...`, `x if x else ...`, an early `if x == None: return` (or `fail`,
   `break`, `continue`), or an assignment of a non-None value, `x` is a
   `T`. Only variables are narrowed (not `p.x`), and only by these forms.
+  (With contagious None, below, comparing with None is an error instead,
+  and `x or y` doesn't drop x's None.)
 - **Fallible operations** (with contagious None: on in a program with
   reactive variables, else as `--contagiousnone` / `--nocontagiousnone`
   say, which the REPL passes from its dialect): an operation that can fail
@@ -1152,17 +1154,28 @@ types (but see None below) and no classes; types are structural.
   without a default, `min` and `max` of one sequence, and `fail`. So
   `def f(a, b): return a / b` is `-> V | None`, and so is what calls it.
   Operations on a `T | None` are then allowed and give `T | None` too
-  (None is contagious), and `x ?? y` gives back a `T`. An `if` or `while`
+  (None is contagious): so do `x or y`, `x and y`, `not x`, `a if x else
+  b` and comparisons, as None is never taken for False, and only `x ?? y`
+  gives back a `T`. Comparing with None written out (`x == None`, `x !=
+  None`) is an error, as the compiler has it. A comparison of a value
+  whose type is only found out later to be optional is `bool | None` all
+  the same. An `if` or `while`
   testing, a `for` looping over or an unpacking of a value that may be
   None fails at run time, so a def that does gives None: its result is `T
-  | None` (and one declared `-> T` in a `.start` file is an error). Values
-  stored in a struct's field, a list or dict element, or a variable that
-  already has a type that isn't optional, are taken not to be None (a
-  relation's member with a None field isn't applied); a builtin that just
-  stores an argument (`append`, `insert`, `print`, ...) keeps its `T |
-  None`. Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`,
-  `STORES`, `_maybe_fails`, `_records`, `_record_entry`), typecheck/unify.star (the `contagious` cases
-  in `dispatch`, `solve_binop`, `attr_type`).
+  | None` (and one declared `-> T` in a `.start` file is an error); this
+  too holds for a value found out to be optional later. A variable that
+  is assigned a value that may be None is optional, even where an earlier
+  assignment or use had settled its type otherwise: the module is then
+  checked again with the variable optional from the start (narrowed, as
+  ever, after an assignment of a value that isn't None; a parameter is
+  what the caller passed until then). Values stored in a struct's field
+  or a list or dict element are taken not to be None (a relation's
+  member with a None field isn't applied); a builtin that just stores an
+  argument (`append`, `insert`, `print`, ...) keeps its `T | None`.
+  Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`, `STORES`,
+  `_maybe_fails`, `_records`, `_record_entry`, `assign_target`),
+  typecheck/unify.star (the `contagious` cases in `dispatch`,
+  `solve_binop`, `attr_type`; `watch`), typecheck/main.star (`check`).
 - **Numbers**: an `int` is accepted where a `float` is wanted. An int
   literal is an `int` unless it is put where a float is kept: after `total
   = 0`, `total += 1.5` makes `total` a float; `[1, 2.5]` is a
@@ -1184,9 +1197,11 @@ types (but see None below) and no classes; types are structural.
   is an `R`; likewise `Sub Mul Div FloorDiv Mod Or And Xor LShift
   RShift`, and `RAdd[A, R]` etc. for the right operand). One exception
   keeps common code simple: an operand of unknown type next to a number
-  is taken to be a number of that type (`def inc(x): return x + 1` is `(x:
-  int) -> int`; `x / 2` makes `x` a float), so write `x + 1.0`, start a
-  float sum at `0.0`, or annotate, to have floats.
+  is taken to be a number. Next to an int it is either kind, and so is
+  the result, of its kind (`def inc(x): return x + 1` is `def inc[T:
+  (int, float)](x: T) -> T`, so `inc(1)` is an int and `inc(1.5)` a
+  float); next to a float, or divided, it is a float (`x * 0.5`, `x / 2`
+  make `x` a float, which an int may be passed as).
 - **Methods**: `x.append(1)` with an `x` of unknown type makes `x` a list
   (`append` is only a list method); a name that no builtin type has makes
   `x` a struct with that field.

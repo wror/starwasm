@@ -16,7 +16,7 @@ nested: list[list[int]]
 seen: set[int]
 def identity[T](x: T) -> T
 def twice[T](f: (T) -> T, x: T) -> T
-def inc(x: int) -> int
+def inc[T: (int, float)](x: T) -> T
 def half(x: float) -> float
 def greet(name: str, punctuation: str = ...) -> str
 def first[T: GetItem[int, U], U](xs: T) -> U

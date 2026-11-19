@@ -1,0 +1,21 @@
+# Types inferred from contagious_ops.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_ops.start instead.
+
+def with_or[T: GetItem[str, int]](d: T) -> int | None
+def with_coalesce[T: GetItem[str, int]](d: T) -> int
+def negated[T: GetItem[str, U], U](d: T) -> bool | None
+def chosen[T: GetItem[str, U], U](d: T) -> int | None
+def compared[T: GetItem[str, U], U](d: T) -> bool | None
+def known[T](x: T) -> bool
+def compared_early[T, U: GetItem[str, T]](x: T | None, d: U) -> bool | None:
+    b: bool | None
+def tested_early[T, U: GetItem[str, T]](x: T | None, d: U) -> int | None
+def reassigned[T: GetItem[str, str]](d: T) -> str | None:
+    n: str | None
+    m: str
+def in_loop[T: GetItem[U, int], U, V: Iterable[U]](d: T, ks: V) -> int | None:
+    n: int | None
+    k: U
+def param_reassigned[T: GetItem[str, str]](x: str, d: T) -> str | None:
+    y: str
+tick: int

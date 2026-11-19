@@ -2,7 +2,7 @@
 # Rewritten by every check: put annotations in fallible.start instead.
 
 def ratio[T: Div[U, V], U, V](a: T, b: U) -> V | None
-def scaled[T: Div[U, int], U](a: T, b: U) -> int | None
+def scaled[T: Div[U, V], U, V: (int, float)](a: T, b: U) -> V | None
 def safe[T: Div[U, int], U](a: T, b: U) -> int
 def half(n: float) -> float
 def sign[T: GetItem[U, int], U](xs: T, i: U) -> int | None

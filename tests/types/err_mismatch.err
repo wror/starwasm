@@ -28,12 +28,15 @@ tests/types/err_mismatch.star:20:11: error: cannot apply + to int and str
 tests/types/err_mismatch.star:21:12: error: argument 'x' of len(): int has no len()
    21 | size = len(5)
       |            ^
-tests/types/err_mismatch.star:22:16: error: argument 'n' of double(): expected int, got str
+tests/types/err_mismatch.star:22:16: error: argument 'n' of double(): expected int or float, got str
    22 | limit = double("x") + 1
       |                ^
-tests/types/err_mismatch.star:8:14: note: int is expected because of this (operand of *)
+tests/types/err_mismatch.star:8:14: note: required here (operand of *)
     8 |     return n * 2
       |              ^
+tests/types/err_mismatch.star:22:21: error: cannot apply + to str and int
+   22 | limit = double("x") + 1
+      |                     ^
 tests/types/err_mismatch.star:23:16: error: cannot add lists of different types: list[bool] + list[str]
    23 | flags = [True] + ["yes"]
       |                ^
@@ -49,4 +52,4 @@ tests/types/err_mismatch.star:25:11: error: str is not iterable (use .elems() or
 tests/types/err_mismatch.star:27:1: error: cannot unpack tuple[int, int, int] (3 elements) into 2 variables
    27 | first, second = (1, 2, 3)
       | ^
-12 type errors in tests/types/err_mismatch.star
+13 type errors in tests/types/err_mismatch.star
