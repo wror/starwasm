@@ -59,7 +59,7 @@ assert.deepEqual((await marks('area("box")')).map((m) => m[1]), ['"box"']);
 // not parsed (yet), commands, nothing typed: no marks
 assert.deepEqual(await marks("area("), []);
 assert.deepEqual(await marks("1 +"), []);
-assert.deepEqual(await marks(":type box.nme"), []);
+assert.deepEqual(await marks(".type box.nme"), []);
 assert.deepEqual(await marks("  "), []);
 // in a block being typed: in its lines, also those entered
 await session.feed("def bad(x):");

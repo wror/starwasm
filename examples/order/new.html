@@ -1,0 +1,17 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
+<title>New order</title>
+<header>
+  <h1>New order</h1>
+  <nav><a href="/">Back to orders</a></nav>
+</header>
+<main>
+  <p role="alert" $if="error">$error</p>
+  <form method="post" action="/order_request">
+    <label>Symbol <input name="symbol" required></label>
+    <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+    <label>Price <input name="price" type="number" min="0" step="any" required></label>
+    <button>Create</button>
+  </form>
+</main>

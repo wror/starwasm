@@ -218,6 +218,12 @@ standard input.
     and read as the self-reference. E.g. with `an account:` reading
     `deposit` (`struct(id = 3, account_id = 7, amount = 4)`), the deposit
     updates account 7 (tests/extensions/reactive_relation_ref.star).
+    Failing that, if y and the relation x both have a field whose name
+    ends in `id` (other than `id`; the latest alphabetically if there
+    are several, e.g. `customer_id` over `account_id`), y updates x's last
+    member with the same value of it (a new member if there is none).
+    Only failing both does y's `id` match x's
+    (tests/extensions/reactive_relation_shared.star).
   - Conditions: `a name when cond:` (or `an name when cond:`) + a struct
     block defines a relation that is updated by a condition instead of by
     matching ids:
@@ -238,15 +244,15 @@ standard input.
     the identity (as for a new member), and if that is true the block is
     added as a new member (implicit `id`: the largest + 1). So a condition
     that never holds of the identity (`dingbat.b == wally.e`, as `"foo" ==
-    ""` is false) only updates existing members (e.g. members assigned on
-    standard input), and one like `stock.name == item.name or stock.name ==
+    ""` is false) never adds one (and, as standard input can't assign
+    the relation, it stays empty), and one like `stock.name == item.name or stock.name ==
     ""` adds a member for a new name and updates it afterwards. The
     replaced and added members go at the end, in order; the relation
     counts as changed only if some member was replaced or added. The
     `_id` references above don't apply (the condition picks the members),
     and an explicit field `id` is used as written, even if another member
-    has it. The condition is an ordinary expression. Standard input assigns such a relation
-    as any other (by `id`). The original form (`a name:`, no `when`) is
+    has it. The condition is an ordinary expression. As it reads other reactive
+    variables, standard input can't assign such a relation. The original form (`a name:`, no `when`) is
     unchanged.
     Code: parser.star (`parse_struct_def` sets `when`), reactive.star
     (`transform` compiles cond and the block to two functions,
@@ -259,8 +265,9 @@ standard input.
   - Keyed reads: in the definition of a relation x (one without `when`),
     when the update has a key (the triggering change's id, above), a
     relation y that it reads is instead y's member *for* that key: the
-    last one whose field `x_id` is the key, or, for a member without that
-    field, whose `id` is. So with
+    last one whose field `x_id` is the key; for a member without that
+    field, that shares a field ending in `id` with x (as above), whose
+    value of it is that of x's member with the key; else whose `id` is. So with
 
         an order:
             qty: request.qty ?? order.qty
@@ -431,9 +438,11 @@ standard input.
     gain or lose a `when` condition, and its `xError` is unchanged.
   - The type checker types the variable by its last definition.
   - In the REPL, `x : value` (one line, or a struct block) for a reactive
-    x gives it a new value (below); with redefining allowed, if the value
-    reads reactive variables (which a new value can't), it is a
-    redefinition instead. A redefined variable is echoed once, as before.
+    x whose definition reads no other reactive variable always gives it a
+    new value (below), even if the value reads one (an error). For an x
+    computed from others it never does: with redefining allowed it is a
+    redefinition (so `x : 5` makes x a source, which later `x : value`
+    lines update), and without, standard input's error. A redefined variable is echoed once, as before.
   - Without `--globalreassign`, a second definition is still "reactive
     variable x defined twice".
   - Code: reactive.star (`transform`, `_cycle`; at run time `_r_add_node`,
@@ -462,27 +471,38 @@ standard input.
   it to `rt_freeze` of each of the main module's globals and function
   values, except the runtime's `%` variables. Test:
   tests/extensions/reactive_frozen.star.
-- Input lines: `name : expression`, the syntax of a definition, several
-  separated by `;` (`name = expression` is refused: "want : after
-  name"); blank lines and `#` comments are ignored. The expression may be
-  any Starlark expression except a lambda (literals of every kind,
-  operators, `x if c else y`, calls with keyword and `*`/`**` arguments,
-  indexing, slices, attributes and methods, list/tuple/dict displays and
-  comprehensions) that doesn't refer to a reactive variable. It can use
-  the program's other top-level names (defs, variables, loaded names; their
-  values at the time) and the builtins abs, all, any, bool, bytes, chr,
-  dict, enumerate, fail, float, getattr, hasattr, hash, int, len, list,
-  max, min, ord, print, range, repr, reversed, set, sorted, str, tuple,
-  type, zip (and struct, if the program mentions it). A struct assigned
+- Input lines: `name : value`, several separated by `;` (`name = value`
+  is refused: "want : after name"); blank lines and `#` comments are
+  ignored. A value is a literal, nothing else: an int or float (with an
+  optional sign; any Starlark spelling, `0x10`, `1e2`), a string (any
+  quoting, raw or not), `True`, `False`, `None`, a list of values
+  (`[1, "a"]`), or `struct(name = value, ...)`. No expressions, names,
+  calls, tuples, dicts or bytes ("want a value (...), got ...").
+- Constructors: a reactive variable defined by a struct block that reads
+  no reactive variable (a source: `request:` with `item: "apple"`, `qty:
+  1`; a relation's too, `a fill:` with `qty: 0`) takes the value as the
+  arguments of a constructor for that block. A struct gives fields by
+  name, a list gives them in the block's order, any other value is the
+  first field; the fields not given are the block's (as written, not
+  the variable's current value), and a field that is a nested block is
+  constructed the same way from what is given for it. So `request :
+  ["pear", 2]` and `request : struct(qty = 2, item = "pear")` are the
+  same, and `request : struct(qty = 5)` is `item = "apple"`. A struct
+  may give fields the block doesn't have (a reference such as
+  `order_id`), but a list no more values than the block has fields
+  ("request takes at most 2 values (item, qty), got 3"). Other reactive
+  variables take the value as given. Test:
+  tests/extensions/reactive_input_ctor.star.
+- A struct assigned
   without a field `id` gets one as a struct block would: for a relation
   the next free one (a new member), for a lone variable whose value has
-  an `id`, that + 1. Any reactive
-  variable can be set, derived ones too; a derived one keeps that value
-  until something it depends on changes. A line that isn't valid (not a
-  reactive variable, syntax, an undefined name, a reactive variable in
-  the expression) is reported on stderr as `<stdin>:line:col: message`
-  and ignored. An error while evaluating the expressions is reported like
-  an error while recomputing (below); nothing is assigned.
+  an `id`, that + 1. Only a reactive variable whose (active)
+  definition reads no other one can be set; one computed from others
+  (relations, including those with `when`, too) is never updated:
+  "x is computed from other reactive variables (a, b): it can't be given
+  a new value". A line that isn't valid (not a reactive variable,
+  syntax, not a value) is reported on stderr as
+  `<stdin>:line:col: message` and ignored; nothing on it is assigned.
 - Updates: the assigned variables count as changed. Then each reactive
   definition and observing expression statement is visited in source
   order; one that reads a changed variable is recomputed (re-run). A
@@ -550,13 +570,11 @@ standard input.
     REPL uses them to deliver each update after the code entered before
     it.
   - At run time: `_reactive_input` (Starlark, in the extension's RUNTIME
-    string, added to the prelude) reads lines, parses the expressions (a
-    small recursive-descent parser in Starlark), evaluates them (a tree
-    walker, `_r_eval`) and propagates changes over `%nodes`. Expressions
-    see top-level names through `%rnames`, a dict of `name: lambda: name`
-    built at the start of the top level; since it mentions getattr, every
-    method is kept as a value in such programs (as `getattr(x, name)`
-    would), so `_attr` can call any method.
+    string, added to the prelude) reads lines, parses their values (a
+    small recursive-descent parser in Starlark, `_r_value`), gives them
+    to constructors (`_r_construct`, recorded by `_r_ctor` at each
+    definition in `%rstate["ctors"]`) and propagates changes over
+    `%nodes`.
   - Wasm and host: three primitives only the prelude sees:
     `_read_line(before)` (host import read_line, from the host's
     `readLine(before)`: host/run.mjs reads stdin synchronously in its
@@ -667,7 +685,6 @@ and `n : 5` prints `half is 20`.
     or condition: no member is added or replaced (as for any None in a
     member's fields), and the relation's `Error` relation says why (see
     "No None fields" and "Errors" under relations);
-  - an expression on standard input: the variable is assigned None.
 
   So nothing is rolled back (unless `--rollback` says so, below): the variables that could be computed have
   their new values, and the ones that couldn't are None until an update
@@ -701,8 +718,7 @@ and `n : 5` prints `half is 20`.
         cause : [e for e in provenance(half) if e[0] == "error"]
         print("half failed:", cause[0][1]) if cause else None
 
-    For an expression on standard input the place is `<stdin>` and the
-    input's line number. An error in a condition (`if xs[9] > 1:`) or in
+    An error in a condition (`if xs[9] > 1:`) or in
     an observer has no value to live in: it is only on stderr.
 - What can still stop it: an error in the first run; an internal error
   (a Wasm trap, such as the engine's own stack overflowing: exit status
@@ -862,14 +878,9 @@ and `n : 5` prints `half is 20`.
   an error (above); the None flows
   through the definitions and observers that read it. (A relation's
   `when` condition that is None holds of no member, as before.)
-  Expressions on standard input are contagious too, `or`, `and`, `if`-`else`
-  and comprehensions included, and they have `??` (`qty : [None][0] + 1` assigns None),
-  and an operation on None written out is refused there as it is in the
-  program: `qty : None + 1` is a bad line, reported as `<stdin>:5:7: an
-  operation on None is always None (contagious None)` and ignored. (An
-  operator, field, index, slice, call of None, `*None`, a test of None's
-  truth or a comprehension over None: a builtin's None argument is only found when
-  the call happens, since the line's names are looked up then.)
+  On standard input a value is a literal (no expressions), so `qty :
+  None` assigns None (provenance: `("literal", "None", "<stdin>",
+  line)`), and `qty : None + 1` is a bad line.
   A variable recomputed to a None that came another way than the one it
   held counts as changed, so what reads it is recomputed and holds the
   current trace. In a self-referencing definition (`total : total + n`)
@@ -997,8 +1008,7 @@ and `n : 5` prints `half is 20`.
   expression that came out None, `(x.price * qty) ?? 0`, `[v for v in
   xs] ?? []`, `if ready ?? False:`. `None ?? y` compiles (it is y), and
   a None that `??` replaces leaves no trace in the result.
-- Also in the expressions on a reactive program's standard input, and
-  in the type checker: for x a `T | None`, `x ?? y` is a `T` if y is
+- Also in the type checker: for x a `T | None`, `x ?? y` is a `T` if y is
   (as `x or y` is typed, but without narrowing).
 - There is no `??=`.
 - Code: the lexer's token `??`, the parser's lowest precedence level
@@ -1265,13 +1275,13 @@ of different types from one input to the next.
     ...     return shape.width * shape.height
     ...
     >>> box = struct(width = 2, height = 3, name = "box")
-    >>> :type area
+    >>> .type area
     def area[T: Mul[U, V], U, V, **R](shape: struct[width: T, height: U, **R]) -> V
-    >>> :type area(box) / 2
+    >>> .type area(box) / 2
     float
-    >>> :type lambda r: r + struct(id = 1)
+    >>> .type lambda r: r + struct(id = 1)
     [**R](r: struct[**R]) -> struct[id: int, **R]
-    >>> :check on
+    >>> .check on
     type checking of inputs is on
     >>> area("box")
     <input 3>:1:6: error: argument 'shape' of area(): expected struct[width: _, height: _, ...], got str
@@ -1281,13 +1291,13 @@ of different types from one input to the next.
           |     return shape.width * shape.height
           |                 ^
 
-- `:type expr` prints the type of an expression without evaluating it
+- `.type expr` prints the type of an expression without evaluating it
   (what is still unknown in it is shown as type parameters, as for a
-  def); `:type name` prints the declaration of a name of the session.
-- `:types` prints the types of everything defined so far, as a `.starit`
+  def); `.type name` prints the declaration of a name of the session.
+- `.types` prints the types of everything defined so far, as a `.starit`
   file would have them.
-- `:check on` checks each input before it runs: one with type errors is
-  reported and not run (so not kept). `:check off` (the default) runs
+- `.check on` checks each input before it runs: one with type errors is
+  reported and not run (so not kept). `.check off` (the default) runs
   everything, as before. Updates of reactive variables (`x : 5`) are not
   checked.
 - Modules that the session `load()`s are checked with their `.start`
@@ -1389,18 +1399,18 @@ by the interpreted and by the self-compiled checker, and round trip (each
 `.starit` used as the `.start` must reproduce itself);
 `tests/types_test.star`: unification, case by case.
 
-## Serving relations
+## Serving reactive programs
 
     (cd host && go build -o ../bin/starserve ./serve)
-    bin/starserve examples/order/order.star      # http://localhost:8080/order
+    bin/starserve examples/order/order.star      # http://localhost:8080/
 
-`bin/starserve prog.star` runs a reactive program and serves each of its
-relations as web pages: a list of the members, a form to add one and a
-form to change one. The pages are HTML templates (the language of
-`template/`, see template/README.md) next to the program; a form that is
-posted becomes a line of the program's standard input.
+`bin/starserve prog.star` runs a reactive program and serves pages made
+from HTML templates (the language of `template/`, see
+template/README.md) next to the program. Every page sees every reactive
+variable of the program, and a form posted to a reactive variable that
+reads no other becomes a line of the program's standard input.
 
-    order_request:            # what a form sends
+    an order_request:         # what a form sends
         symbol: "ZVZZT"
         qty: 1
         price: 1.0
@@ -1414,85 +1424,80 @@ posted becomes a line of the program's standard input.
         lastupdate: order_request.time
         version: order.version + 1
 
-- Routes, for each relation `<name>` (here `order`):
+- Routes; nothing is named by convention:
 
   | request | answer |
   | --- | --- |
-  | `GET /<name>` | `<name>s.html`, with `<name>`: the list of members |
-  | `GET /<name>/new` | `<name>_create.html` |
-  | `POST /<name>` | adds a member, then redirects to `/<name>` |
-  | `GET /<name>/<id>` | `<name>_update.html`, with `<name>`: the member with that `id` |
-  | `POST /<name>/<id>` | replaces that member, then redirects to `/<name>` |
+  | `GET /<page>` | the template file `<page>`, or `<page>.html` (`/` is `index.html`), with every reactive variable |
+  | `GET /<file>.css` (`.js`, `.txt`) | that file of the templates' directory, as it is |
+  | `POST /<name>` | a new value for reactive variable `<name>`, then a redirect back (303) |
 
-  Anything else is 404, or 405 for another method. There is no delete.
-  In a template a member's fields are `$order.symbol` and so on (in
-  `orders.html`, inside `$for="order"`). The template language
-  HTML-escapes the strings it substitutes; None is shown as nothing.
-- What a POST assigns: the *input* of the relation, which is the first
-  reactive variable its definition reads that is a lone struct
-  (`order_request` above), or the relation itself if its definition reads
-  no reactive variable but itself (then the members are exactly what the
-  forms send). The line is `order_request = struct(id = 3, symbol = "ZVZZT",
-  qty = 1, price = 1.0, time = "2026-11-13T12:00:00Z")`, and the relation
-  does the rest as for any input: the order with that id is added or
-  replaced, and its other fields are computed (`version` counts the
-  updates, as the self-reference reads the order being replaced). A
-  relation with no input (it reads only other relations) can't be posted
-  to: 405.
-- The struct's fields are those of the input's definition, in its order;
-  for each:
-  - if the form has it, its text converted to the type of the definition's
-    value when that is a literal: an int (`qty: 1`), a float (`price:
-    1.0`), a bool, else a string. Text that doesn't convert is an error;
-  - else, a field named `time` is the time of the request (UTC, RFC 3339).
-    There is no clock in the language, and this way the journal has the
-    times too;
-  - else, in an update, the member's field of that name, if it has one;
-  - else the definition's value, if it is a literal.
-
-  `id` is the member's in an update, and one more than the largest in the
-  relation for a new member. Form fields the definition doesn't have are
-  not sent to the program.
-- Lost updates: in an update, a form field that isn't one of the input's
-  but is a field of the member must still be equal to it (as text). So a
-  hidden `<input name="version" value="$order.version">` makes a form
-  filled in before someone else's change fail: 409.
-- Errors: a POST that fails answers with its form again (422, or 409) and
-  the variable `error`: the field that didn't convert, the conflict, or,
-  if the relation did not change, the program's last error for that line.
-  An error the program reports while it does change the relation (with
-  contagious None, a field that fails is None) is only in the server's
-  output.
+  A page that doesn't exist is 404. A POST to a reactive variable
+  computed from others is 405 ("order is computed from other reactive
+  variables: it can't be posted to"), to a name that isn't one 404 (the
+  answer lists those that can be posted to); another method is 405.
+  There is no delete.
+- Variables: a relation is its list of members (`$for="order"`, then
+  `$order.symbol`), a lone variable its value (None, shown as nothing,
+  until it has one), and `xError` is there for each relation x. A query
+  parameter named like a relation, `edit?order=3`, makes that variable the
+  member with that `id` instead (404 if there is none). The template
+  language HTML-escapes the strings it substitutes.
+- A POST to `<name>`: if its definition is a struct block, the form
+  fields named like the block's fields are converted to the type of the
+  block's value when that is a literal (an int, a float, a bool, else a
+  string; text that doesn't convert is an error) and sent as `name :
+  struct(...)`, which the program gives to the block's constructor
+  (fields not sent keep the block's values; see "Constructors" above).
+  A field `time` the form doesn't have is the time of the request (UTC,
+  RFC 3339: there is no clock in the language, and this way the journal
+  has the times too). A field `id` (for a relation) names the member to
+  replace: the member's other fields are sent too, so a form need only
+  send what it changes; without `id` the program gives a new one. A
+  variable that isn't a struct block takes the form field named like it.
+  Other form fields are not sent.
+- Lost updates: a form field `<relation>.<field>` (say a hidden `<input
+  name="order.version" value="$order.version">`) is a precondition: the
+  relation's member with the posted `id` must still have that value (as
+  text), else 409. So a form filled in before someone else's change fails.
+- Answers: a POST that works redirects (303) to the page it came from
+  (its Referer, if on this server; else `/`). One that fails renders that
+  page again with the variable `error` (422, or 409): the field that
+  didn't convert, the conflict, or the program's error for the line.
 - How it is made. serve/serve.star is all of it but the HTTP: bin/starserve
   (host/serve/main.go) is Go's net/http server, which runs that file with
   starlark-go and calls its `handle(server, request)` for every request,
   one at a time. serve.star parses the program with the compiler's parser
-  (to find the relations, their inputs and the fields' types), and runs it
-  with `node host/run.mjs`, unchanged but for observers added at the end
-  (in a copy, `<name>.serve.star` next to it): one per relation, printing
-  it when it changes, and a counter, which each request sets after its
-  line, so that its echo marks the end of that update's output:
+  (to find the reactive variables, which read others, and the fields'
+  types), and runs it with `node host/run.mjs`, unchanged but for
+  observers added at the end (in a copy, `<name>.serve.star` next to it):
+  one per reactive variable, printing it when it changes, and a counter,
+  which each request sets after its line, so that its echo marks the end
+  of that update's output:
 
       _serve_sync : ""
       print("%serve", "order", order)
       print("%serve", "sync", _serve_sync)
 
-  The printed relations are read back with the compiler's parser. The
-  compiler and the runtime are untouched, and the program is an ordinary
-  reactive one: it runs the same from a terminal.
+  The printed values are read back with the compiler's parser (one that
+  isn't made of literals and structs is kept as its text). The compiler
+  and the runtime are untouched, and the program is an ordinary reactive
+  one: it runs the same from a terminal.
+- Styles: examples/order/style.css is a generic, classless stylesheet
+  for pages written in plain semantic HTML (`header`, `nav`, `main`,
+  `table` with `thead`/`tbody`, `form` with `label`s, `footer`, `time`,
+  and `role="alert"` for the error); light and dark. Copy it next to
+  another program's templates and link it.
 - Options: `--addr=HOST:PORT` (default `localhost:8080`),
   `--templates=DIR` (default: the program's directory), `--journal=FILE`
-  (host/run.mjs's: the orders are back after a restart; the journal also
+  (host/run.mjs's: the data is back after a restart; the journal also
   holds the counter's lines), and the compiler's `--rollback`,
   `--nocontagiousnone`, `--contagiousnone`, `--globalreassign`,
   `--recursion`. `--now=TEXT` fixes the time, for tests.
-- Not covered: delete; lone variables (only relations have pages);
-  references (`<name>_id` fields) and choosing the member by anything but
-  `id`; forms with several values per field or file uploads; a page of
-  the relations at `/`; any authentication (it listens on localhost by
-  default: anyone who can reach it can post). A member whose printed form
-  isn't made of literals and structs (a function, the identity) makes
-  the server fail to read the relation. Output lines of the program that
-  start with `%serve ` are taken for the server's.
+- Not covered: delete; choosing a member by anything but `id`; nested
+  blocks from a form (they keep the block's values); forms with several
+  values per field or file uploads; any authentication (it listens on
+  localhost by default: anyone who can reach it can post). Output lines
+  of the program that start with `%serve ` are taken for the server's.
 - Tests: tests/serve.sh (the requests, with curl) and
   tests/serve/order.out (the expected responses), on examples/order/.

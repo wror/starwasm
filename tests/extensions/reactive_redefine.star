@@ -9,6 +9,12 @@ print("y", y)
 x : a + 2
 print("x", x, "y", y)
 
+# redefined by a value that reads no reactive variable: a source, which
+# standard input updates and nothing recomputes
+b : a * 3
+b : 100
+print("b", b)
+
 # a relation keeps its members; shipment follows the new order
 an order:
     qty: request.qty

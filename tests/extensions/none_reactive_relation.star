@@ -18,6 +18,12 @@ a parcel:
     cost:
         total: prices[request.item] * request.qty
 
+# a relation that reads no reactive variable, assigned on standard input:
+# a member with a None field isn't applied either
+a sale:
+    item: ""
+    price: 0
+
 # computed from the relation: not recomputed when no member is applied
 last : order.item
 print("last", last)
@@ -31,6 +37,7 @@ a line when line.qty <= rate:
 
 print("orders", order)
 print("parcels", parcel)
+print("sales", sale)
 print("lines", line)
 
 # Each relation has a relation of errors, <name>Error: a member for each
@@ -42,6 +49,7 @@ def show(label, errors):
 show("orderError", [struct(id = e.id, trigger = e.trigger, field = e.field, value = e.value) for e in orderError])
 print("order ids", [e.order_id for e in orderError])
 show("parcelError", parcelError)
+show("saleError", saleError)
 print("line ids", [(e.line_id, e.field) for e in lineError])
 
 # and it is a relation like any other: read in a definition, it is its

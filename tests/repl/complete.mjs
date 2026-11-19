@@ -47,11 +47,13 @@ for (const text of [
   "x = 1 + box.",
   'sizes.get("k").', // T | None: the methods of T, for this receiver
   '"x".st',
-  ":type box.h",
+  ".type box.h",
   "bo", // names: the session's, and builtins
   "ar",
   "ret", // keywords
-  ":t", // commands
+  "re", // not read_file (hidden), but repr, reversed, ...
+  "wr", // not write_file
+  ".t", // commands
   "area(box).", // an int: nothing
   "zz",
   "1.",

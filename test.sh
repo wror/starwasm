@@ -169,7 +169,7 @@ if node tests/repl/browser_mode.mjs out/stage2.wasm < tests/repl/session.in > ou
 else
   echo "repl (browser mode): MISMATCH"; fail=1
 fi
-# The type checker in the REPL (:type, :types, :check), both ways.
+# The type checker in the REPL (.type, .types, .check), both ways.
 if node host/repl.mjs out/stage2.wasm < tests/repl/types.in > out/repl_types.out 2>&1 &&
    diff -u tests/repl/types.out out/repl_types.out &&
    node tests/repl/browser_mode.mjs out/stage2.wasm < tests/repl/types.in > out/repl_types_browser.out 2>&1 &&

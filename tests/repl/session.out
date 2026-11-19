@@ -70,10 +70,10 @@ Traceback (most recent call last):
   <input 32>:1:9: in <toplevel>
   <input 30>:2:15: in half
 Error: floored division by zero
-<input 37>:1:5: undefined: nope
-h = 10
+<input 37>:1:5: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "nope"
+<input 38>:1:8: h is computed from other reactive variables (r): it can't be given a new value
 <input 39>:1:5: reactive variable r can only be used in a reactive definition (name : expr) or a top-level expression statement
-g 20
+g 4
 h = 1
 # <input 30>
 def half(n):
@@ -88,8 +88,6 @@ print("h is", h)
 r : 5
 # <input 35>
 h
-# <input 38> (update)
-r : 1; h : 99
 # <input 40>
 print("g", h * 2)
 # <input 41> (update)
@@ -103,8 +101,8 @@ b = 13
 7
 b = 14
 <input 51>:1:1: cannot assign to reactive variable a (only standard input changes it: a : value)
-b = 20
-<input 54>:1:5: b is a reactive variable: a new value can't refer to one
+<input 53>:1:5: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "sq"
+<input 54>:1:5: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "b"
 session cleared
 []
 struct(id = 1, name = None, qty = None)

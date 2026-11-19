@@ -1,9 +1,11 @@
 y 20
 y 30
 x 3 y 30
+b 100
 orders []
 shipments []
 y 70
 x 7 y 70
 orders [struct(id = 1, note = "doubled", qty = 10)]
 shipments [struct(id = 1, of = 10)]
+b 7

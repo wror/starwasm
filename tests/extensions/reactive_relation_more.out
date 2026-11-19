@@ -1,3 +1,4 @@
+notes []
 richest struct(balance = None, id = 1, owner = None)
 accounts []
 ledger []
@@ -13,6 +14,6 @@ accounts [struct(balance = 5, id = 2, owner = "bob"), struct(balance = 17, id = 
 ledger [200, 100]
 ticks [struct(at = 3, id = 1)]
 ticks [struct(at = 3, id = 1), struct(at = 4, id = 2)]
-richest struct(balance = 1, id = 9, owner = "cy")
-accounts [struct(balance = 5, id = 2, owner = "bob"), struct(balance = 17, id = 1, owner = "ann"), struct(balance = 1, id = 9, owner = "cy")]
-ledger [200, 100, 900]
+notes [struct(id = 9, text = "cy")]
+notes [struct(id = 9, text = "cy"), struct(id = 10, text = 5)]
+notes [struct(id = 9, text = "cy"), struct(id = 10, text = 5), struct(id = 11, text = "dee")]

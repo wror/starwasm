@@ -3,7 +3,7 @@
 // The session is saved in localStorage as a journal of the inputs accepted
 // (host/repl_core.mjs's Session.journal()), with the dialect, the screen
 // and the ↑/↓ history: reloading the page (or Stop) restores it, by
-// replaying the journal. :reset clears it and the screen (not the ↑/↓
+// replaying the journal. .reset clears it and the screen (not the ↑/↓
 // history), as does a change of dialect (the session only).
 // (Several tabs share it: the last input saved wins.)
 import { pastedInput } from "./host/repl_core.mjs";
@@ -36,7 +36,7 @@ function saveScreen() {
   save("screen", screen);
   save("lines", history.slice(-500));
 }
-// Ctrl-L, :reset: also the screen saved
+// Ctrl-L, .reset: also the screen saved
 function clearScreen() {
   out.textContent = "";
   screen.length = 0;
@@ -213,7 +213,7 @@ function start(note) {
         write(`(the saved session no longer runs, so it was dropped:)\n${m.error}`, "err");
         save("journal", null);
       } else if (m.count) {
-        write(`(restored ${m.count} input${m.count === 1 ? "" : "s"}; :history lists them, :reset starts over)\n`, "note");
+        write(`(restored ${m.count} input${m.count === 1 ? "" : "s"}; .history lists them, .reset starts over)\n`, "note");
       }
     } else if (m.type === "journal") {
       save("journal", m.journal.history.length ? { flags: flags(), journal: m.journal } : null);
@@ -228,7 +228,7 @@ function start(note) {
     }
     else if (m.type === "out") {
       const { span } = write(m.text);
-      // :help taller than the terminal (a phone's): show it from its start
+      // .help taller than the terminal (a phone's): show it from its start
       if (m.text.startsWith("Starlark REPL on")) {
         const r = span.getBoundingClientRect();
         if (r.height > term.clientHeight - 40) term.scrollTop += r.top - term.getBoundingClientRect().top - 12;

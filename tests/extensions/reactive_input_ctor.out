@@ -1,0 +1,12 @@
+request struct(id = 1, item = "apple", qty = 1, ship = struct(city = "Oslo", days = 3))
+fills []
+tags ["a"]
+request struct(id = 2, item = "apple", qty = 5, ship = struct(city = "Oslo", days = 3))
+request struct(id = 3, item = "pear", qty = 2, ship = struct(city = "Oslo", days = 3))
+request struct(id = 4, item = "fig", qty = 1, ship = struct(city = "Oslo", days = 3))
+request struct(id = 5, item = "apple", qty = 1, ship = struct(city = "Oslo", days = 1))
+request struct(id = 6, item = "apple", qty = 1, ship = struct(city = "Rome", days = 3))
+fills [struct(id = 3, order_id = 7, price = 1.5, qty = 4)]
+fills [struct(id = 3, order_id = 7, price = 1.5, qty = 4), struct(id = 4, price = 1.5, qty = 10)]
+fills [struct(id = 4, price = 1.5, qty = 10), struct(id = 3, price = -2.25, qty = 6)]
+tags ["b", "c"]

@@ -100,11 +100,11 @@
     Try:
     <button data-example="def fib(n):&#10;    a, b = 0, 1&#10;    for _ in range(n):&#10;        a, b = b, a + b&#10;    return a&#10;&#10;[fib(i) for i in range(12)]">a function</button>
     <button data-example="price : 10&#10;qty : 3&#10;total : price * qty&#10;total&#10;qty : 5&#10;price : 7">reactive variables</button>
-    <button data-example=":help">:help</button>
+    <button data-example=".help">.help</button>
   </div>
 </header>
 <div id="term">
-  <pre id="out"><span class="note">Starlark, compiled to WebAssembly (GC) by a compiler written in Starlark, itself compiled to WebAssembly, all running in this page. Each input recompiles and replays the session. :help for help.
+  <pre id="out"><span class="note">Starlark, compiled to WebAssembly (GC) by a compiler written in Starlark, itself compiled to WebAssembly, all running in this page. Each input recompiles and replays the session. .help for help.
 </span></pre>
   <div class="line"><span id="prompt">&gt;&gt;&gt; </span><span class="edit"><span id="marks" aria-hidden="true"></span><input id="input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Starlark input" aria-describedby="tip" disabled></span></div>
 </div>
@@ -113,7 +113,7 @@
   Pasting from a REPL session (lines with the <code>&gt;&gt;&gt;</code> prompt) enters what was typed there, not what was printed.
   ↑/↓ history, Ctrl-L (or Clear) clears the screen, Tab completes names, and after a <code>.</code> the fields or methods of the value's type.
   Type errors in what you type are marked in red; point at one for the type checker's message.
-  The session is saved in this browser and restored when you come back; <code>:reset</code> clears it and the screen.
+  The session is saved in this browser and restored when you come back; <code>.reset</code> clears it and the screen.
   <a href="https://github.com/wror/starwasm">Source</a><!--sha-->
 </footer>
 <div id="tip" role="tooltip"></div>

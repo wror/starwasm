@@ -48,4 +48,4 @@ type checking of inputs is on
       |                      ^
 type checking of inputs is off
 n: int
-usage: :check on|off
+usage: .check on|off

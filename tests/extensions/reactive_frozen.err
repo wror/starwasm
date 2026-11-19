@@ -12,6 +12,4 @@ Traceback (most recent call last):
   tests/extensions/reactive_frozen.star:34:11: in <toplevel>
   tests/extensions/reactive_frozen.star:15:12: in bump
 Error: cannot assign to element of frozen list
-Traceback (most recent call last):
-  tests/extensions/reactive_frozen.star:9:16: in remember
-Error in append: append: cannot append to frozen list
+<stdin>:5:5: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "remember"

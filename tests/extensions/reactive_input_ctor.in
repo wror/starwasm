@@ -1,0 +1,12 @@
+request : struct(qty = 5)
+request : ["pear", 2]
+request : "fig"
+request : struct(ship = struct(days = 1))
+request : struct(ship = ["Rome"])
+request : ["kiwi", 1, struct(city = "Lima"), 9]
+fill : struct(id = 3, order_id = 7, qty = 4)
+fill : [10]
+fill : struct(id = 3, qty = 6, price = -2.25)
+tags : ["b", "c"]
+tags : 3 * 2
+request : struct(qty = 1, qty = 2)
