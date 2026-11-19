@@ -1156,15 +1156,45 @@ def _r_fresh(state, prev, f, deps):
             return True
     return False
 
-def _r_member(values, name, reader, tid):
+def _r_shared_key(values, state, x, v):
+    """The field that relation x and v, a member of another reactive
+    variable, both have whose name ends in "id" (other than id itself),
+    the latest alphabetically; None if there is none. x's fields are its
+    block's (its shape) and its current member's."""
+    if type(v) != "struct":
+        return None
+    fields = [f for f, _ in state["relations"].get(x, ())]
+    cur = values[x]
+    if type(cur) == "struct":
+        fields += dir(cur)
+    best = None
+    for f in fields:
+        if f != "id" and f.endswith("id") and hasattr(v, f) and (best == None or f > best):
+            best = f
+    return best
+
+def _r_member(values, state, name, reader, tid):
     """The member of relation name for the update of reader's member tid:
-    the last one whose field reader + "_id" is tid, or, for a member
-    without that field, whose id is; _unset if there is none."""
+    the last one whose field reader + "_id" is tid; for a member without
+    that field, that has a field ending in "id" that reader has too
+    (_r_shared_key), whose value of it is that of reader's member tid; for
+    a member without either, whose id is tid. _unset if there is none."""
     key = reader + "_id"
+    rm = None
+    for m in values[reader + "[]"]:
+        if hasattr(m, "id") and m.id == tid:
+            rm = m
     found = _unset
     for m in values[name + "[]"]:
-        k = getattr(m, key) if hasattr(m, key) else getattr(m, "id", None)
-        if k == tid:
+        if hasattr(m, key):
+            hit = getattr(m, key) == tid
+        else:
+            f = _r_shared_key(values, state, reader, m)
+            if f != None and rm != None and hasattr(rm, f):
+                hit = getattr(m, f) == getattr(rm, f)
+            else:
+                hit = getattr(m, "id", None) == tid
+        if hit:
             found = m
     return found
 
@@ -1179,7 +1209,7 @@ def _r_read(values, state, name, reader, file, line):
     v = values[name]
     tid = state["tid"]
     if reader != None and tid != None and not _is_unset(v):
-        v = _r_member(values, name, reader, tid)
+        v = _r_member(values, state, name, reader, tid)
     if _is_unset(v) and _n_on():
         return _n_tag(None, "relation", name, file, line)
     return v
@@ -1193,7 +1223,7 @@ def _r_unmatched(values, state, name, deps):
     if tid == None:
         return False
     for d in deps:
-        if d != name and d in state["relations"] and _is_unset(_r_member(values, d, name, tid)):
+        if d != name and d in state["relations"] and _is_unset(_r_member(values, state, d, name, tid)):
             return True
     return False
 
@@ -1317,8 +1347,12 @@ def _r_tid(values, state, name, deps, relation):
     reading deps: that of the first dependency that changed (else the first
     one) and has one; for a lone variable (not relation), only relations
     count. A dependency's id here is its field name + "_id" if it has one
-    (a reference to a member of name, e.g. deposit.account_id for account),
-    else its field id. None if there is none."""
+    (a reference to a member of name, e.g. deposit.account_id for account);
+    else, for a relation name and another dependency that both have a
+    field ending in "id" (_r_shared_key, e.g. customer_id), the id of
+    name's last member with the dependency's value of it (None, so a new
+    member, if there is none); else its field id. None if there is
+    none."""
     changed = state["changed"]
     rels = state["relations"]
     key = name + "_id"
@@ -1328,6 +1362,13 @@ def _r_tid(values, state, name, deps, relation):
                 v = values[d]
                 if hasattr(v, key):
                     return getattr(v, key)
+                f = _r_shared_key(values, state, name, v) if relation and d != name else None
+                if f != None:
+                    found = None
+                    for m in values[name + "[]"]:
+                        if hasattr(m, f) and getattr(m, f) == getattr(v, f):
+                            found = m.id
+                    return found
                 if hasattr(v, "id"):
                     return v.id
     return None
