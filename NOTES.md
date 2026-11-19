@@ -49,11 +49,11 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     host/typecheck.mjs    runs it: node host/typecheck.mjs prog.star
     template/             a template language in plain Starlark, independent
                           of everything else here (template/README.md)
-    serve/serve.star      a reactive program's relations over HTTP, as HTML
+    serve/serve.star      a reactive program over HTTP, as HTML
                           from templates (an extension: EXTENSIONS.md,
-                          "Serving relations")
+                          "Serving reactive programs")
     host/serve/main.go    runs it: bin/starserve prog.star, Go's net/http
-    examples/order/       its example: an order book and its three pages
+    examples/order/       its example: an order book, its pages and style.css
     examples/demo.star    milestone 1 demo (i64 factorial)
     tests/*_test.star     Starlark unit tests (encoder bytes vs. spec)
     tests/runtime/        differential test: expect.star (starlark-go) vs

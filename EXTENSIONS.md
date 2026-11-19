@@ -1399,18 +1399,18 @@ by the interpreted and by the self-compiled checker, and round trip (each
 `.starit` used as the `.start` must reproduce itself);
 `tests/types_test.star`: unification, case by case.
 
-## Serving relations
+## Serving reactive programs
 
     (cd host && go build -o ../bin/starserve ./serve)
-    bin/starserve examples/order/order.star      # http://localhost:8080/order
+    bin/starserve examples/order/order.star      # http://localhost:8080/
 
-`bin/starserve prog.star` runs a reactive program and serves each of its
-relations as web pages: a list of the members, a form to add one and a
-form to change one. The pages are HTML templates (the language of
-`template/`, see template/README.md) next to the program; a form that is
-posted becomes a line of the program's standard input.
+`bin/starserve prog.star` runs a reactive program and serves pages made
+from HTML templates (the language of `template/`, see
+template/README.md) next to the program. Every page sees every reactive
+variable of the program, and a form posted to a reactive variable that
+reads no other becomes a line of the program's standard input.
 
-    order_request:            # what a form sends
+    an order_request:         # what a form sends
         symbol: "ZVZZT"
         qty: 1
         price: 1.0
@@ -1424,85 +1424,80 @@ posted becomes a line of the program's standard input.
         lastupdate: order_request.time
         version: order.version + 1
 
-- Routes, for each relation `<name>` (here `order`):
+- Routes; nothing is named by convention:
 
   | request | answer |
   | --- | --- |
-  | `GET /<name>` | `<name>s.html`, with `<name>`: the list of members |
-  | `GET /<name>/new` | `<name>_create.html` |
-  | `POST /<name>` | adds a member, then redirects to `/<name>` |
-  | `GET /<name>/<id>` | `<name>_update.html`, with `<name>`: the member with that `id` |
-  | `POST /<name>/<id>` | replaces that member, then redirects to `/<name>` |
+  | `GET /<page>` | the template file `<page>`, or `<page>.html` (`/` is `index.html`), with every reactive variable |
+  | `GET /<file>.css` (`.js`, `.txt`) | that file of the templates' directory, as it is |
+  | `POST /<name>` | a new value for reactive variable `<name>`, then a redirect back (303) |
 
-  Anything else is 404, or 405 for another method. There is no delete.
-  In a template a member's fields are `$order.symbol` and so on (in
-  `orders.html`, inside `$for="order"`). The template language
-  HTML-escapes the strings it substitutes; None is shown as nothing.
-- What a POST assigns: the *input* of the relation, which is the first
-  reactive variable its definition reads that is a lone struct
-  (`order_request` above), or the relation itself if its definition reads
-  no reactive variable but itself (then the members are exactly what the
-  forms send). The line is `order_request = struct(id = 3, symbol = "ZVZZT",
-  qty = 1, price = 1.0, time = "2026-11-13T12:00:00Z")`, and the relation
-  does the rest as for any input: the order with that id is added or
-  replaced, and its other fields are computed (`version` counts the
-  updates, as the self-reference reads the order being replaced). A
-  relation with no input (it reads only other relations) can't be posted
-  to: 405.
-- The struct's fields are those of the input's definition, in its order;
-  for each:
-  - if the form has it, its text converted to the type of the definition's
-    value when that is a literal: an int (`qty: 1`), a float (`price:
-    1.0`), a bool, else a string. Text that doesn't convert is an error;
-  - else, a field named `time` is the time of the request (UTC, RFC 3339).
-    There is no clock in the language, and this way the journal has the
-    times too;
-  - else, in an update, the member's field of that name, if it has one;
-  - else the definition's value, if it is a literal.
-
-  `id` is the member's in an update, and one more than the largest in the
-  relation for a new member. Form fields the definition doesn't have are
-  not sent to the program.
-- Lost updates: in an update, a form field that isn't one of the input's
-  but is a field of the member must still be equal to it (as text). So a
-  hidden `<input name="version" value="$order.version">` makes a form
-  filled in before someone else's change fail: 409.
-- Errors: a POST that fails answers with its form again (422, or 409) and
-  the variable `error`: the field that didn't convert, the conflict, or,
-  if the relation did not change, the program's last error for that line.
-  An error the program reports while it does change the relation (with
-  contagious None, a field that fails is None) is only in the server's
-  output.
+  A page that doesn't exist is 404. A POST to a reactive variable
+  computed from others is 405 ("order is computed from other reactive
+  variables: it can't be posted to"), to a name that isn't one 404 (the
+  answer lists those that can be posted to); another method is 405.
+  There is no delete.
+- Variables: a relation is its list of members (`$for="order"`, then
+  `$order.symbol`), a lone variable its value (None, shown as nothing,
+  until it has one), and `xError` is there for each relation x. A query
+  parameter named like a relation, `edit?order=3`, makes that variable the
+  member with that `id` instead (404 if there is none). The template
+  language HTML-escapes the strings it substitutes.
+- A POST to `<name>`: if its definition is a struct block, the form
+  fields named like the block's fields are converted to the type of the
+  block's value when that is a literal (an int, a float, a bool, else a
+  string; text that doesn't convert is an error) and sent as `name :
+  struct(...)`, which the program gives to the block's constructor
+  (fields not sent keep the block's values; see "Constructors" above).
+  A field `time` the form doesn't have is the time of the request (UTC,
+  RFC 3339: there is no clock in the language, and this way the journal
+  has the times too). A field `id` (for a relation) names the member to
+  replace: the member's other fields are sent too, so a form need only
+  send what it changes; without `id` the program gives a new one. A
+  variable that isn't a struct block takes the form field named like it.
+  Other form fields are not sent.
+- Lost updates: a form field `<relation>.<field>` (say a hidden `<input
+  name="order.version" value="$order.version">`) is a precondition: the
+  relation's member with the posted `id` must still have that value (as
+  text), else 409. So a form filled in before someone else's change fails.
+- Answers: a POST that works redirects (303) to the page it came from
+  (its Referer, if on this server; else `/`). One that fails renders that
+  page again with the variable `error` (422, or 409): the field that
+  didn't convert, the conflict, or the program's error for the line.
 - How it is made. serve/serve.star is all of it but the HTTP: bin/starserve
   (host/serve/main.go) is Go's net/http server, which runs that file with
   starlark-go and calls its `handle(server, request)` for every request,
   one at a time. serve.star parses the program with the compiler's parser
-  (to find the relations, their inputs and the fields' types), and runs it
-  with `node host/run.mjs`, unchanged but for observers added at the end
-  (in a copy, `<name>.serve.star` next to it): one per relation, printing
-  it when it changes, and a counter, which each request sets after its
-  line, so that its echo marks the end of that update's output:
+  (to find the reactive variables, which read others, and the fields'
+  types), and runs it with `node host/run.mjs`, unchanged but for
+  observers added at the end (in a copy, `<name>.serve.star` next to it):
+  one per reactive variable, printing it when it changes, and a counter,
+  which each request sets after its line, so that its echo marks the end
+  of that update's output:
 
       _serve_sync : ""
       print("%serve", "order", order)
       print("%serve", "sync", _serve_sync)
 
-  The printed relations are read back with the compiler's parser. The
-  compiler and the runtime are untouched, and the program is an ordinary
-  reactive one: it runs the same from a terminal.
+  The printed values are read back with the compiler's parser (one that
+  isn't made of literals and structs is kept as its text). The compiler
+  and the runtime are untouched, and the program is an ordinary reactive
+  one: it runs the same from a terminal.
+- Styles: examples/order/style.css is a generic, classless stylesheet
+  for pages written in plain semantic HTML (`header`, `nav`, `main`,
+  `table` with `thead`/`tbody`, `form` with `label`s, `footer`, `time`,
+  and `role="alert"` for the error); light and dark. Copy it next to
+  another program's templates and link it.
 - Options: `--addr=HOST:PORT` (default `localhost:8080`),
   `--templates=DIR` (default: the program's directory), `--journal=FILE`
-  (host/run.mjs's: the orders are back after a restart; the journal also
+  (host/run.mjs's: the data is back after a restart; the journal also
   holds the counter's lines), and the compiler's `--rollback`,
   `--nocontagiousnone`, `--contagiousnone`, `--globalreassign`,
   `--recursion`. `--now=TEXT` fixes the time, for tests.
-- Not covered: delete; lone variables (only relations have pages);
-  references (`<name>_id` fields) and choosing the member by anything but
-  `id`; forms with several values per field or file uploads; a page of
-  the relations at `/`; any authentication (it listens on localhost by
-  default: anyone who can reach it can post). A member whose printed form
-  isn't made of literals and structs (a function, the identity) makes
-  the server fail to read the relation. Output lines of the program that
-  start with `%serve ` are taken for the server's.
+- Not covered: delete; choosing a member by anything but `id`; nested
+  blocks from a form (they keep the block's values); forms with several
+  values per field or file uploads; any authentication (it listens on
+  localhost by default: anyone who can reach it can post). Output lines
+  of the program that start with `%serve ` are taken for the server's.
 - Tests: tests/serve.sh (the requests, with curl) and
   tests/serve/order.out (the expected responses), on examples/order/.

@@ -1,5 +1,5 @@
-// Command starserve serves a reactive program's relations over HTTP
-// (EXTENSIONS.md, "Serving relations").
+// Command starserve serves a reactive program over HTTP
+// (EXTENSIONS.md, "Serving reactive programs").
 //
 // Usage: starserve [--addr=HOST:PORT] [--templates=DIR] [--journal=FILE]
 //
@@ -141,6 +141,16 @@ func readFile(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwar
 	return starlark.String(data), nil
 }
 
+// isFile(path): is there a regular file at path?
+func isFile(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &path); err != nil {
+		return nil, err
+	}
+	fi, err := os.Stat(path)
+	return starlark.Bool(err == nil && fi.Mode().IsRegular()), nil
+}
+
 func writeFile(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, data string
 	if err := starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 2, &path, &data); err != nil {
@@ -203,6 +213,7 @@ func main() {
 	predeclared := starlark.StringDict{
 		"read_file":  starlark.NewBuiltin("read_file", readFile),
 		"write_file": starlark.NewBuiltin("write_file", writeFile),
+		"is_file":    starlark.NewBuiltin("is_file", isFile),
 		"spawn":      starlark.NewBuiltin("spawn", prog.spawn),
 		"send":       starlark.NewBuiltin("send", prog.send),
 		"recv":       starlark.NewBuiltin("recv", prog.recv),
@@ -274,9 +285,16 @@ func main() {
 		if at == "" {
 			at = time.Now().UTC().Format(time.RFC3339)
 		}
-		req := starlark.NewDict(4)
+		query := starlark.NewDict(0)
+		for k, v := range r.URL.Query() {
+			query.SetKey(starlark.String(k), starlark.String(v[0]))
+		}
+		req := starlark.NewDict(8)
 		req.SetKey(starlark.String("method"), starlark.String(r.Method))
 		req.SetKey(starlark.String("path"), starlark.String(r.URL.Path))
+		req.SetKey(starlark.String("query"), query)
+		req.SetKey(starlark.String("referer"), starlark.String(r.Referer()))
+		req.SetKey(starlark.String("host"), starlark.String(r.Host))
 		req.SetKey(starlark.String("form"), form)
 		req.SetKey(starlark.String("time"), starlark.String(at))
 

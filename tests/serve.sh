@@ -1,5 +1,5 @@
 #!/bin/sh
-# Test of bin/starserve (EXTENSIONS.md, "Serving relations"): serves
+# Test of bin/starserve (EXTENSIONS.md, "Serving reactive programs"): serves
 # examples/order/order.star, sends it the requests below with curl, and
 # compares the responses (status line, Location, body) with
 # tests/serve/order.out. Then restarts it on the same journal, and checks
@@ -34,25 +34,27 @@ req() { # req <curl args...>: the request, then the response
 }
 start
 {
-  req $u/order
-  req $u/order/new
-  req -d 'symbol=ZVZZT&qty=1&price=1.0' $u/order
-  req -d 'symbol=A<b>"&qty=5&price=2' $u/order
-  req -d 'symbol=X&qty=abc&price=2' $u/order
-  req -d 'symbol=X&qty=1&price=1e999' $u/order
-  req $u/order/1
-  req -d 'symbol=ZVZZT&qty=7&price=1.5&version=1' $u/order/1
-  req -d 'symbol=ZVZZT&qty=9&price=1.5&version=1' $u/order/1
-  req -d 'qty=8' $u/order/2
-  req $u/order
-  req $u/order/9
   req $u/
-  req -X DELETE $u/order/1
-  req -d 'a=1' $u/order/new
+  req $u/new
+  req $u/style.css -o /dev/null -w '%{http_code} %{content_type}\n'
+  req -e $u/new -d 'symbol=ZVZZT&qty=1&price=1.0' $u/order_request
+  req -e $u/new -d 'symbol=A<b>"&qty=5&price=2' $u/order_request
+  req -e $u/new -d 'symbol=X&qty=abc&price=2' $u/order_request
+  req -e $u/new -d 'symbol=X&qty=1&price=1e999' $u/order_request
+  req "$u/edit?order=1"
+  req -e "$u/edit?order=1" -d 'id=1&order.version=1&symbol=ZVZZT&qty=7&price=1.5' $u/order_request
+  req -e "$u/edit?order=1" -d 'id=1&order.version=1&symbol=ZVZZT&qty=9&price=1.5' $u/order_request
+  req -d 'id=2&qty=8' $u/order_request
+  req $u/index
+  req "$u/edit?order=9"
+  req $u/nosuch
+  req -d 'qty=1' $u/order
+  req -d 'qty=1' $u/nosuch
+  req -X DELETE $u/order_request
   stop
   start
   echo "== after a restart"
-  req $u/order
+  req $u/index.html
 } > out/serve_order.got
 stop
 if cmp -s tests/serve/order.out out/serve_order.got; then

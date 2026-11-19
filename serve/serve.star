@@ -1,12 +1,12 @@
-# serve.star — reactive relations over HTTP (EXTENSIONS.md, "Serving
-# relations").
+# serve.star — a reactive program over HTTP (EXTENSIONS.md, "Serving
+# reactive programs").
 #
 # A program of its own, run by bin/starserve (host/serve/main.go), which is
 # Go's net/http server and nothing else: it hands every request to handle()
 # here, and gives this file the means to run the reactive program and talk
 # to it:
 #
-#   read_file(path), write_file(path, data)
+#   read_file(path), write_file(path, data), is_file(path)
 #   spawn(argv)     start the program (once); its standard output and
 #                   standard error come back, in order, through recv()
 #   send(line)      write a line to the program's standard input
@@ -14,17 +14,18 @@
 #
 # The program is run by node host/run.mjs, unchanged but for observers
 # added at its end (in a copy, <name>.serve.star next to it), which print
-# each relation when it changes, and a counter that marks the end of an
-# update's output:
+# each reactive variable when it changes, and a counter that marks the end
+# of an update's output:
 #
 #   _serve_sync : ""
 #   print("%serve", "order", order)
 #   print("%serve", "sync", _serve_sync)
 #
-# A POST becomes a line of the program's standard input, `x : struct(...)`
-# followed by `_serve_sync = "<n>"`; what the program prints up to
-# `%serve sync <n>` is that update's output. (<n> names this run of the
-# server too: a journal replays the lines of earlier runs.)
+# A POST to /<x> becomes a line of the program's standard input, `x :
+# struct(...)` (or `x : value`), followed by `_serve_sync : "<n>"`; what
+# the program prints up to `%serve sync <n>` is that update's output.
+# (<n> names this run of the server too: a journal replays the lines of
+# earlier runs.)
 
 load("../compiler/parser.star", "parse_file")
 load("../template/template.star", "render")
@@ -94,60 +95,62 @@ def _reads(x, reactive, out):
         for v in x:
             _reads(v, reactive, out)
 
+def _kind(default):
+    """The type a form field's text is converted to, from the value it has
+    in the definition (default: [value], or None if it isn't a literal)."""
+    kind = type(default[0]) if default != None else "string"
+    return kind if kind in ("int", "float", "bool") else "string"
+
+def _is_block(v):
+    return v["kind"] == "call" and v["fn"]["kind"] == "name" and v["fn"]["id"] == "struct"
+
 def analyze(src, filename):
-    """The relations of a program: name -> {"input": the variable a POST
-    assigns (or None), "fields": that variable's fields, each (name, type,
-    [default] or None)}."""
+    """The reactive variables of a program: name -> {"relation": is it one,
+    "source": does its definition read no other reactive variable (then a
+    POST can give it a value), "fields": for a source defined by a struct
+    block, its fields, each (name, type, [default] or None) (nested blocks
+    left out: they keep the block's values); for another source, None
+    (the form's field named like the variable is its value, of "type")}.
+    A relation x also has its relation of errors, xError."""
     defs = {}
     for s in parse_file(src, filename):
         if s["kind"] == "reactive":
             defs[s["name"]] = s
-    relations = {}
+    out = {}
     for name, s in defs.items():
-        if not s.get("relation", False):
-            continue
         reads = []
         _reads(s.get("when"), defs, reads)
         _reads(s["value"], defs, reads)
         reads = [r for r in reads if r != name]
-
-        # What a POST assigns: the first struct the relation is computed
-        # from, or the relation itself if it is computed from nothing.
-        target = None if reads else name
-        for r in reads:
-            v = defs[r]["value"]
-            if not defs[r].get("relation", False) and v["kind"] == "call" and v["fn"]["kind"] == "name" and v["fn"]["id"] == "struct":
-                target = r
-                break
-        fields = []
-        if target != None:
-            for a in defs[target]["value"]["args"]:
-                if a["name"] == None or a["name"] == "id":
-                    continue
-                default = _literal(a["value"])
-                kind = type(default[0]) if default != None else "string"
-                fields.append((a["name"], kind if kind in ("int", "float", "bool") else "string", default))
-        relations[name] = {"input": target, "fields": fields}
-    return relations
+        info = {"relation": s.get("relation", False), "source": not reads and s.get("when") == None,
+                "fields": None, "type": _kind(_literal(s["value"]))}
+        if _is_block(s["value"]):
+            info["fields"] = [(a["name"], _kind(_literal(a["value"])), _literal(a["value"]))
+                              for a in s["value"]["args"]
+                              if a["name"] != None and a["name"] != "id" and not _is_block(a["value"])]
+        out[name] = info
+        if info["relation"]:
+            out[name + "Error"] = {"relation": True, "source": True, "fields": None, "type": "string"}
+    return out
 
 def start(config):
     """Starts the program config["program"] (run by the command
     config["run"]; config["id"] names this run) and returns the server's state, for handle()."""
     path = config["program"]
     src = read_file(path)
-    relations = analyze(src, path)
+    reactives = analyze(src, path)
     if not src.endswith("\n"):
         src += "\n"
     src += "%s : \"\"\n" % SYNC
-    for name in relations:
+    for name in reactives:
         src += "print(\"%%serve\", \"%s\", %s)\n" % (name, name)
     src += "print(\"%%serve\", \"sync\", %s)\n" % SYNC
     copy = (path[:-len(".star")] if path.endswith(".star") else path) + ".serve.star"
     write_file(copy, src)
     spawn(config["run"] + [copy])
     server = {
-        "relations": relations,
-        "values": {name: [] for name in relations},
+        "reactives": reactives,
+        "values": {name: [] if r["relation"] else None for name, r in reactives.items()},
         "templates": config["templates"],
         "run": config["id"],
         "seq": 0,
@@ -157,7 +160,7 @@ def start(config):
 
 def _exchange(server, lines):
     """Sends lines to the program, and reads what it prints for them: the
-    relations that changed (their new values go in server["values"]), and
+    reactive variables that changed (their new values go in server["values"]), and
     the other lines, which are also printed here."""
     server["seq"] += 1
     seq = "%s.%d" % (server["run"], server["seq"])  # unlike any in a journal
@@ -180,9 +183,7 @@ def _exchange(server, lines):
                 break
             continue
         x = _literal(parse_file(text + "\n", "<" + name + ">")[0]["x"])
-        if x == None:
-            fail("cannot read the value of %s: %s" % (name, text))
-        server["values"][name] = x[0]
+        server["values"][name] = x[0] if x != None else text  # (not data: its repr)
         changed[name] = True
     return changed, log
 
@@ -260,94 +261,184 @@ def _shown(v):
 
 # ---------------------------------------------------------------- requests
 
+def _template(server, path):
+    """The template file a GET of path renders: /x is x, or x.html if
+    there is no x; / is index.html. None if there is none (or path isn't
+    one plain file name)."""
+    name = path.strip("/")
+    if name == "":
+        name = "index.html"
+    if "/" in name or name.startswith("."):
+        return None
+    for n in ([name] if name.endswith(".html") else [name, name + ".html"]):
+        if is_file(server["templates"] + "/" + n):
+            return n
+    return None
+
+# Files served as they are (not templates), by extension.
+STATIC = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".txt": TEXT["Content-Type"]}
+
+def _static(server, path):
+    """A GET of a file in the templates' directory with an extension in
+    STATIC: the file as it is; else None."""
+    name = path.strip("/")
+    if "/" in name or name.startswith("."):
+        return None
+    for ext, ctype in STATIC.items():
+        if name.endswith(ext) and is_file(server["templates"] + "/" + name):
+            return 200, {"Content-Type": ctype}, read_file(server["templates"] + "/" + name)
+    return None
+
+def _vars(server, query):
+    """A page's variables: every reactive variable (a relation is its list
+    of members), except that a query parameter named like a relation
+    (?order=3) makes it the member with that id. Returns (vars, None), or
+    (None, what is missing)."""
+    vars = dict(server["values"])
+    for k, v in query.items():
+        r = server["reactives"].get(k)
+        if r == None or not r["relation"]:
+            continue
+        found = [m for m in server["values"][k] if type(m) == "dict" and str(m.get("id")) == v]
+        if not found:
+            return None, "no %s %s" % (k, v)
+        vars[k] = found[-1]
+    return vars, None
+
 def _page(server, name, vars, status = 200):
     return status, HTML, render(server["templates"] + "/" + name, _shown(vars), read_file)
 
-def _status(status, text):
-    return status, TEXT, text + "\n"
+def _status(status, text, headers = {}):
+    return status, dict(TEXT, **headers), text + "\n"
 
-def _post(server, req, name, member):
-    """A form posted to relation name: for a new member (member None), or
-    for an existing one."""
-    rel = server["relations"][name]
+def _back(req):
+    """Where a POST's answer goes: the page it came from (the Referer's
+    path, if it is of this server), else /."""
+    ref = req.get("referer", "")
+    host = req.get("host", "")
+    for prefix in ("http://" + host, "https://" + host):
+        if host != "" and ref.startswith(prefix + "/"):
+            return ref[len(prefix):]
+    return "/"
+
+def _post(server, req, name):
+    """A form posted to reactive variable name, one whose definition reads
+    no other (a source). For a struct block, the form's fields named like
+    the block's are converted to their types; `id`, if given, picks the
+    member of a relation it replaces (whose other fields are kept), and a
+    field `time` the form doesn't have is the time of the request. Any other
+    source takes the form field named like it. A field `<relation>.<field>`
+    is a precondition: the relation's member with the posted id must still
+    have that value (else 409). Then redirects back (_back), or, if it
+    fails, renders the page it came from with `error` (422, or 409)."""
+    rel = server["reactives"][name]
     form = req["form"]
-    if rel["input"] == None:
-        return _status(405, name + " is not computed from a struct, so it cannot be posted to")
     error = None
     status = 422
-    declared = [f[0] for f in rel["fields"]]
-
-    # What the form sends back unchanged must still be so (say, a hidden
-    # field with the member's version).
-    if member != None:
-        for k in sorted(form):
-            if k not in declared and k in member and str(member[k]) != form[k] and error == None:
-                error = "%s %s was changed by someone else: %s is now %s, not %s" % (name, member["id"], k, member[k], form[k])
-                status = 409
-    args = []
-    for fname, kind, default in rel["fields"]:
-        if fname in form:
-            v, bad = _convert(kind, form[fname])
-            if bad != None:
-                if error == None:
-                    error = "%s %s" % (fname, bad)
-                continue
-        elif fname == "time":
-            v = req["time"]
-        elif member != None and fname in member:
-            v = member[fname]
-        elif default != None:
-            v = default[0]
-        else:
-            if error == None:
-                error = "%s is missing" % fname
+    id = form.get("id")
+    if id != None:
+        v, bad = _convert("int", id)
+        id = v if bad == None else id
+    member = None
+    if rel["relation"] and id != None:
+        for m in server["values"][name]:
+            if type(m) == "dict" and m.get("id") == id:
+                member = m
+    for k in sorted(form):
+        r, dot, f = k.partition(".")
+        if dot == "" or error != None:
             continue
-        args.append("%s = %s" % (fname, _source(v)))
+        if r not in server["reactives"] or not server["reactives"][r]["relation"]:
+            error = "%s is not a relation" % r
+            continue
+        cur = [m for m in server["values"][r] if type(m) == "dict" and m.get("id") == id]
+        if not cur or f not in cur[-1] or str(cur[-1][f]) != form[k]:
+            error = "%s %s was changed by someone else: %s is now %s, not %s" % (
+                r, id, f, cur[-1][f] if cur and f in cur[-1] else "gone", form[k])
+            status = 409
+    if rel["fields"] == None:
+        if name not in form and error == None:
+            error = "%s is missing" % name
+        elif error == None:
+            v, bad = _convert(rel["type"], form[name])
+            if bad != None:
+                error = "%s %s" % (name, bad)
+            line = "%s : %s" % (name, _source(v))
+    else:
+        args = ["id = " + _source(id)] if id != None else []
+        for fname, kind, _ in rel["fields"]:
+            if fname in form:
+                v, bad = _convert(kind, form[fname])
+                if bad != None:
+                    if error == None:
+                        error = "%s %s" % (fname, bad)
+                    continue
+            elif fname == "time":
+                v = req["time"]
+            elif member != None and fname in member:
+                v = member[fname]
+            else:
+                continue  # (the block's value)
+            args.append("%s = %s" % (fname, _source(v)))
+        line = "%s : struct(%s)" % (name, ", ".join(args))
     if error == None:
-        if member != None:
-            id = member["id"]
-        else:
-            id = 1 + max([0] + [m["id"] for m in server["values"][name] if type(m.get("id")) == "int"])
-        changed, log = _exchange(server, ["%s : struct(%s)" % (rel["input"], ", ".join(["id = " + _source(id)] + args))])
-        if name in changed:
-            return 303, {"Location": "/" + name}, ""
-        errors = [l for l in log if l.startswith("Error") or l.startswith("<stdin>:")]
-        error = errors[-1] if errors else "%s did not change" % name
-    vars = {"error": error}
-    if member != None:
-        vars[name] = member
-    return _page(server, name + ("_update.html" if member != None else "_create.html"), vars, status)
+        _, log = _exchange(server, [line])
+        errors = [l for l in log if l.startswith("<stdin>:")]
+        if not errors:
+            return 303, {"Location": _back(req)}, ""
+        error = errors[-1]
+    back = _back(req)
+    page = _template(server, back.partition("?")[0])
+    if page == None:
+        return _status(status, error)
+    vars, _ = _vars(server, _query(back.partition("?")[2]))
+    vars = vars if vars != None else dict(server["values"])
+    vars["error"] = error
+    return _page(server, page, vars, status)
+
+def _query(text):
+    """The parameters of a query string (already decoded by the host for
+    the request's own; the Referer's are taken as they are)."""
+    out = {}
+    for part in text.split("&"):
+        k, eq, v = part.partition("=")
+        if k != "":
+            out[k] = v
+    return out
 
 def handle(server, req):
-    """Answers the HTTP request req, a dict of method, path, form (the
-    posted fields) and time: (status, headers, body). For each relation
-    <name> of the program:
+    """Answers the HTTP request req, a dict of method, path, query, form
+    (the posted fields), referer, host and time: (status, headers, body).
 
-      GET  /<name>        <name>s.html, with <name>: the list of members
-      GET  /<name>/new    <name>_create.html
-      POST /<name>        adds a member, then redirects to /<name>
-      GET  /<name>/<id>   <name>_update.html, with <name>: that member
-      POST /<name>/<id>   replaces that member, then redirects to /<name>
+      GET  /<page>     the template <page> (or <page>.html; / is
+                       index.html), with every reactive variable (_vars)
+      POST /<name>     a new value for reactive variable <name>, if its
+                       definition reads no other one (_post); else 405
 
-    A POST that fails gives its form again, with `error`."""
-    parts = [p for p in req["path"].split("/") if p != ""]
+    Anything else is 404, or 405 for another method."""
+    path = req["path"]
     method = req["method"]
     if method == "HEAD":
         method = "GET"
-    if len(parts) == 0 or len(parts) > 2 or parts[0] not in server["relations"]:
-        return _status(404, "not found: the relations are " + ", ".join(["/" + n for n in server["relations"]]))
-    name = parts[0]
-    if method not in ("GET", "POST") or (parts[1:] == ["new"] and method != "GET"):
-        return _status(405, "method not allowed")
-    if len(parts) == 1:
-        if method == "POST":
-            return _post(server, req, name, None)
-        return _page(server, name + "s.html", {name: server["values"][name]})
-    if parts[1] == "new":
-        return _page(server, name + "_create.html", {})
-    for m in server["values"][name]:
-        if str(m.get("id")) == parts[1]:
-            if method == "POST":
-                return _post(server, req, name, m)
-            return _page(server, name + "_update.html", {name: m})
-    return _status(404, "no %s %s" % (name, parts[1]))
+    if method == "POST":
+        name = path.strip("/")
+        r = server["reactives"].get(name)
+        if r == None:
+            return _status(404, "not found: POST to a reactive variable: " +
+                           ", ".join(["/" + n for n, x in sorted(server["reactives"].items()) if x["source"]]))
+        if not r["source"]:
+            allow = "GET, HEAD" if _template(server, path) != None else ""
+            return _status(405, "%s is computed from other reactive variables: it can't be posted to" % name, {"Allow": allow})
+        return _post(server, req, name)
+    if method != "GET":
+        return _status(405, "method not allowed", {"Allow": "GET, HEAD, POST"})
+    static = _static(server, path)
+    if static != None:
+        return static
+    page = _template(server, path)
+    if page == None:
+        return _status(404, "not found: no template " + path.strip("/"))
+    vars, missing = _vars(server, req.get("query", {}))
+    if vars == None:
+        return _status(404, missing)
+    return _page(server, page, vars)

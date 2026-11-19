@@ -1,196 +1,269 @@
-== http://localhost:18473/order
+== http://localhost:18473/
 HTTP/1.1 200 OK
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>Orders</title>
-<h1>Orders</h1>
-<p><a href="/order/new">New order</a></p>
-<table>
-  <tr>
-    <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
-    <th>Last update</th><th>Version</th><th></th>
-  </tr>
-</table>
+<header>
+  <h1>Orders</h1>
+  <nav><a href="/new">New order</a></nav>
+</header>
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+        <th>Last update</th><th>Version</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+</main>
 
-== http://localhost:18473/order/new
+== http://localhost:18473/new
 HTTP/1.1 200 OK
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>New order</title>
-<h1>New order</h1>
-<form method="post" action="/order">
-  <label>Symbol <input name="symbol" required></label>
-  <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
-  <label>Price <input name="price" type="number" min="0" step="any" required></label>
-  <button>Create</button>
-</form>
-<p><a href="/order">Back to orders</a></p>
+<header>
+  <h1>New order</h1>
+  <nav><a href="/">Back to orders</a></nav>
+</header>
+<main>
+  <form method="post" action="/order_request">
+    <label>Symbol <input name="symbol" required></label>
+    <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+    <label>Price <input name="price" type="number" min="0" step="any" required></label>
+    <button>Create</button>
+  </form>
+</main>
 
-== -d symbol=ZVZZT&qty=1&price=1.0 http://localhost:18473/order
+== http://localhost:18473/style.css -o /dev/null -w %{http_code} %{content_type}
+
+200 text/css; charset=utf-8
+
+== -e http://localhost:18473/new -d symbol=ZVZZT&qty=1&price=1.0 http://localhost:18473/order_request
 HTTP/1.1 303 See Other
-Location: /order
+Location: /new
 
 
-== -d symbol=A<b>"&qty=5&price=2 http://localhost:18473/order
+== -e http://localhost:18473/new -d symbol=A<b>"&qty=5&price=2 http://localhost:18473/order_request
 HTTP/1.1 303 See Other
-Location: /order
+Location: /new
 
 
-== -d symbol=X&qty=abc&price=2 http://localhost:18473/order
+== -e http://localhost:18473/new -d symbol=X&qty=abc&price=2 http://localhost:18473/order_request
 HTTP/1.1 422 Unprocessable Entity
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>New order</title>
-<h1>New order</h1>
-<p class="error">qty must be a whole number</p>
-<form method="post" action="/order">
-  <label>Symbol <input name="symbol" required></label>
-  <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
-  <label>Price <input name="price" type="number" min="0" step="any" required></label>
-  <button>Create</button>
-</form>
-<p><a href="/order">Back to orders</a></p>
+<header>
+  <h1>New order</h1>
+  <nav><a href="/">Back to orders</a></nav>
+</header>
+<main>
+  <p role="alert">qty must be a whole number</p>
+  <form method="post" action="/order_request">
+    <label>Symbol <input name="symbol" required></label>
+    <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+    <label>Price <input name="price" type="number" min="0" step="any" required></label>
+    <button>Create</button>
+  </form>
+</main>
 
-== -d symbol=X&qty=1&price=1e999 http://localhost:18473/order
+== -e http://localhost:18473/new -d symbol=X&qty=1&price=1e999 http://localhost:18473/order_request
 HTTP/1.1 422 Unprocessable Entity
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>New order</title>
-<h1>New order</h1>
-<p class="error">price must be a number</p>
-<form method="post" action="/order">
-  <label>Symbol <input name="symbol" required></label>
-  <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
-  <label>Price <input name="price" type="number" min="0" step="any" required></label>
-  <button>Create</button>
-</form>
-<p><a href="/order">Back to orders</a></p>
+<header>
+  <h1>New order</h1>
+  <nav><a href="/">Back to orders</a></nav>
+</header>
+<main>
+  <p role="alert">price must be a number</p>
+  <form method="post" action="/order_request">
+    <label>Symbol <input name="symbol" required></label>
+    <label>Qty <input name="qty" type="number" min="1" step="1" required></label>
+    <label>Price <input name="price" type="number" min="0" step="any" required></label>
+    <button>Create</button>
+  </form>
+</main>
 
-== http://localhost:18473/order/1
+== http://localhost:18473/edit?order=1
 HTTP/1.1 200 OK
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>Order 1</title>
-<h1>Order 1</h1>
-<form method="post" action="/order/1">
-  <input type="hidden" name="version" value="1">
-  <label>Symbol <input name="symbol" value="ZVZZT" required></label>
-  <label>Qty <input name="qty" type="number" min="1" step="1" value="1" required></label>
-  <label>Price <input name="price" type="number" min="0" step="any" value="1.0" required></label>
-  <button>Save</button>
-</form>
-<p>Version 1, last updated 2026-11-13T12:00:00Z</p>
-<p><a href="/order">Back to orders</a></p>
+<header>
+  <h1>Order 1</h1>
+  <nav><a href="/">Back to orders</a></nav>
+</header>
+<main>
+  <form method="post" action="/order_request">
+    <input type="hidden" name="id" value="1">
+    <input type="hidden" name="order.version" value="1">
+    <label>Symbol <input name="symbol" value="ZVZZT" required></label>
+    <label>Qty <input name="qty" type="number" min="1" step="1" value="1" required></label>
+    <label>Price <input name="price" type="number" min="0" step="any" value="1.0" required></label>
+    <button>Save</button>
+  </form>
+  <footer>Version 1, last updated <time>2026-11-13T12:00:00Z</time></footer>
+</main>
 
-== -d symbol=ZVZZT&qty=7&price=1.5&version=1 http://localhost:18473/order/1
+== -e http://localhost:18473/edit?order=1 -d id=1&order.version=1&symbol=ZVZZT&qty=7&price=1.5 http://localhost:18473/order_request
 HTTP/1.1 303 See Other
-Location: /order
+Location: /edit?order=1
 
 
-== -d symbol=ZVZZT&qty=9&price=1.5&version=1 http://localhost:18473/order/1
+== -e http://localhost:18473/edit?order=1 -d id=1&order.version=1&symbol=ZVZZT&qty=9&price=1.5 http://localhost:18473/order_request
 HTTP/1.1 409 Conflict
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>Order 1</title>
-<h1>Order 1</h1>
-<p class="error">order 1 was changed by someone else: version is now 2, not 1</p>
-<form method="post" action="/order/1">
-  <input type="hidden" name="version" value="2">
-  <label>Symbol <input name="symbol" value="ZVZZT" required></label>
-  <label>Qty <input name="qty" type="number" min="1" step="1" value="7" required></label>
-  <label>Price <input name="price" type="number" min="0" step="any" value="1.5" required></label>
-  <button>Save</button>
-</form>
-<p>Version 2, last updated 2026-11-13T12:00:00Z</p>
-<p><a href="/order">Back to orders</a></p>
+<header>
+  <h1>Order 1</h1>
+  <nav><a href="/">Back to orders</a></nav>
+</header>
+<main>
+  <p role="alert">order 1 was changed by someone else: version is now 2, not 1</p>
+  <form method="post" action="/order_request">
+    <input type="hidden" name="id" value="1">
+    <input type="hidden" name="order.version" value="2">
+    <label>Symbol <input name="symbol" value="ZVZZT" required></label>
+    <label>Qty <input name="qty" type="number" min="1" step="1" value="7" required></label>
+    <label>Price <input name="price" type="number" min="0" step="any" value="1.5" required></label>
+    <button>Save</button>
+  </form>
+  <footer>Version 2, last updated <time>2026-11-13T12:00:00Z</time></footer>
+</main>
 
-== -d qty=8 http://localhost:18473/order/2
+== -d id=2&qty=8 http://localhost:18473/order_request
 HTTP/1.1 303 See Other
-Location: /order
+Location: /
 
 
-== http://localhost:18473/order
+== http://localhost:18473/index
 HTTP/1.1 200 OK
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>Orders</title>
-<h1>Orders</h1>
-<p><a href="/order/new">New order</a></p>
-<table>
-  <tr>
-    <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
-    <th>Last update</th><th>Version</th><th></th>
-  </tr>
-  <tr>
-    <td>1</td>
-    <td>ZVZZT</td>
-    <td>7</td>
-    <td>1.5</td>
-    <td>2026-11-13T12:00:00Z</td>
-    <td>2</td>
-    <td><a href="/order/1">Edit</a></td>
-  </tr>
-  <tr>
-    <td>2</td>
-    <td>A&lt;b&gt;&quot;</td>
-    <td>8</td>
-    <td>2.0</td>
-    <td>2026-11-13T12:00:00Z</td>
-    <td>2</td>
-    <td><a href="/order/2">Edit</a></td>
-  </tr>
-</table>
+<header>
+  <h1>Orders</h1>
+  <nav><a href="/new">New order</a></nav>
+</header>
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+        <th>Last update</th><th>Version</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>ZVZZT</td>
+        <td>7</td>
+        <td>1.5</td>
+        <td><time>2026-11-13T12:00:00Z</time></td>
+        <td>2</td>
+        <td><a href="/edit?order=1">Edit</a></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>A&lt;b&gt;&quot;</td>
+        <td>8</td>
+        <td>2.0</td>
+        <td><time>2026-11-13T12:00:00Z</time></td>
+        <td>2</td>
+        <td><a href="/edit?order=2">Edit</a></td>
+      </tr>
+    </tbody>
+  </table>
+</main>
 
-== http://localhost:18473/order/9
+== http://localhost:18473/edit?order=9
 HTTP/1.1 404 Not Found
 
 no order 9
 
-== http://localhost:18473/
+== http://localhost:18473/nosuch
 HTTP/1.1 404 Not Found
 
-not found: the relations are /order
+not found: no template nosuch
 
-== -X DELETE http://localhost:18473/order/1
+== -d qty=1 http://localhost:18473/order
 HTTP/1.1 405 Method Not Allowed
+Allow: 
 
-method not allowed
+order is computed from other reactive variables: it can't be posted to
 
-== -d a=1 http://localhost:18473/order/new
+== -d qty=1 http://localhost:18473/nosuch
+HTTP/1.1 404 Not Found
+
+not found: POST to a reactive variable: /orderError, /order_request, /order_requestError
+
+== -X DELETE http://localhost:18473/order_request
 HTTP/1.1 405 Method Not Allowed
+Allow: GET, HEAD, POST
 
 method not allowed
 
 == after a restart
-== http://localhost:18473/order
+== http://localhost:18473/index.html
 HTTP/1.1 200 OK
 
 <!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
 <title>Orders</title>
-<h1>Orders</h1>
-<p><a href="/order/new">New order</a></p>
-<table>
-  <tr>
-    <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
-    <th>Last update</th><th>Version</th><th></th>
-  </tr>
-  <tr>
-    <td>1</td>
-    <td>ZVZZT</td>
-    <td>7</td>
-    <td>1.5</td>
-    <td>2026-11-13T12:00:00Z</td>
-    <td>2</td>
-    <td><a href="/order/1">Edit</a></td>
-  </tr>
-  <tr>
-    <td>2</td>
-    <td>A&lt;b&gt;&quot;</td>
-    <td>8</td>
-    <td>2.0</td>
-    <td>2026-11-13T12:00:00Z</td>
-    <td>2</td>
-    <td><a href="/order/2">Edit</a></td>
-  </tr>
-</table>
+<header>
+  <h1>Orders</h1>
+  <nav><a href="/new">New order</a></nav>
+</header>
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+        <th>Last update</th><th>Version</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>ZVZZT</td>
+        <td>7</td>
+        <td>1.5</td>
+        <td><time>2026-11-13T12:00:00Z</time></td>
+        <td>2</td>
+        <td><a href="/edit?order=1">Edit</a></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>A&lt;b&gt;&quot;</td>
+        <td>8</td>
+        <td>2.0</td>
+        <td><time>2026-11-13T12:00:00Z</time></td>
+        <td>2</td>
+        <td><a href="/edit?order=2">Edit</a></td>
+      </tr>
+    </tbody>
+  </table>
+</main>
 

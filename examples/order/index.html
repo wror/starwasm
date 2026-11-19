@@ -1,0 +1,29 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
+<title>Orders</title>
+<header>
+  <h1>Orders</h1>
+  <nav><a href="/new">New order</a></nav>
+</header>
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>ClOrdID</th><th>Symbol</th><th>Qty</th><th>Price</th>
+        <th>Last update</th><th>Version</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr $for="order">
+        <td>$order.clordid</td>
+        <td>$order.symbol</td>
+        <td>$order.qty</td>
+        <td>$order.price</td>
+        <td><time>$order.lastupdate</time></td>
+        <td>$order.version</td>
+        <td><a href="/edit?order=$order.id">Edit</a></td>
+      </tr>
+    </tbody>
+  </table>
+</main>

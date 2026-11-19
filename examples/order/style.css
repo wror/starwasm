@@ -1,0 +1,129 @@
+/* A generic, classless stylesheet for served pages: it styles plain
+   semantic HTML (header, nav, main, table, form, label, input, button,
+   footer, [role=alert]) and needs no classes in the templates. */
+
+:root {
+  color-scheme: light dark;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --bg: #ffffff;
+  --surface: #f6f8fa;
+  --line: #d1d9e0;
+  --accent: #0969da;
+  --accent-fg: #ffffff;
+  --alert: #cf222e;
+  --alert-bg: #ffebe9;
+  --radius: 6px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --bg: #0d1117;
+    --surface: #151b23;
+    --line: #3d444d;
+    --accent: #4493f8;
+    --accent-fg: #0d1117;
+    --alert: #ff7b72;
+    --alert-bg: #2d1214;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0 auto;
+  max-width: 60rem;
+  padding: 1.5rem 1rem 3rem;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+h1 { margin: 0 0 0.5rem; font-size: 1.6rem; }
+
+nav { display: flex; gap: 1rem; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover, a:focus-visible { text-decoration: underline; }
+
+footer, time { color: var(--muted); }
+footer { margin-top: 1.5rem; font-size: 0.9rem; }
+
+/* tables scroll sideways on narrow screens instead of the page */
+table {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+th, td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+thead th {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--surface);
+}
+tbody tr:hover { background: var(--surface); }
+
+form {
+  display: grid;
+  gap: 1rem;
+  max-width: 28rem;
+}
+label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 600;
+}
+input, select, textarea {
+  font: inherit;
+  font-weight: normal;
+  padding: 0.45rem 0.6rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+button {
+  justify-self: start;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.5rem 1.25rem;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+button:hover { filter: brightness(1.1); }
+
+[role="alert"] {
+  padding: 0.6rem 0.9rem;
+  color: var(--alert);
+  background: var(--alert-bg);
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+}
