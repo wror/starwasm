@@ -31,9 +31,5 @@ Error in fail: fail: too big: 500
 Traceback (most recent call last):
   tests/extensions/none_reactive_errors.star:49:24: in <toplevel>
 Error: list index 496 out of range [-3:2]
-Error: floored division by zero
-Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:34:13: in <toplevel>
-  tests/extensions/none_reactive_errors.star:16:10: in checked
-Error: if: the condition is None
-Error: list has no .missing field or method
+<stdin>:5:7: want ; or the end of the line after a value (a value is a literal: no expressions)
+<stdin>:6:15: want ; or the end of the line after a value (a value is a literal: no expressions)

@@ -1,4 +1,4 @@
 Traceback (most recent call last):
   tests/extensions/none_reactive_off.star:6:13: in <toplevel>
 Error: unknown binary op: NoneType * int
-Error: unknown binary op: NoneType + int
+<stdin>:2:12: want ; or the end of the line after a value (a value is a literal: no expressions)

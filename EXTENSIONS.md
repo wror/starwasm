@@ -471,29 +471,38 @@ standard input.
   it to `rt_freeze` of each of the main module's globals and function
   values, except the runtime's `%` variables. Test:
   tests/extensions/reactive_frozen.star.
-- Input lines: `name : expression`, the syntax of a definition, several
-  separated by `;` (`name = expression` is refused: "want : after
-  name"); blank lines and `#` comments are ignored. The expression may be
-  any Starlark expression except a lambda (literals of every kind,
-  operators, `x if c else y`, calls with keyword and `*`/`**` arguments,
-  indexing, slices, attributes and methods, list/tuple/dict displays and
-  comprehensions) that doesn't refer to a reactive variable. It can use
-  the program's other top-level names (defs, variables, loaded names; their
-  values at the time) and the builtins abs, all, any, bool, bytes, chr,
-  dict, enumerate, fail, float, getattr, hasattr, hash, int, len, list,
-  max, min, ord, print, range, repr, reversed, set, sorted, str, tuple,
-  type, zip (and struct, if the program mentions it). A struct assigned
+- Input lines: `name : value`, several separated by `;` (`name = value`
+  is refused: "want : after name"); blank lines and `#` comments are
+  ignored. A value is a literal, nothing else: an int or float (with an
+  optional sign; any Starlark spelling, `0x10`, `1e2`), a string (any
+  quoting, raw or not), `True`, `False`, `None`, a list of values
+  (`[1, "a"]`), or `struct(name = value, ...)`. No expressions, names,
+  calls, tuples, dicts or bytes ("want a value (...), got ...").
+- Constructors: a reactive variable defined by a struct block that reads
+  no reactive variable (a source: `request:` with `item: "apple"`, `qty:
+  1`; a relation's too, `a fill:` with `qty: 0`) takes the value as the
+  arguments of a constructor for that block. A struct gives fields by
+  name, a list gives them in the block's order, any other value is the
+  first field; the fields not given are the block's (as written, not
+  the variable's current value), and a field that is a nested block is
+  constructed the same way from what is given for it. So `request :
+  ["pear", 2]` and `request : struct(qty = 2, item = "pear")` are the
+  same, and `request : struct(qty = 5)` is `item = "apple"`. A struct
+  may give fields the block doesn't have (a reference such as
+  `order_id`), but a list no more values than the block has fields
+  ("request takes at most 2 values (item, qty), got 3"). Other reactive
+  variables take the value as given. Test:
+  tests/extensions/reactive_input_ctor.star.
+- A struct assigned
   without a field `id` gets one as a struct block would: for a relation
   the next free one (a new member), for a lone variable whose value has
   an `id`, that + 1. Only a reactive variable whose (active)
   definition reads no other one can be set; one computed from others
   (relations, including those with `when`, too) is never updated:
   "x is computed from other reactive variables (a, b): it can't be given
-  a new value". A line that isn't valid (not a
-  reactive variable, syntax, an undefined name, a reactive variable in
-  the expression) is reported on stderr as `<stdin>:line:col: message`
-  and ignored. An error while evaluating the expressions is reported like
-  an error while recomputing (below); nothing is assigned.
+  a new value". A line that isn't valid (not a reactive variable,
+  syntax, not a value) is reported on stderr as
+  `<stdin>:line:col: message` and ignored; nothing on it is assigned.
 - Updates: the assigned variables count as changed. Then each reactive
   definition and observing expression statement is visited in source
   order; one that reads a changed variable is recomputed (re-run). A
@@ -561,13 +570,11 @@ standard input.
     REPL uses them to deliver each update after the code entered before
     it.
   - At run time: `_reactive_input` (Starlark, in the extension's RUNTIME
-    string, added to the prelude) reads lines, parses the expressions (a
-    small recursive-descent parser in Starlark), evaluates them (a tree
-    walker, `_r_eval`) and propagates changes over `%nodes`. Expressions
-    see top-level names through `%rnames`, a dict of `name: lambda: name`
-    built at the start of the top level; since it mentions getattr, every
-    method is kept as a value in such programs (as `getattr(x, name)`
-    would), so `_attr` can call any method.
+    string, added to the prelude) reads lines, parses their values (a
+    small recursive-descent parser in Starlark, `_r_value`), gives them
+    to constructors (`_r_construct`, recorded by `_r_ctor` at each
+    definition in `%rstate["ctors"]`) and propagates changes over
+    `%nodes`.
   - Wasm and host: three primitives only the prelude sees:
     `_read_line(before)` (host import read_line, from the host's
     `readLine(before)`: host/run.mjs reads stdin synchronously in its
@@ -678,7 +685,6 @@ and `n : 5` prints `half is 20`.
     or condition: no member is added or replaced (as for any None in a
     member's fields), and the relation's `Error` relation says why (see
     "No None fields" and "Errors" under relations);
-  - an expression on standard input: the variable is assigned None.
 
   So nothing is rolled back (unless `--rollback` says so, below): the variables that could be computed have
   their new values, and the ones that couldn't are None until an update
@@ -712,8 +718,7 @@ and `n : 5` prints `half is 20`.
         cause : [e for e in provenance(half) if e[0] == "error"]
         print("half failed:", cause[0][1]) if cause else None
 
-    For an expression on standard input the place is `<stdin>` and the
-    input's line number. An error in a condition (`if xs[9] > 1:`) or in
+    An error in a condition (`if xs[9] > 1:`) or in
     an observer has no value to live in: it is only on stderr.
 - What can still stop it: an error in the first run; an internal error
   (a Wasm trap, such as the engine's own stack overflowing: exit status
@@ -873,14 +878,9 @@ and `n : 5` prints `half is 20`.
   an error (above); the None flows
   through the definitions and observers that read it. (A relation's
   `when` condition that is None holds of no member, as before.)
-  Expressions on standard input are contagious too, `or`, `and`, `if`-`else`
-  and comprehensions included, and they have `??` (`qty : [None][0] + 1` assigns None),
-  and an operation on None written out is refused there as it is in the
-  program: `qty : None + 1` is a bad line, reported as `<stdin>:5:7: an
-  operation on None is always None (contagious None)` and ignored. (An
-  operator, field, index, slice, call of None, `*None`, a test of None's
-  truth or a comprehension over None: a builtin's None argument is only found when
-  the call happens, since the line's names are looked up then.)
+  On standard input a value is a literal (no expressions), so `qty :
+  None` assigns None (provenance: `("literal", "None", "<stdin>",
+  line)`), and `qty : None + 1` is a bad line.
   A variable recomputed to a None that came another way than the one it
   held counts as changed, so what reads it is recomputed and holds the
   current trace. In a self-referencing definition (`total : total + n`)
@@ -1008,8 +1008,7 @@ and `n : 5` prints `half is 20`.
   expression that came out None, `(x.price * qty) ?? 0`, `[v for v in
   xs] ?? []`, `if ready ?? False:`. `None ?? y` compiles (it is y), and
   a None that `??` replaces leaves no trace in the result.
-- Also in the expressions on a reactive program's standard input, and
-  in the type checker: for x a `T | None`, `x ?? y` is a `T` if y is
+- Also in the type checker: for x a `T | None`, `x ?? y` is a `T` if y is
   (as `x or y` is typed, but without narrowing).
 - There is no `??=`.
 - Code: the lexer's token `??`, the parser's lowest precedence level

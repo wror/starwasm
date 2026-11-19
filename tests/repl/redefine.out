@@ -15,5 +15,5 @@ order = struct(id = 1, qty = 100)
 session cleared
 s = struct(id = 2, v = 7)
 struct(id = 2, v = 7)
-<input 23>:1:16: b is a reactive variable: a new value can't refer to one
+<input 23>:1:16: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "b"
 struct(id = 2, v = 7)

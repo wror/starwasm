@@ -8,12 +8,13 @@ tax : -50
 label : "say \"hi\"\té\x41"
 label : 'single'
 label : r'raw\n'
-label : b"\x00\xffA"
-label : (1, "two", 3.5)
+label : b"\x00\xffA"  # rejected: no bytes
+label : (1, "two", 3.5)  # rejected: no tuples
 prices : [0x10, 0o10, 0b10, 1e2]
 label : None
 label : True
-label : {"k": [1, (2,)], -3: False}  # fails (unhashable key of tagged): rolled back
+label : {"k": [1, (2,)], -3: False}  # rejected: no dicts
+label : [1, struct(a = -2.5)]  # fails (unhashable key of tagged): rolled back
 nope : 1
 width : foo
 width : 1 +
@@ -26,7 +27,7 @@ size : 1000  # a derived variable can't be set: rejected
 height : 5
 tax : "oops"
 tax : 1
-# a new value can be any expression that doesn't read a reactive variable
+# a new value is a literal: no expressions (these are rejected)
 width : area(2, 3) - 1; height : sum_([1, 2]) * 2
 prices : [p * 10 for p in range(1, 4) if p != 2]
 label : "-".join(["a", "b"]).upper() + str(len(calls) > 0)

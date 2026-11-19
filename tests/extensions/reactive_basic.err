@@ -1,19 +1,25 @@
+<stdin>:11:9: bytes are not a value here: want a number, a string, True, False, None, a list [...] or struct(name = value, ...)
+<stdin>:12:9: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "("
+<stdin>:16:9: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "{"
 Traceback (most recent call last):
   tests/extensions/reactive_basic.star:31:16: in <toplevel>
-Error: unhashable type: dict
-<stdin>:17:1: nope is not a reactive variable
-<stdin>:18:9: undefined: foo
-<stdin>:19:12: want an expression here
-<stdin>:20:14: want ] here
-<stdin>:21:9: invalid int literal: 012 (no leading zeros)
-<stdin>:22:10: invalid escape sequence \q
 Error: unhashable type: list
-<stdin>:24:23: want ; or the end of the line after an expression
-<stdin>:25:1: size is computed from other reactive variables (width, height): it can't be given a new value
+<stdin>:18:1: nope is not a reactive variable
+<stdin>:19:9: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "foo"
+<stdin>:20:11: want ; or the end of the line after a value (a value is a literal: no expressions)
+<stdin>:21:14: want , here
+<stdin>:22:9: invalid int literal: 012 (no leading zeros)
+<stdin>:23:10: invalid escape sequence \q
+<stdin>:24:9: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "{"
+<stdin>:25:23: want ; or the end of the line after a value (a value is a literal: no expressions)
+<stdin>:26:1: size is computed from other reactive variables (width, height): it can't be given a new value
 Traceback (most recent call last):
   tests/extensions/reactive_basic.star:27:20: in <toplevel>
   tests/extensions/reactive_basic.star:10:31: in total
 Error: unknown binary op: int + string
-<stdin>:33:9: size is a reactive variable: a new value can't refer to one
-<stdin>:34:9: undefined: undefined_name
-Error: floored division by zero
+<stdin>:31:9: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "area"
+<stdin>:32:11: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "p"
+<stdin>:33:12: want ; or the end of the line after a value (a value is a literal: no expressions)
+<stdin>:34:9: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "size"
+<stdin>:35:9: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "undefined_name"
+<stdin>:36:10: want ; or the end of the line after a value (a value is a literal: no expressions)

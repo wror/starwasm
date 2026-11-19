@@ -8,3 +8,5 @@ account : struct(id = 9, owner = "cy", balance = 1)
 # one that reads none can: the struct is added (or replaces its id)
 note : struct(id = 9, text = "cy")
 note : 5
+note : ["dee"]
+note : ["x", "y"]

@@ -2,5 +2,5 @@ x : 2
 x : 3
 x : 4
 x : 5
-x : remember(7)
+x : remember(7)  # rejected: a value is a literal
 x : 6

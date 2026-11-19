@@ -1,9 +1,2 @@
-<stdin>:9:7: an operation on None is always None (contagious None)
-<stdin>:10:17: an operation on None is always None (contagious None)
-<stdin>:11:23: an operation on None is always None (contagious None)
-<stdin>:12:9: an operation on None is always None (contagious None)
-<stdin>:13:8: an operation on None is always None (contagious None)
-<stdin>:14:19: an operation on None is always None (contagious None)
-<stdin>:15:12: an operation on None is always None (contagious None)
-<stdin>:16:8: an operation on None is always None (contagious None)
-<stdin>:17:26: an operation on None is always None (contagious None)
+<stdin>:6:12: want ; or the end of the line after a value (a value is a literal: no expressions)
+<stdin>:7:7: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "len"

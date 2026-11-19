@@ -21,18 +21,11 @@ tagged {"item": 3}
 tagged {"say \"hi\"\téA": 3}
 tagged {"single": 3}
 tagged {"raw\\n": 3}
-tagged {b"\x00\xffA": 3}
-tagged {(1, "two", 3.5): 3}
 total: 63.0
-tagged {(1, "two", 3.5): 63.0}
+tagged {"raw\\n": 63.0}
 tagged {None: 63.0}
 tagged {True: 63.0}
 size: 30
 big: True
 total: 127.0
 tagged {True: 127.0}
-comp [0, 1] 5
-doubled 10
-total: 40
-tagged {True: 40}
-tagged {"A-BTrue": 40}

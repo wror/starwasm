@@ -1,2 +1,2 @@
 <stdin>:7:1: account is computed from other reactive variables (deposit): it can't be given a new value
-Error: fail: a member of relation note must have a field id, got int
+<stdin>:12:8: note takes at most 1 value (text), got 2
