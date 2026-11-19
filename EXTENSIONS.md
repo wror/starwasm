@@ -197,10 +197,9 @@ standard input.
   and `response` is `struct(id = 1, name = "foo", qty = 4)`.
   - A relation starts empty, and its definition isn't evaluated on the
     first run: only an update (a change of what it reads) evaluates it.
-    Except for a relation whose definition reads no reactive variable
-    (`a fill:` with `qty: 0`), which no update would ever evaluate: it is
-    evaluated once where it is defined, and starts with that member
-    (`struct(id = 1, qty = 0)`).
+    So a relation whose definition reads no reactive variable (`a fill:`
+    with `qty: 0`) is never evaluated: it only declares the relation and
+    its fields, and gets its members from standard input.
     Each evaluation gives a member: if a member already has its `id`, that
     member is removed and the new one is added (at the end of the list),
     else the new one is just added. Either way the relation counts as
@@ -398,7 +397,7 @@ standard input.
   - Code: parser.star (`starts_relation`, `parse_struct_def`; it sets
     `relation`), reactive.star (`transform`; at run time `_r_relation`,
     `_r_upsert`, `_r_tid`, `_r_rel_id`, `_r_lone_id`, `_r_rel_self`,
-    `_r_ready`, `_r_apply`, `_r_first`; keyed reads: `_r_read`,
+    `_r_ready`, `_r_apply`; keyed reads: `_r_read`,
     `_r_member`, `_r_unmatched`). In a self-referencing definition the
     `_r_*` operations pass a None through, as any operation does. Values: `%reactive["x"]` is the current member (the
     prelude's `_unset` while there is none, as for unset lone variables),

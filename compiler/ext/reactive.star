@@ -564,7 +564,6 @@ def transform(cg, mc):
         if defined:
             out.append(_input_call(s["pos"][0], s["pos"]))  # a sync point
         thunk = None
-        first = False  # a relation that reads no reactive variable: evaluated once now
         if k == "reactive":
             name = s["name"]
             posn = s["pos"]
@@ -629,7 +628,6 @@ def transform(cg, mc):
                     redef_value = value  # assigned once its node is in place
                 else:
                     out.append(_assign(_value_ref(name, posn), value, s["colon"]))
-            first = relation and not deps
             if redefined:
                 active[name] = [d for d in deps if d != name]
                 cyc = _cycle(active, name)
@@ -695,10 +693,6 @@ def transform(cg, mc):
                 # x's new value, as a change of x: what reads it is recomputed
                 args = [_name(VALUES, p), _name(NODES, p), _name(STATE, p), _str(s["name"], p), redef_value]
                 out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_redefine", args, s["colon"])})
-            if first:
-                # its first member, now: _r_first(%reactive, %rstate, name, %r.<n>)
-                args = [_name(VALUES, p), _name(STATE, p), _str(s["name"], p), _name(fname, p)]
-                out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_first", args, p)})
     p = stmts[-1]["pos"]
     out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_freeze", [], p)})
     out.append(_input_call(0, p))
@@ -1161,17 +1155,6 @@ def _r_fresh(state, prev, f, deps):
         if changed.get(d, False):
             return True
     return False
-
-def _r_first(values, state, name, f):
-    """The first run of the definition of relation name, which reads no
-    reactive variable: its first member (f: the definition's function)."""
-    state["changed"] = {}
-    state["trigger"] = name
-    _r_apply(values, state, name, f(), state["changed"])
-    state["changed"] = {}
-    state["tid"] = None
-    state["wself"] = None
-    state["trigger"] = None
 
 def _r_member(values, name, reader, tid):
     """The member of relation name for the update of reader's member tid:
