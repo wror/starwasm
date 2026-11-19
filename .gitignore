@@ -4,3 +4,4 @@ scratch/
 .starwasm-repl-*
 __wasmcache__/
 *.serve.star
+examples/*.starit
