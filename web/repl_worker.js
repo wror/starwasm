@@ -14,7 +14,7 @@
 // Session.diagnose finds them) before running it; {type: "check", id,
 // text} asks for those of the line being typed, answered with
 // {type: "checked", id, marks};
-// {type: "clear"} instead for :reset (the screen is cleared too),
+// {type: "clear"} instead for .reset (the screen is cleared too),
 // {type: "out" | "err", text}, {type: "prompt", more} after each line,
 // {type: "fatal", text} if the compiler can't be loaded, and
 // {type: "journal", journal} whenever the inputs accepted change, to save:
@@ -121,7 +121,7 @@ onmessage = ({ data: m }) => {
     busy = busy.then(async () => {
       let r = null;
       // echoed here, in order with the output of the lines before it
-      if (session && session.buffer.length === 0 && m.line.trim() === ":reset") post({ type: "clear" });
+      if (session && session.buffer.length === 0 && m.line.trim() === ".reset") post({ type: "clear" });
       else {
         // with the type errors of the input so far (Session.diagnose),
         // for the page to mark in the lines echoed
@@ -138,7 +138,7 @@ onmessage = ({ data: m }) => {
         const stack = e.stack && !e.stack.includes(e.message) ? `${e}\n${e.stack}` : e.stack || e;
         post({ type: "err", text: `internal error: ${stack}\n` });
       }
-      if (r === "quit") post({ type: "out", text: "(nothing to quit in a web page: :reset starts over)\n" });
+      if (r === "quit") post({ type: "out", text: "(nothing to quit in a web page: .reset starts over)\n" });
       post({ type: "prompt", more: r === "more", indent: r === "more" ? session.indent() : "" });
     });
   }

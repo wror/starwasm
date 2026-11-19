@@ -16,18 +16,18 @@ const concatText = (chunks) => {
   return decoder.decode(out);
 };
 
-// :help's text. In a web page (web: true) there is no :quit, and the prose
+// .help's text. In a web page (web: true) there is no .quit, and the prose
 // isn't broken into lines: the page wraps it to its width.
 export function helpText({ web = false } = {}) {
   const prose = (text) => (web ? text : wrap(text, 76)) + "\n";
   return prose("Starlark REPL on the starwasm compiler. Each input recompiles and replays the session " +
     "(Starlark is deterministic, so the state is exactly reproduced).") + "\n" +
-    `  :history        show inputs so far
-  :type expr      name or expression
-  :types          all types so far
-  :check on|off   types on each line
-  :reset          start over
-${web ? "" : "  :quit           exit (or end of input)\n"}  x : 5           new value for reactive x (or a struct block)
+    `  .history        show inputs so far
+  .type expr      name or expression
+  .types          all types so far
+  .check on|off   types on each line
+  .reset          start over
+${web ? "" : "  .quit           exit (or end of input)\n"}  x : 5           new value for reactive x (or a struct block)
 
 ` + prose('Blocks, open brackets and triple-quoted strings continue on "..." lines, ' +
     "which start indented as the block is (backspace to dedent); end a block with an empty line. " +
@@ -403,7 +403,11 @@ export function diagnosticRange(line, col) {
 
 const KEYWORDS = ["and", "break", "continue", "def", "elif", "else", "for", "if", "in", "lambda", "load", "not", "or",
   "pass", "return", "while", "None", "True", "False"];
-const COMMANDS = [":help", ":history", ":type", ":types", ":check", ":reset", ":quit"];
+const COMMANDS = [".help", ".history", ".type", ".types", ".check", ".reset", ".quit"];
+
+// Is line a command (".help" ...)? A "." then a letter starts no Starlark
+// statement (".5" is a float: not one).
+const isCommand = (line) => /^\s*\.[A-Za-z]/.test(line);
 
 // The expression that ends s (the text before a "."), to complete its
 // attributes: names, attributes, calls, indexes, brackets and string
@@ -501,7 +505,7 @@ function callAt(s, at) {
  *                 to save journal() (web/: in the browser's localStorage)
  *   checker()     (optional): the type checker (typecheck/main.star
  *                 compiled; a WebAssembly.Module, or a promise of one), for
- *                 :type, :types and :check; loaded when first needed
+ *                 .type, .types and .check; loaded when first needed
  */
 export class Session {
   constructor(opts) {
@@ -512,7 +516,7 @@ export class Session {
     this.live = null; // the program of the session, alive (see startProgram)
     this.inputNum = 0;
     this.buffer = []; // lines of an unfinished input
-    this.checking = false; // :check on
+    this.checking = false; // .check on
     this.checkerModule = null;
   }
 
@@ -571,7 +575,7 @@ export class Session {
    * message, with its notes. None for an input that doesn't parse (yet).
    */
   async diagnose(line) {
-    if (!this.checker || (this.buffer.length === 0 && line.trim().startsWith(":"))) return [];
+    if (!this.checker || (this.buffer.length === 0 && isCommand(line))) return [];
     const lines = [...this.buffer, line];
     const src = lines.join("\n");
     if (src.trim() === "") return [];
@@ -615,8 +619,8 @@ export class Session {
       items = items.filter((it) => it.name.startsWith(word) && it.name !== word && !seen.has(it.name) && seen.add(it.name));
       return { from, to: cursor, items };
     };
-    if (this.buffer.length === 0 && /^\s*:\w*$/.test(before)) {
-      const from = before.indexOf(":");
+    if (this.buffer.length === 0 && /^\s*\.[A-Za-z]*$/.test(before)) {
+      const from = before.indexOf(".");
       return pick(from, before.slice(from), COMMANDS.map((name) => ({ name, detail: "" })));
     }
     const word = /[A-Za-z_]\w*$/.exec(before)?.[0] ?? "";
@@ -666,9 +670,9 @@ export class Session {
     return pick(from, word, [...kwargs, ...names.sort().map((name) => ({ name, detail: "" }))]);
   }
 
-  // :type <expr>: the type of an expression (or the declaration of a name).
+  // .type <expr>: the type of an expression (or the declaration of a name).
   async showType(expr) {
-    if (expr === "") return this.out("usage: :type <expression>\n");
+    if (expr === "") return this.out("usage: .type <expression>\n");
     const name = /^[A-Za-z_]\w*$/.test(expr) && expr !== "_" ? expr : null;
     const num = "?"; // (not an input of the session: errors say "<input ?>")
     const r = name
@@ -806,7 +810,7 @@ export class Session {
     if (!candidates.length || !candidates[0].update || redefine) candidates.push({ src, num, ...statementCode(src, num, reactiveNames(history), echoedNames(history)) });
 
     if (this.checking && !candidates[0].update) {
-      // :check on: an input with type errors is not run
+      // .check on: an input with type errors is not run
       const expr = !looksLikeStatement(src);
       const t = await this.typecheck(history, [], expr
         ? { num, code: `_ = (\n${src}\n)`, offset: 1 }
@@ -879,27 +883,27 @@ export class Session {
     return null;
   }
 
-  /** A command (":help" ...); returns "quit" for :quit. */
+  /** A command (".help" ...); returns "quit" for .quit. */
   command(line) {
     const cmd = line.trim();
-    if (cmd === ":quit" || cmd === ":q") return "quit";
-    if (cmd === ":reset") {
+    if (cmd === ".quit" || cmd === ".q") return "quit";
+    if (cmd === ".reset") {
       this.dropLive();
       this.history = [];
       this.printed = "";
       this.onChange?.();
       this.out("session cleared\n");
-    } else if (cmd === ":types") {
+    } else if (cmd === ".types") {
       return this.typecheck(this.history).then((r) =>
         r.ok ? this.out(r.stdout.replace(/^(#.*\n|\n)*/, "")) : this.err(r.error)).then(() => null);
-    } else if (/^:type(\s|$)/.test(cmd)) {
+    } else if (/^\.type(\s|$)/.test(cmd)) {
       return this.showType(cmd.slice(5).trim()).then(() => null);
-    } else if (/^:check(\s|$)/.test(cmd)) {
+    } else if (/^\.check(\s|$)/.test(cmd)) {
       const arg = cmd.slice(6).trim();
       if (arg === "on" || arg === "off") this.checking = arg === "on";
       this.out(arg === "on" || arg === "off" || arg === ""
-        ? `type checking of inputs is ${this.checking ? "on" : "off"}\n` : "usage: :check on|off\n");
-    } else if (cmd === ":history") {
+        ? `type checking of inputs is ${this.checking ? "on" : "off"}\n` : "usage: .check on|off\n");
+    } else if (cmd === ".history") {
       for (const c of this.history) this.out(`# <input ${c.num}>${c.update ? " (update)" : ""}\n${c.src.replace(/\s+$/, "")}\n`);
     } else {
       this.out(this.help ?? HELP);
@@ -909,10 +913,10 @@ export class Session {
 
   /**
    * One line typed. Returns "more" if the input continues on the next line
-   * (prompt "..."), "quit" for :quit, else null (prompt ">>>").
+   * (prompt "..."), "quit" for .quit, else null (prompt ">>>").
    */
   async feed(line) {
-    if (this.buffer.length === 0 && line.trim().startsWith(":")) return this.command(line);
+    if (this.buffer.length === 0 && isCommand(line)) return this.command(line);
     this.buffer.push(line);
     const text = this.buffer.join("\n");
     if (needsMore(text)) return "more";

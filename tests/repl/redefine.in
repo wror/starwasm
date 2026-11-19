@@ -16,13 +16,13 @@ request : struct(id=2, qty=4)
 order
 z : x + y
 x : z
-:reset
+.reset
 an order:
 	qty: request.qty
 
 request : struct(id=1, qty=100)
 order
-:reset
+.reset
 b : 1
 s:
 	v: b

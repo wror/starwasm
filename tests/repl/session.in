@@ -25,8 +25,8 @@ for i in range(2):
 """doc
 string"""
 sorted(x, reverse = True)
-:history
-:reset
+.history
+.reset
 """doc
 string"""
 load("tests/compile/modules/util.star", "twice")
@@ -38,7 +38,7 @@ z = 5
 z += 1
 z
 "%s-%d" % ("a", z)
-:reset
+.reset
 def half(n):
     return 10 // n
 
@@ -53,8 +53,8 @@ r : 1; h : 99
 g = r
 print("g", h * 2)
 r : 10
-:history
-:reset
+.history
+.reset
 a:1
 b:a+10
 b
@@ -70,7 +70,7 @@ def sq(n):
 
 a : sq(3) + 1
 a : b
-:reset
+.reset
 request:
     name: "foo"
     qty: 1
@@ -102,7 +102,7 @@ request : struct(id = 3, name = "baz", qty = 2)
 request : struct(id = 3, name = "baz", qty = 5)
 request : struct(id = 4, name = "baz", qty = 6)
 big_order
-:reset
+.reset
 an invoice:
     total: purchase.price * purchase.qty
 
@@ -111,15 +111,15 @@ purchase : struct(id = 1, price = 3, qty = 2)
 purchase : struct(id = 2, price = 5, qty = 1)
 invoice
 purchase
-:type purchase
-:reset
+.type purchase
+.reset
 an order:
 	qty: request.qty
 
 request : struct(id=1, qty=100)
 request : struct(id=2, qty=5)
 order
-:reset
+.reset
 an order:
 	qty: request.qty
 	size: request.size.w

@@ -38,7 +38,7 @@ try {
     ` at <a href="https://github.com/wror/starwasm/commit/${full}"><code>${sha}</code></a>`));
 } catch { /* not a git checkout */ }
 files.set("compiler.wasm", defaultCompiler());
-// the type checker (:type, :types, :check), fetched when first used
+// the type checker (.type, .types, .check), fetched when first used
 files.set("typecheck.wasm", compileStar(join(ROOT, "typecheck/main.star"), ["--recursion"]));
 
 // Browsers cache GitHub Pages' files for 10 minutes, so after a deploy a

@@ -315,7 +315,7 @@ has warmed up the compiler.
 - Cost of replay: slow computations entered earlier rerun on every input.
   The incremental alternative (one small module per input, importing the
   runtime and earlier globals) would need separate compilation support.
-- Commands: :help :history :reset :quit.
+- Commands: .help .history .reset .quit.
 
 ### In a browser
 
@@ -337,13 +337,13 @@ compiler as compiler.wasm. Differences from the terminal REPL:
   replay's write_file() runs), the dialect, the screen and the ↑/↓ lines.
   Opening the page again restores it with one replay (Session.restore());
   a journal that no longer runs (say, after a compiler change) is dropped,
-  with its error. :reset clears it and the screen; tabs share it (the
+  with its error. .reset clears it and the screen; tabs share it (the
   last save wins).
   tests/repl/browser_mode.mjs checks that a restored session.in is the same.
 - Type errors are marked in red in what is typed, with the type
   checker's message (and its notes) shown when the pointer is on a mark.
   Session.diagnose(line) in host/repl_core.mjs runs the checker on the
-  session plus the input being typed, as :check does, and returns
+  session plus the input being typed, as .check does, and returns
   [{line, from, to, message}]. The checker reports a position only, so
   diagnosticRange picks what to mark from the text: at an operator, it
   and its operands; at a ".", the attribute; else the name, number,
@@ -354,7 +354,7 @@ compiler as compiler.wasm. Differences from the terminal REPL:
   An <input> can't color part of its text: when the line has marks,
   #marks shows it over the field, whose own text is then transparent; any
   edit removes the marks until the next check. Nothing is blocked: the
-  input runs as before unless :check is on. tests/repl/diagnose.mjs.
+  input runs as before unless .check is on. tests/repl/diagnose.mjs.
 - Stop terminates the worker (a long computation) and restores the session
   without that input; Stop during a restore drops the saved session. A
   change of dialect (--globalreassign with --globalredefine, one toggle;

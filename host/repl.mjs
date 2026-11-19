@@ -25,7 +25,7 @@
 //   session, so the state stays as it was before it.
 // - load() paths are relative to the current directory.
 // - Each input replays the whole session, so slow computations entered
-//   earlier run again every time (:reset clears them).
+//   earlier run again every time (.reset clears them).
 // - Blocks (lines ending in ":"), open brackets, open triple-quoted strings
 //   and trailing backslashes continue on "..." lines; a block ends with an
 //   empty line. In a terminal a "..." line starts with the indentation of
@@ -47,12 +47,12 @@
 //   variable computed from others is recomputed (to a new value), it is
 //   printed as "name = value". An expression that reads reactive variables
 //   is evaluated once, like any other.
-// - Types (typecheck/, EXTENSIONS.md "Static types"): `:type expr` prints
-//   the type of an expression or name without evaluating it, `:types` the
-//   types of everything defined, and after `:check on` an input with type
+// - Types (typecheck/, EXTENSIONS.md "Static types"): `.type expr` prints
+//   the type of an expression or name without evaluating it, `.types` the
+//   types of everything defined, and after `.check on` an input with type
 //   errors is reported and not run. The checker (typecheck/main.star) is
 //   compiled when first needed, and cached like any program.
-// - Commands: :help :history :type :types :check :reset :quit (or end of
+// - Commands: .help .history .type .types .check .reset .quit (or end of
 //   input).
 //
 // The session itself is host/repl_core.mjs, shared with the browser REPL
@@ -172,7 +172,7 @@ const prompt = () => {
   }
 };
 
-if (interactive) say(`starwasm REPL (${compilerPath}); :help for help\n`);
+if (interactive) say(`starwasm REPL (${compilerPath}); .help for help\n`);
 prompt();
 // inputs are handled one at a time (running a program is asynchronous)
 let busy = Promise.resolve();

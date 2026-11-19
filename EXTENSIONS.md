@@ -218,6 +218,12 @@ standard input.
     and read as the self-reference. E.g. with `an account:` reading
     `deposit` (`struct(id = 3, account_id = 7, amount = 4)`), the deposit
     updates account 7 (tests/extensions/reactive_relation_ref.star).
+    Failing that, if y and the relation x both have a field whose name
+    ends in `id` (other than `id`; the latest alphabetically if there
+    are several, e.g. `customer_id` over `account_id`), y updates x's last
+    member with the same value of it (a new member if there is none).
+    Only failing both does y's `id` match x's
+    (tests/extensions/reactive_relation_shared.star).
   - Conditions: `a name when cond:` (or `an name when cond:`) + a struct
     block defines a relation that is updated by a condition instead of by
     matching ids:
@@ -259,8 +265,9 @@ standard input.
   - Keyed reads: in the definition of a relation x (one without `when`),
     when the update has a key (the triggering change's id, above), a
     relation y that it reads is instead y's member *for* that key: the
-    last one whose field `x_id` is the key, or, for a member without that
-    field, whose `id` is. So with
+    last one whose field `x_id` is the key; for a member without that
+    field, that shares a field ending in `id` with x (as above), whose
+    value of it is that of x's member with the key; else whose `id` is. So with
 
         an order:
             qty: request.qty ?? order.qty
@@ -1265,13 +1272,13 @@ of different types from one input to the next.
     ...     return shape.width * shape.height
     ...
     >>> box = struct(width = 2, height = 3, name = "box")
-    >>> :type area
+    >>> .type area
     def area[T: Mul[U, V], U, V, **R](shape: struct[width: T, height: U, **R]) -> V
-    >>> :type area(box) / 2
+    >>> .type area(box) / 2
     float
-    >>> :type lambda r: r + struct(id = 1)
+    >>> .type lambda r: r + struct(id = 1)
     [**R](r: struct[**R]) -> struct[id: int, **R]
-    >>> :check on
+    >>> .check on
     type checking of inputs is on
     >>> area("box")
     <input 3>:1:6: error: argument 'shape' of area(): expected struct[width: _, height: _, ...], got str
@@ -1281,13 +1288,13 @@ of different types from one input to the next.
           |     return shape.width * shape.height
           |                 ^
 
-- `:type expr` prints the type of an expression without evaluating it
+- `.type expr` prints the type of an expression without evaluating it
   (what is still unknown in it is shown as type parameters, as for a
-  def); `:type name` prints the declaration of a name of the session.
-- `:types` prints the types of everything defined so far, as a `.starit`
+  def); `.type name` prints the declaration of a name of the session.
+- `.types` prints the types of everything defined so far, as a `.starit`
   file would have them.
-- `:check on` checks each input before it runs: one with type errors is
-  reported and not run (so not kept). `:check off` (the default) runs
+- `.check on` checks each input before it runs: one with type errors is
+  reported and not run (so not kept). `.check off` (the default) runs
   everything, as before. Updates of reactive variables (`x : 5`) are not
   checked.
 - Modules that the session `load()`s are checked with their `.start`
