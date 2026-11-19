@@ -266,6 +266,8 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
     where: "" or the name of the def whose body this is."""
     scope = fc["scope"]
     mod = fc["mod"]
+    if st["contagious"]:
+        scope["records"] = _records(stmts)
     bound = {}
     order = []
     collect_bound(stmts, bound, order)
@@ -727,6 +729,85 @@ def infer_block(st, fc, stmts):
     for s in stmts:
         infer_stmt(st, fc, s)
 
+# ---- records: a dict or list used as a mutable record (Starlark has no
+# `nonlocal`, and structs are immutable: `state = {"n": 0}` shared by
+# closures). Indexing one with a key or index written out, that its literal
+# has, can't fail, so it isn't a fallible operation (with contagious None).
+
+def _records(stmts):
+    """The variables that stmts (a module's or def's body) bind exactly
+    once, to a dict or list literal, and that nothing calls .pop, .remove
+    or .clear on (nested defs and lambdas included): name -> the literal."""
+    binds = {}
+    lits = {}
+    _count_binds(stmts, binds, lits)
+    removed = {}
+    _removals(stmts, removed)
+    return {n: lit for n, lit in lits.items() if binds.get(n) == 1 and not removed.get(n, False)}
+
+def _count_binds(stmts, binds, lits):
+    for s in stmts:
+        k = s["kind"]
+        names = []
+        if k == "assign":
+            _targets(s["lhs"], names)
+            if s["op"] == "=" and s["lhs"]["kind"] == "name" and s["rhs"]["kind"] in ["dict", "list"]:
+                lits[s["lhs"]["id"]] = s["rhs"]
+        elif k == "for":
+            _targets(s["target"], names)
+            _count_binds(s["body"], binds, lits)
+        elif k == "if":
+            _count_binds(s["body"], binds, lits)
+            _count_binds(s["else_"], binds, lits)
+        elif k == "while":
+            _count_binds(s["body"], binds, lits)
+        elif k == "def":
+            binds[s["name"]] = binds.get(s["name"], 0) + 1
+        elif k == "load":
+            for local, _ in s["names"]:
+                binds[local] = binds.get(local, 0) + 1
+        for n in names:
+            binds[n["id"]] = binds.get(n["id"], 0) + 1
+
+def _removals(x, out):
+    """out[name] = True for each `name.pop(...)`, `.remove` or `.clear` in
+    AST x."""
+    t = type(x)
+    if t == "dict":
+        if x.get("kind") == "call" and x["fn"]["kind"] == "dot" and x["fn"]["name"] in ["pop", "remove", "clear"] and x["fn"]["x"]["kind"] == "name":
+            out[x["fn"]["x"]["id"]] = True
+        for k, v in x.items():
+            if k != "pos":
+                _removals(v, out)
+    elif t == "list" or t == "tuple":
+        for v in x:
+            _removals(v, out)
+
+def _record_entry(fc, e):
+    """Is index expression e a record's entry: a variable that is a record
+    where it is bound (_records), indexed by a key or index written out
+    that its literal has?"""
+    x = e["x"]
+    i = e["i"]
+    if i["kind"] == "unop" and i["op"] == "-" and i["x"]["kind"] == "int":
+        i = {"kind": "int", "val": -i["x"]["val"]}  # (-1: written out too)
+    if x["kind"] != "name" or (i["kind"] != "string" and i["kind"] != "int"):
+        return False
+    scope = fc["scope"]
+    for _ in range(1 << 30):
+        if scope == None:
+            return False
+        if x["id"] in scope["vars"]:
+            lit = scope.get("records", {}).get(x["id"])
+            if lit == None:
+                return False
+            if lit["kind"] == "list":
+                n = len(lit["elems"])
+                return i["kind"] == "int" and i["val"] < n and i["val"] >= -n
+            return len([1 for key, _ in lit["entries"] if key["kind"] == i["kind"] and key["val"] == i["val"]]) > 0
+        scope = scope["parent"]
+    return False
+
 def _fails(st, fc):
     """With contagious None: the def being inferred may fail (a statement
     fails on a None), and so its call give None (infer_def)."""
@@ -1037,8 +1118,9 @@ def infer_expr(st, fc, e):
         res = _fresh(st, fc)
         ctx = _ctx(fc, pos, "indexing")
         add_pred(st, pred("getitem", ct, [it, res], ctx, e["i"]["val"] if e["i"]["kind"] == "int" else None), ctx)
-        # (with contagious None, a missing index or key gives None)
-        return mk_opt(res) if st["contagious"] else res
+        # (with contagious None, a missing index or key gives None; but not
+        # a record's: _record_entry)
+        return mk_opt(res) if st["contagious"] and not _record_entry(fc, e) else res
     if k == "slice":
         ct = infer_expr(st, fc, e["x"])
         for part in ["lo", "hi", "step"]:

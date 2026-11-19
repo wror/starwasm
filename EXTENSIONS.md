@@ -1133,8 +1133,11 @@ types (but see None below) and no classes; types are structural.
   say, which the REPL passes from its dialect): an operation that can fail
   on values of the right types gives None there, so its type is `T |
   None`: `/`, `//` and `%` (unless by a nonzero number written out, or
-  `%` formatting of a string written out), indexing (but a tuple by an int
-  written out), `int` and `float` of a string (not one written out),
+  `%` formatting of a string written out), indexing (but not a tuple by
+  an int written out, nor a *record* by a key or index written out that
+  it has: a variable bound once, to a dict or list literal, that nothing
+  calls `.pop`, `.remove` or `.clear` on, as in `state = {"n": 0}` shared
+  by closures, Starlark having no `nonlocal`), `int` and `float` of a string (not one written out),
   `.index`, `.rindex`, `.remove`, `.pop` (without a default), `getattr`
   without a default, `min` and `max` of one sequence, and `fail`. So
   `def f(a, b): return a / b` is `-> V | None`, and so is what calls it.
@@ -1148,7 +1151,7 @@ types (but see None below) and no classes; types are structural.
   relation's member with a None field isn't applied); a builtin that just
   stores an argument (`append`, `insert`, `print`, ...) keeps its `T |
   None`. Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`,
-  `STORES`, `_maybe_fails`), typecheck/unify.star (the `contagious` cases
+  `STORES`, `_maybe_fails`, `_records`, `_record_entry`), typecheck/unify.star (the `contagious` cases
   in `dispatch`, `solve_binop`, `attr_type`).
 - **Numbers**: an `int` is accepted where a `float` is wanted. An int
   literal is an `int` unless it is put where a float is kept: after `total
