@@ -802,7 +802,36 @@ def dispatch(st, s, p, ctx):
     args = p["args"]
     if name == "Any":
         return
+    if name == "opt" and k in ["among", "ordered"] and st.get("contagious"):
+        # contagious None: checked on what the value is otherwise
+        inner = head(st, s["args"][0])
+        q = dict(p)
+        q["subj"] = inner
+        if inner["k"] == "var":
+            attach(st, inner, q)
+        else:
+            dispatch(st, inner, q, ctx)
+        return
     if name == "opt" and k != "among":
+        if st.get("contagious") and k in ["getitem", "slice", "sized", "contains", "hasattr"]:
+            # contagious None: on None, the operation gives None; else it is
+            # checked on what the value is otherwise
+            inner = head(st, s["args"][0])
+            q = dict(p)
+            if k == "getitem":
+                res = new_var(st, "type", _level_of(p["args"][1]))
+                q["args"] = [p["args"][0], res]
+                unify(st, p["args"][1], mk_opt(res), p["ctx"])
+            elif k == "slice":
+                res = new_var(st, "type", _level_of(p["args"][0]))
+                q["args"] = [res]
+                unify(st, p["args"][0], mk_opt(res), p["ctx"])
+            q["subj"] = inner
+            if inner["k"] == "var":
+                attach(st, inner, q)
+            else:
+                dispatch(st, inner, q, ctx)
+            return
         _pred_error(st, p, ctx, "the value may be None (it is " + show(s) + "): test it against None first")
         return
     if k == "iter":
@@ -998,6 +1027,14 @@ def solve_binop(st, p, ctx):
         _binop_error(st, p, ctx, l, r)
         return
     ln = l["name"]
+    if (ln == "opt" or is_con(r, "opt")) and st.get("contagious"):
+        # contagious None: the result may be None; the operation is checked
+        # on what the operands are otherwise
+        res = new_var(st, "type", _level_of(p["res"]))
+        q = binop_pred(op, l["args"][0] if ln == "opt" else p["l"], r["args"][0] if is_con(r, "opt") else p["r"], res, pctx)
+        unify(st, p["res"], mk_opt(res), pctx)
+        solve_binop(st, q, ctx)
+        return
     if ln == "opt" or is_con(r, "opt"):
         _pred_error(st, p, ctx, ("left" if ln == "opt" else "right") + " operand of " + op + " may be None (it is " +
                                 show(l if ln == "opt" else r) + "): test it against None first")
@@ -1169,6 +1206,9 @@ def attr_type(st, t, name, ctx, level):
         if n == "Any":
             return T_ANY
         if n == "opt":
+            if st.get("contagious"):
+                # contagious None: None.name is None
+                return mk_opt(attr_type(st, s["args"][0], name, ctx, level))
             report(st, ctx, "the value may be None (it is " + show(s) + "): test it against None before using ." + name)
             return T_ANY
         ms = st["methods"].get(n)

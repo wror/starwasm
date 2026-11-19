@@ -1128,6 +1128,31 @@ types (but see None below) and no classes; types are structural.
   ...`, `x if x else ...`, an early `if x == None: return` (or `fail`,
   `break`, `continue`), or an assignment of a non-None value, `x` is a
   `T`. Only variables are narrowed (not `p.x`), and only by these forms.
+- **Fallible operations** (with contagious None: on in a program with
+  reactive variables, else as `--contagiousnone` / `--nocontagiousnone`
+  say, which the REPL passes from its dialect): an operation that can fail
+  on values of the right types gives None there, so its type is `T |
+  None`: `/`, `//` and `%` (unless by a nonzero number written out, or
+  `%` formatting of a string written out), indexing (but not a tuple by
+  an int written out, nor a *record* by a key or index written out that
+  it has: a variable bound once, to a dict or list literal, that nothing
+  calls `.pop`, `.remove` or `.clear` on, as in `state = {"n": 0}` shared
+  by closures, Starlark having no `nonlocal`), `int` and `float` of a string (not one written out),
+  `.index`, `.rindex`, `.remove`, `.pop` (without a default), `getattr`
+  without a default, `min` and `max` of one sequence, and `fail`. So
+  `def f(a, b): return a / b` is `-> V | None`, and so is what calls it.
+  Operations on a `T | None` are then allowed and give `T | None` too
+  (None is contagious), and `x ?? y` gives back a `T`. An `if` or `while`
+  testing, a `for` looping over or an unpacking of a value that may be
+  None fails at run time, so a def that does gives None: its result is `T
+  | None` (and one declared `-> T` in a `.start` file is an error). Values
+  stored in a struct's field, a list or dict element, or a variable that
+  already has a type that isn't optional, are taken not to be None (a
+  relation's member with a None field isn't applied); a builtin that just
+  stores an argument (`append`, `insert`, `print`, ...) keeps its `T |
+  None`. Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`,
+  `STORES`, `_maybe_fails`, `_records`, `_record_entry`), typecheck/unify.star (the `contagious` cases
+  in `dispatch`, `solve_binop`, `attr_type`).
 - **Numbers**: an `int` is accepted where a `float` is wanted. An int
   literal is an `int` unless it is put where a float is kept: after `total
   = 0`, `total += 1.5` makes `total` a float; `[1, 2.5]` is a

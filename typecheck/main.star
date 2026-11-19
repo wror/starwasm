@@ -208,10 +208,14 @@ def names(st, mod):
             out.append(n)
     return out
 
-def check(path, starts, all_starts, repl = False):
-    """Check the program at path. Returns (st, module record)."""
+def check(path, starts, all_starts, repl = False, contagious = None):
+    """Check the program at path. Returns (st, module record). contagious:
+    check for contagious None (EXTENSIONS.md, "Fallible operations"):
+    True, False, or None for the default, on if the program defines
+    reactive variables (as the compiler's)."""
     st = {
         "repl": repl,
+        "contagious": contagious,
         "next": 0,
         "errors": [],
         "seen": {},
@@ -243,6 +247,7 @@ def main():
     listing = False
     starts = {}
     all_starts = False
+    contagious = None
     files = []
     for a in argv:
         if a == "--print":
@@ -263,6 +268,8 @@ def main():
             params = a[len("--params="):]
         elif a == "--names":
             listing = True
+        elif a == "--contagiousnone" or a == "--nocontagiousnone":
+            contagious = a == "--contagiousnone"
         elif a.startswith("--"):
             fail("typecheck: unknown option " + a)
         else:
@@ -270,7 +277,7 @@ def main():
     if len(files) != 1:
         fail("usage: typecheck/main.star [--print] [--start=FILE]... <program.star>")
     path = files[0]
-    st, mod = check(path, starts, all_starts, repl)
+    st, mod = check(path, starts, all_starts, repl, contagious)
     if attrs != None or params != None or probe != None or listing:
         # for completion: answered whatever type errors there are
         if params != None or probe == "--params-probe":

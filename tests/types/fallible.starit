@@ -1,0 +1,17 @@
+# Types inferred from fallible.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in fallible.start instead.
+
+def ratio[T: Div[U, V], U, V](a: T, b: U) -> V | None
+def scaled[T: Div[U, int], U](a: T, b: U) -> int | None
+def safe[T: Div[U, int], U](a: T, b: U) -> int
+def half(n: float) -> float
+def sign[T: GetItem[U, int], U](xs: T, i: U) -> int | None
+def counter() -> () -> int:
+    state: dict[str, int]
+    def inc() -> int
+def first[T: GetItem[int, U], U](xs: T) -> U | None
+def parse[T](s: T) -> int | None
+def names[T: Iterable[dict[str, U]], U](rows: T) -> list[U | None]:
+    out: list[U | None]
+    r: dict[str, U]
+tick: int
