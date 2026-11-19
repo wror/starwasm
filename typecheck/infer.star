@@ -139,6 +139,10 @@ def check_module(st, path, from_ctx = None):
     src = st["read"](path)
     st["sources"][path] = src
     stmts = parse_file(src, path)
+    if st.get("contagious") == None:
+        # (the main file decides: contagious None is on in a program with
+        # reactive variables)
+        st["contagious"] = len([s for s in stmts if s["kind"] == "reactive"]) > 0
     mod = {"path": path, "state": "busy", "scope": None}
     st["modules"][path] = mod
     scope = new_scope(st["builtins"], 0, mod)
@@ -508,7 +512,12 @@ def infer_def(st, b):
         if rs["value"] and (rs["none"] or falls):
             ret = mk_opt(ret)
     fc["ret"] = ret
-    t = fn(params, ret, at)
+    # with contagious None, a def that may fail (_fails) gives None: its
+    # type's return is then the returned values' or None
+    separate = not declared_ret and st["contagious"]
+    outer_ret = new_var(st, "type", level) if separate else ret
+    b["fails"] = False
+    t = fn(params, outer_ret, at)
     b["type"] = t
     b["locals"] = scope
     b["state"] = "busy"
@@ -531,6 +540,12 @@ def infer_def(st, b):
             flow_report(st, con("None", [], end), ret, end)
         else:
             unify_report(st, ret, con("None", [], end), end)
+    if separate:
+        # (a recursive call can have made it contain itself: then left as is)
+        unify(st, outer_ret, mk_opt(ret) if b["fails"] else ret, at)
+    elif b["fails"] and declared_ret and _strip_opt(ret) == None and not is_con(resolve(ret), "None"):
+        report(st, at, name + "() may fail on a None (a test, loop or unpacking of a value that may be None), " +
+                       "and then gives None, but is declared to return " + show(ret))
 
     st["stack"].pop()
     if b["low"] < b["index"]:
@@ -712,12 +727,31 @@ def infer_block(st, fc, stmts):
     for s in stmts:
         infer_stmt(st, fc, s)
 
+def _fails(st, fc):
+    """With contagious None: the def being inferred may fail (a statement
+    fails on a None), and so its call give None (infer_def)."""
+    if st["contagious"] and fc["def"] != None:
+        fc["def"]["fails"] = True
+
+def _maybe_fails(st, fc, t):
+    """t, the type of what an if, while or for statement tests or iterates
+    over: if it may be None, the def may fail (_fails); t without the None."""
+    if st["contagious"]:
+        s = _strip_opt(t)
+        if s != None:
+            _fails(st, fc)
+            return s
+    return t
+
 def infer_stmt(st, fc, s):
     k = s["kind"]
     if k == "expr":
         if fc["def"] == None and fc["scope"]["level"] == 0:
             fc["observer"] = True
         infer_expr(st, fc, s["x"])
+        x = s["x"]
+        if x["kind"] == "call" and x["fn"]["kind"] == "name" and x["fn"]["id"] == "fail" and _special(fc, "fail"):
+            _fails(st, fc)
     elif k == "assign":
         _infer_assign(st, fc, s)
     elif k == "return":
@@ -730,7 +764,7 @@ def infer_stmt(st, fc, s):
         pos = s["value"]["pos"] if s["value"] != None else s["pos"]
         flow_report(st, t, fc["ret"], _ctx(fc, pos, "return value of " + fc["def"]["name"] + "()"))
     elif k == "if":
-        infer_expr(st, fc, s["test"])
+        _maybe_fails(st, fc, infer_expr(st, fc, s["test"]))
         yes, no = cond_narrow(st, fc, s["test"])
         saved = fc["narrow"]
         fc["narrow"] = _with(fc, yes)
@@ -749,7 +783,7 @@ def infer_stmt(st, fc, s):
         else:
             fc["narrow"] = {n: t for n, t in after_body.items() if n in after_else}
     elif k == "for":
-        it = infer_expr(st, fc, s["iter"])
+        it = _maybe_fails(st, fc, infer_expr(st, fc, s["iter"]))
         elem = _fresh(st, fc)
         add_pred(st, pred("iter", it, [elem], _ctx(fc, s["iter"]["pos"], "for loop over it")), _ctx(fc, s["iter"]["pos"]))
         saved = fc["narrow"]
@@ -763,7 +797,7 @@ def infer_stmt(st, fc, s):
         saved = fc["narrow"]
         fc["narrow"] = dict(saved)
         _forget(fc, s["body"])
-        infer_expr(st, fc, s["test"])
+        _maybe_fails(st, fc, infer_expr(st, fc, s["test"]))
         yes, _ = cond_narrow(st, fc, s["test"])
         fc["narrow"].update(yes)
         infer_block(st, fc, s["body"])
@@ -829,6 +863,13 @@ def assign_target(st, fc, target, t, what):
     """Bind assignment target `target` to a value of type t."""
     k = target["kind"]
     pos = target["pos"]
+    if st["contagious"] and _strip_opt(t) != None:
+        # with contagious None, a value that may be None is stored as what
+        # it is otherwise in an element of a list or dict, or in a variable
+        # already of a type that isn't optional (as in a struct's field)
+        b = fc["scope"]["vars"].get(target["id"]) if k == "name" else None
+        if k == "index" or (b != None and b["kind"] == "var" and resolve(b["type"])["k"] != "var" and _strip_opt(b["type"]) == None):
+            t = _strip_opt(t)
     if k == "name":
         name = target["id"]
         b = fc["scope"]["vars"].get(name)
@@ -887,6 +928,9 @@ def destructure(st, fc, t, n, pos):
         if name == "Any":
             return [T_ANY] * n
         if name == "opt":
+            if st["contagious"] and fc["def"] != None:
+                _fails(st, fc)  # (unpacking None fails)
+                return destructure(st, fc, h["args"][0], n, pos)
             report(st, ctx, "the value may be None (it is " + show(h) + "): test it against None before unpacking it")
             return [T_ANY] * n
     report(st, ctx, "cannot unpack " + show(h) + " into " + str(n) + " variables")
@@ -993,7 +1037,8 @@ def infer_expr(st, fc, e):
         res = _fresh(st, fc)
         ctx = _ctx(fc, pos, "indexing")
         add_pred(st, pred("getitem", ct, [it, res], ctx, e["i"]["val"] if e["i"]["kind"] == "int" else None), ctx)
-        return res
+        # (with contagious None, a missing index or key gives None)
+        return mk_opt(res) if st["contagious"] else res
     if k == "slice":
         ct = infer_expr(st, fc, e["x"])
         for part in ["lo", "hi", "step"]:
@@ -1070,6 +1115,38 @@ def _infer_binop(st, fc, e):
         return _quiet_join(st, fc, a, b, op)
     a = infer_expr(st, fc, e["x"])
     b = infer_expr(st, fc, e["y"])
+    maybe = False
+    if st["contagious"]:
+        # an operand that may be None makes the result None (contagious
+        # None): the operation is checked on what it is otherwise
+        sa = _strip_opt(a)
+        sb = _strip_opt(b)
+        maybe = sa != None or sb != None
+        a = sa if sa != None else a
+        b = sb if sb != None else b
+    t = _infer_binop_on(st, fc, e, a, b)
+    if maybe or (st["contagious"] and _fallible_op(e)):
+        t = mk_opt(t)
+    return t
+
+def _fallible_op(e):
+    """Can binary operation e fail on operands of the right types (and so,
+    with contagious None, give None)? Division and remainder, unless by a
+    nonzero number written out; `%` formatting with a string written out
+    is taken to be right."""
+    op = e["op"]
+    if op != "/" and op != "//" and op != "%":
+        return False
+    y = e["y"]
+    if (y["kind"] == "int" or y["kind"] == "float") and y["val"] != 0:
+        return False
+    if op == "%" and e["x"]["kind"] == "string":
+        return False
+    return True
+
+def _infer_binop_on(st, fc, e, a, b):
+    op = e["op"]
+    pos = e["pos"]
     if op == "==" or op == "!=":
         # x == None, for an x of unknown type: x may be None
         for x, xt, y in [(e["x"], a, e["y"]), (e["y"], b, e["x"])]:
@@ -1105,10 +1182,14 @@ def _infer_comp(st, fc, e):
                 if n["id"] in cfc["narrow"]:
                     cfc["narrow"].pop(n["id"])
     first = True
+    maybe = False  # (contagious None: an iterable or a test that may be None)
     for c in e["clauses"]:
         if c["kind"] == "for":
             # the first iterable is evaluated outside the comprehension
             it = infer_expr(st, fc if first else cfc, c["iter"])
+            if st["contagious"] and _strip_opt(it) != None:
+                it = _strip_opt(it)
+                maybe = True
             first = False
             cfc["scope"] = inner
             elem = _fresh(st, fc)
@@ -1116,14 +1197,18 @@ def _infer_comp(st, fc, e):
             add_pred(st, pred("iter", it, [elem], ctx), ctx)
             assign_target(st, cfc, c["target"], elem, "loop variable")
         else:
-            infer_expr(st, cfc, c["test"])
+            tt = infer_expr(st, cfc, c["test"])
+            if st["contagious"] and _strip_opt(tt) != None:
+                maybe = True
             yes, _ = cond_narrow(st, cfc, c["test"])
             cfc["narrow"].update(yes)
     if e["comp"] == "dict":
         kt = infer_expr(st, cfc, e["body"][0])
         vt = infer_expr(st, cfc, e["body"][1])
-        return con("dict", [kt, vt], _ctx(fc, e["pos"], "a dict comprehension"))
-    return con("list", [infer_expr(st, cfc, e["body"])], _ctx(fc, e["pos"], "a list comprehension"))
+        t = con("dict", [kt, vt], _ctx(fc, e["pos"], "a dict comprehension"))
+    else:
+        t = con("list", [infer_expr(st, cfc, e["body"])], _ctx(fc, e["pos"], "a list comprehension"))
+    return mk_opt(t) if maybe else t
 
 def _infer_lambda(st, fc, e):
     inner = new_scope(fc["scope"], fc["scope"]["level"], fc["mod"])
@@ -1188,7 +1273,74 @@ def infer_call(st, fc, e):
     else:
         ft = infer_expr(st, fc, f)
     args = [{"name": a["name"], "star": a["star"], "type": infer_expr(st, fc, a["value"]), "pos": a["value"]["pos"]} for a in e["args"]]
-    return apply(st, fc, ft, args, pos, _callee_name(f))
+    maybe = False
+    if st["contagious"]:
+        # an argument that may be None may make the result None, unless the
+        # builtin or method just stores it (STORES)
+        stores = STORES.get(f["name"] if f["kind"] == "dot" else f["id"] if f["kind"] == "name" else "", ())
+        i = 0
+        for a in args:
+            positional = a["name"] == None and a["star"] == ""
+            kept = stores == "all" or (positional and i in stores) or (not positional and "kw" in stores)
+            if positional:
+                i += 1
+            s = _strip_opt(a["type"])
+            if s != None and not kept:
+                a["type"] = s
+                maybe = True
+        h = resolve(ft)
+        if is_con(h, "opt"):
+            ft = h["args"][0]  # (a method of a value that may be None)
+            maybe = True
+    t = apply(st, fc, ft, args, pos, _callee_name(f))
+    if maybe or (st["contagious"] and _fallible_call(st, e, args)):
+        t = mk_opt(t)
+    return t
+
+# Builtins and methods that just store some of their arguments, which may
+# then be None: their positions, "kw" for keyword arguments, or "all" (as
+# TOLERANT in compiler/ext/none.star, which decides the same at run time)
+STORES = {
+    "print": "all",
+    "fail": "all",
+    "struct": "all",
+    "provenance": "all",
+    "getattr": (2,),
+    "dict": ("kw",),
+    "update": ("kw",),
+    "append": (0,),
+    "add": (0,),
+    "insert": (1,),
+    "get": (1,),
+    "setdefault": (1,),
+    "pop": (1,),
+}
+
+# builtins and methods that can fail on arguments of the right types
+FALLIBLE_METHODS = {"index": True, "rindex": True, "remove": True, "pop": True}
+
+def _fallible_call(st, e, args):
+    """Can call e (args: its arguments' types) fail on arguments of the
+    right types (and so, with contagious None, give None)?"""
+    f = e["fn"]
+    npos = len([a for a in e["args"] if a["name"] == None and a["star"] == ""])
+    if f["kind"] == "dot":
+        if f["name"] == "pop" and npos == 2:
+            return False  # d.pop(k, default)
+        return FALLIBLE_METHODS.get(f["name"], False)
+    if f["kind"] != "name":
+        return False
+    n = f["id"]
+    if n == "int" or n == "float":
+        # from a string (not one written out: taken to be right)
+        if len(args) == 0 or e["args"][0]["value"]["kind"] in ["string", "int", "float"]:
+            return False
+        return not (is_con(resolve(args[0]["type"]), "int") or is_con(resolve(args[0]["type"]), "float"))
+    if n == "min" or n == "max":
+        return npos == 1  # of a sequence, which may be empty
+    if n == "getattr":
+        return npos == 2
+    return n == "fail"
 
 def apply(st, fc, ft, args, pos, fname):
     """The type of calling a value of type ft with args ({name, star,
@@ -1321,6 +1473,11 @@ def _sp_struct(st, fc, e):
                 report(st, _ctx(fc, a.get("pos") or a["value"]["pos"]), "field '" + a["name"] + "' is given twice")
                 continue
             seen[a["name"]] = True
+            if st["contagious"]:
+                # (fields are taken not to be None: a relation's member
+                # with a None field isn't applied)
+                s = _strip_opt(t)
+                t = s if s != None else t
             items.append(field(lit(a["name"]), t, _ctx(fc, a.get("pos") or a["value"]["pos"], "field '" + a["name"] + "' of the struct")))
     return rec(row(items), _ctx(fc, e["pos"], "a struct made here"))
 

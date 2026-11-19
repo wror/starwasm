@@ -535,7 +535,9 @@ export class Session {
     const out = [];
     let err = "";
     const status = runModule(this.checkerModule, {
-      progArgs: ["--repl", "--print", "--start=*", ...args, path],
+      // (the dialect's None: the checker types for contagious None as the
+      // compiler compiles, on by default in a session with reactive variables)
+      progArgs: ["--repl", "--print", "--start=*", ...this.dialectFlags.filter((f) => /^--(no)?contagiousnone$/.test(f)), ...args, path],
       stdout: (b) => out.push(b.slice()),
       stderr: (t) => (err += t),
       readFile: (p) => {
