@@ -10,6 +10,8 @@
 "bo" @0: bool | box | boxes
 "ar" @0: area | argv
 "ret" @0: return
+"re" @0: repr | return | reversed
+"wr" @0: 
 ".t" @0: .type | .types
 "area(box)." @10: 
 "zz" @0: 
@@ -34,7 +36,7 @@
 "greet(\"a\" + n" @12: not
 "greet(len(boxes), " @18: punctuation = : str | loud = : bool
 "sorted(boxes, " @14: key = : (T) -> Any | reverse = : bool
-"sorted(boxes, key = lambda b: b.width, r" @39: reverse = : bool | range | read_file | repr | return | reversed
+"sorted(boxes, key = lambda b: b.width, r" @39: reverse = : bool | range | repr | return | reversed
 "(lambda first, second: first)(" @30: first = : T | second = : U
 "box.name.split(" @15: 
 "print(greet(" @12: name = : str | punctuation = : str | loud = : bool
@@ -42,4 +44,4 @@
 "    " @4: punctuation = : str | loud = : bool
 "    lo" @4: loud = : bool | load
 "    inner(" @10: text = : T | width = : int
-"    return inner(prefix, w" @25: width = : int | while | width | write_file
+"    return inner(prefix, w" @25: width = : int | while | width

@@ -404,6 +404,8 @@ export function diagnosticRange(line, col) {
 
 const KEYWORDS = ["and", "break", "continue", "def", "elif", "else", "for", "if", "in", "lambda", "load", "not", "or",
   "pass", "return", "while", "None", "True", "False"];
+// Builtins left out of completion (they can still be typed).
+const HIDDEN = new Set(["read_file", "write_file"]);
 const COMMANDS = [".help", ".history", ".type", ".types", ".check", ".reset", ".quit"];
 
 // Is line a command (".help" ...)? A "." then a letter starts no Starlark
@@ -666,7 +668,7 @@ export class Session {
     if (word === "") return pick(from, word, kwargs);
     const r = await this.typecheck(this.history, ["--names"]);
     const typed = [...this.buffer, text].join("\n").match(/[A-Za-z_]\w*/g) ?? [];
-    const names = [...(r.ok ? r.stdout.split("\n").filter((n) => n !== "" && (!n.startsWith("_") || word.startsWith("_"))) : []),
+    const names = [...(r.ok ? r.stdout.split("\n").filter((n) => n !== "" && !HIDDEN.has(n) && (!n.startsWith("_") || word.startsWith("_"))) : []),
       ...typed, ...KEYWORDS];
     return pick(from, word, [...kwargs, ...names.sort().map((name) => ({ name, detail: "" }))]);
   }

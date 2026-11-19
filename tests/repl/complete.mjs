@@ -51,6 +51,8 @@ for (const text of [
   "bo", // names: the session's, and builtins
   "ar",
   "ret", // keywords
+  "re", // not read_file (hidden), but repr, reversed, ...
+  "wr", // not write_file
   ".t", // commands
   "area(box).", // an int: nothing
   "zz",
