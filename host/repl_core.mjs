@@ -278,8 +278,9 @@ function blockExpr(lines) {
 }
 
 const nameOf = (line) => /^[A-Za-z_]\w*/.exec(line)[0];
-// standard input's "x is a reactive variable: a new value can't refer to one"
-const refersToReactive = (err) => /is a reactive variable: a new value can't refer to one/.test(err);
+// standard input's "x is computed from other reactive variables (...): it
+// can't be given a new value" (x's definition reads others: never updated)
+const isDerived = (err, name) => err.includes(`${name} is computed from other reactive variables (`);
 
 // The code for an expression input: evaluate into `_`, print its repr.
 function echoCode(src) {
@@ -775,9 +776,11 @@ export class Session {
     const num = ++this.inputNum;
     const history = this.history;
     const candidates = [];
-    // `x : value` (or a struct block `x:`), x reactive: a new value, sent
-    // to the program as standard input. With --globalreassign, if the
-    // value reads reactive variables, it is a redefinition of x instead.
+    // `x : value` (or a struct block `x:`), x reactive: if x's definition
+    // reads no other reactive variable, always a new value, sent to the
+    // program as standard input. If it reads others, never: with
+    // --globalreassign it is a redefinition of x, else an error (standard
+    // input's, which says why).
     const line = updateLine(src);
     const redefine = this.dialectFlags.includes("--globalreassign");
     let asUpdate = line !== null && reactiveNames(history).has(nameOf(line));
@@ -792,7 +795,7 @@ export class Session {
         this.onChange?.();
         return;
       }
-      if (!(redefine && r.idle && refersToReactive(r.err))) {
+      if (!(redefine && r.idle && isDerived(r.err, nameOf(line)))) {
         this.err(this.mapPositions(r.err, [...history, c]));
         this.dropLive(); // its state may differ from the session's now
         return;
@@ -832,9 +835,9 @@ export class Session {
         candidates.push({ src: line, num, update: true });
         continue;
       }
-      // a new value that reads reactive variables: with --globalreassign,
-      // a redefinition (the next candidate)
-      if (!result.ok && c.update && i < candidates.length - 1 && refersToReactive(result.error)) continue;
+      // a new value for a variable computed from others: with
+      // --globalreassign, a redefinition (the next candidate)
+      if (!result.ok && c.update && i < candidates.length - 1 && isDerived(result.error, nameOf(line))) continue;
       // An expression wrapper that doesn't compile: try the next form.
       if (!result.ok && result.compile && i < candidates.length - 1) continue;
       if (result.ok) history.push(c);

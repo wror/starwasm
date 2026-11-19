@@ -20,6 +20,11 @@ tick : 0
 a tick_log:
     at: tick
 
+# a relation that reads no reactive variable: standard input assigns it
+a note:
+    text: ""
+print("notes", note)
+
 # a lone variable computed from a relation is unset until the relation has
 # a member: observers reading it are skipped until then
 richest:

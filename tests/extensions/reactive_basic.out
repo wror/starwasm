@@ -27,9 +27,8 @@ total: 63.0
 tagged {(1, "two", 3.5): 63.0}
 tagged {None: 63.0}
 tagged {True: 63.0}
-size: 1000
-big: True
 size: 30
+big: True
 total: 127.0
 tagged {True: 127.0}
 comp [0, 1] 5

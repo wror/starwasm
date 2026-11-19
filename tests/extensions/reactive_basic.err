@@ -9,6 +9,7 @@ Error: unhashable type: dict
 <stdin>:22:10: invalid escape sequence \q
 Error: unhashable type: list
 <stdin>:24:23: want ; or the end of the line after an expression
+<stdin>:25:1: size is computed from other reactive variables (width, height): it can't be given a new value
 Traceback (most recent call last):
   tests/extensions/reactive_basic.star:27:20: in <toplevel>
   tests/extensions/reactive_basic.star:10:31: in total

@@ -693,6 +693,13 @@ def transform(cg, mc):
                 # x's new value, as a change of x: what reads it is recomputed
                 args = [_name(VALUES, p), _name(NODES, p), _name(STATE, p), _str(s["name"], p), redef_value]
                 out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_redefine", args, s["colon"])})
+        elif k == "reactive" and redef_value != None:
+            # a redefinition that reads no reactive variable: x is now a
+            # source, which nothing recomputes (its earlier node goes)
+            p = s["pos"]
+            out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_drop_node", [_name(NODES, p), _str(s["name"], p)], p)})
+            args = [_name(VALUES, p), _name(NODES, p), _name(STATE, p), _str(s["name"], p), redef_value]
+            out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_redefine", args, s["colon"])})
     p = stmts[-1]["pos"]
     out.append({"kind": "expr", "pos": p, "x": _prelude_call("_r_freeze", [], p)})
     out.append(_input_call(0, p))
@@ -969,7 +976,7 @@ def _reactive_input(values, nodes, state, names, before):
             return
         state["lineno"] += 1
         p = {"s": line, "i": 0, "err": None, "depth": 0, "lineno": state["lineno"]}
-        assigns = _r_line(p, values, names)
+        assigns = _r_line(p, values, names, nodes)
         if p["err"] != None:
             _eprint("<stdin>:" + str(state["lineno"]) + ":" + str(p["errpos"] + 1) + ": " + p["err"])
             continue
@@ -1125,6 +1132,13 @@ def _r_add_node(nodes, entry):
                 break
     if len(out) != len(rest):
         fail("reactive variables depend on each other in a cycle")
+    nodes.clear()
+    nodes.extend(out)
+
+def _r_drop_node(nodes, name):
+    """Remove the node of name (redefined, --globalreassign, by a value that
+    reads no reactive variable)."""
+    out = [n for n in nodes if n[0] == None or n[0] != name]
     nodes.clear()
     nodes.extend(out)
 
@@ -1646,9 +1660,20 @@ def _r_tokens(p):
     toks.append({"k": "end", "v": "", "pos": len(s)})
     return toks
 
-def _r_line(p, values, names):
+def _r_derived(nodes, name):
+    """The reactive variables that name's (active) definition reads, other
+    than itself: none for one defined by a value that reads none (a source,
+    which standard input updates)."""
+    for n, _, deps, _ in nodes:
+        if n == name:
+            return [d for d in deps if d != name]
+    return []
+
+def _r_line(p, values, names, nodes):
     """The (name, expression) pairs of a line, in order; expressions are
-    parsed (see _r_eval) and checked not to refer to reactive variables."""
+    parsed (see _r_eval) and checked not to refer to reactive variables.
+    Only a variable whose definition reads no other (_r_derived) gets a
+    new value: one computed from others is never updated."""
     toks = _r_tokens(p)
     if p["err"] != None:
         return None
@@ -1663,6 +1688,10 @@ def _r_line(p, values, names):
             return _r_fail(p, "want a reactive variable name, then : and an expression", t["pos"])
         if t["v"] not in values:
             return _r_fail(p, t["v"] + " is not a reactive variable", t["pos"])
+        ds = _r_derived(nodes, t["v"])
+        if ds:
+            return _r_fail(p, t["v"] + " is computed from other reactive variables (" + ", ".join(ds) +
+                              "): it can't be given a new value", t["pos"])
         if _r_is(p, "="):
             return _r_fail(p, "want : after " + t["v"] + " (a new value is given as " + t["v"] + " : value)", _r_tok(p)["pos"])
         if not _r_is(p, ":"):

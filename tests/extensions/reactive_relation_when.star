@@ -5,8 +5,10 @@ dingbat:
     b: "foo"
     c: "bar"
 
-a wally when dingbat.b == wally.e and not dingbat.b.startswith("a"):
-    e: "foo"
+# (its members come from its condition: a relation computed from others
+# can't be assigned)
+a wally when (dingbat.b == wally.e or wally.e == "") and not dingbat.b.startswith("a"):
+    e: dingbat.b
     f: dingbat.c
 
 # with no member matching, cond reads the identity (a new member): here

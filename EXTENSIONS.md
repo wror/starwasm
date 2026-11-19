@@ -244,15 +244,15 @@ standard input.
     the identity (as for a new member), and if that is true the block is
     added as a new member (implicit `id`: the largest + 1). So a condition
     that never holds of the identity (`dingbat.b == wally.e`, as `"foo" ==
-    ""` is false) only updates existing members (e.g. members assigned on
-    standard input), and one like `stock.name == item.name or stock.name ==
+    ""` is false) never adds one (and, as standard input can't assign
+    the relation, it stays empty), and one like `stock.name == item.name or stock.name ==
     ""` adds a member for a new name and updates it afterwards. The
     replaced and added members go at the end, in order; the relation
     counts as changed only if some member was replaced or added. The
     `_id` references above don't apply (the condition picks the members),
     and an explicit field `id` is used as written, even if another member
-    has it. The condition is an ordinary expression. Standard input assigns such a relation
-    as any other (by `id`). The original form (`a name:`, no `when`) is
+    has it. The condition is an ordinary expression. As it reads other reactive
+    variables, standard input can't assign such a relation. The original form (`a name:`, no `when`) is
     unchanged.
     Code: parser.star (`parse_struct_def` sets `when`), reactive.star
     (`transform` compiles cond and the block to two functions,
@@ -438,9 +438,11 @@ standard input.
     gain or lose a `when` condition, and its `xError` is unchanged.
   - The type checker types the variable by its last definition.
   - In the REPL, `x : value` (one line, or a struct block) for a reactive
-    x gives it a new value (below); with redefining allowed, if the value
-    reads reactive variables (which a new value can't), it is a
-    redefinition instead. A redefined variable is echoed once, as before.
+    x whose definition reads no other reactive variable always gives it a
+    new value (below), even if the value reads one (an error). For an x
+    computed from others it never does: with redefining allowed it is a
+    redefinition (so `x : 5` makes x a source, which later `x : value`
+    lines update), and without, standard input's error. A redefined variable is echoed once, as before.
   - Without `--globalreassign`, a second definition is still "reactive
     variable x defined twice".
   - Code: reactive.star (`transform`, `_cycle`; at run time `_r_add_node`,
@@ -483,9 +485,11 @@ standard input.
   type, zip (and struct, if the program mentions it). A struct assigned
   without a field `id` gets one as a struct block would: for a relation
   the next free one (a new member), for a lone variable whose value has
-  an `id`, that + 1. Any reactive
-  variable can be set, derived ones too; a derived one keeps that value
-  until something it depends on changes. A line that isn't valid (not a
+  an `id`, that + 1. Only a reactive variable whose (active)
+  definition reads no other one can be set; one computed from others
+  (relations, including those with `when`, too) is never updated:
+  "x is computed from other reactive variables (a, b): it can't be given
+  a new value". A line that isn't valid (not a
   reactive variable, syntax, an undefined name, a reactive variable in
   the expression) is reported on stderr as `<stdin>:line:col: message`
   and ignored. An error while evaluating the expressions is reported like
