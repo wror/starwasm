@@ -2,8 +2,8 @@
 # update: the one whose <name>_id (else id) is the update's key. With no
 # such member (none matches, or the relation is empty) it reads as None,
 # which `??` can replace; a field left None holds the member back, and
-# <name>Error says why. A relation that reads no reactive variable starts
-# with one member.
+# <name>Error says why. A relation that reads no reactive variable (fill)
+# only declares it: it starts empty.
 a fill:
     qty: 0
 
