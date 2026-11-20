@@ -348,6 +348,8 @@ def show_pred(p, nm):
         return "R" + BINOP_NAMES[p["op"]] + "[" + a[0] + ", " + a[1] + "]"
     if k == "hasattr":
         return "HasAttr[" + repr(p["op"]) + ", " + a[0] + "]"
+    if k == "contagious":
+        return "Contagious"
     return "?" + k
 
 def describe_pred(p):
@@ -373,6 +375,8 @@ def describe_pred(p):
         return "an operand of " + p["op"]
     if k == "hasattr":
         return "something with ." + p["op"]
+    if k == "contagious":
+        return "Contagious (a None in it makes the call None)"
     return k
 
 def collect_generic(t, nm):

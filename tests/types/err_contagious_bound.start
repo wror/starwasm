@@ -1,0 +1,2 @@
+def n_true[T](xs: list[T]) -> int
+def ranked[T](xs: list[T]) -> list[T]

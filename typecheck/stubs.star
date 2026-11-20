@@ -459,6 +459,12 @@ def declare_tparams(cv, tparams, level):
                 continue
             _, name, args, pos = b
             ctx = _at(cv, pos, "bound of " + tp["name"])
+            if name == "Contagious":
+                # (typecheck/unify.star, mark_contagious)
+                if args:
+                    _err(cv, pos, "Contagious takes no type arguments")
+                v["preds"].append({"kind": "contagious", "subj": v, "args": [], "op": None, "ctx": ctx})
+                continue
             if name == "HasAttr":
                 if len(args) != 2 or type(args[0]) != "string" or type(args[1]) == "string":
                     _err(cv, pos, "HasAttr takes a field name and a type: HasAttr[\"name\", T]")
