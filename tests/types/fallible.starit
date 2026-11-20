@@ -11,7 +11,7 @@ def counter() -> () -> int:
     def inc() -> int
 def first[T: GetItem[int, U], U](xs: T) -> U | None
 def parse[T](s: T) -> int | None
-def names[T: Iterable[dict[str, U]], U](rows: T) -> list[U | None]:
+def names[T: Iterable[dict[str, U]] & Contagious, U](rows: T) -> list[U | None]:
     out: list[U | None]
     r: dict[str, U]
 tick: int

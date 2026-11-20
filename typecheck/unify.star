@@ -227,6 +227,53 @@ def watch(st, ts, then, ctx, deep = False):
     tuples, dicts and structs: [x] == [1] is None if x is)."""
     _solve_watch(st, {"kind": "watch", "subj": None, "args": ts, "op": then, "ctx": ctx, "deep": deep})
 
+# ---- Contagious: a type parameter of a def whose None (in it, or inside it)
+# would make what the def does None, as a watch the def couldn't decide
+# found (default_pending): `def n_true[X: Iterable[T], T: Contagious](xs: X)
+# -> int`. Where the def is called with a T that may have a None in it, the
+# call is T | None (apply_contagious).
+
+def _has_mark(v):
+    for q in v["preds"]:
+        if q["kind"] == "contagious":
+            return True
+    return False
+
+def mark_contagious(st, v, ctx):
+    """Mark variable v Contagious (see above)."""
+    if not _has_mark(v):
+        attach(st, v, {"kind": "contagious", "subj": v, "args": [], "op": None, "ctx": ctx})
+
+def contagious_vars(t):
+    """The variables of t (a def's type, instantiated where it is called)
+    that are marked Contagious."""
+    out = []
+    _marked(resolve(t), out, {})
+    return out
+
+def _marked(t, out, seen):
+    k = t["k"]
+    if k == "var":
+        if t["id"] in seen:
+            return
+        seen[t["id"]] = True
+        if _has_mark(t):
+            out.append(t)
+        for p in t["preds"]:
+            for a in p["args"]:
+                _marked(resolve(a), out, seen)
+    elif k == "con":
+        for a in t["args"]:
+            _marked(resolve(a), out, seen)
+    elif k == "fn":
+        for p in t["params"]:
+            _marked(resolve(p["type"]), out, seen)
+        _marked(resolve(t["ret"]), out, seen)
+    elif k == "rec":
+        for it in flatten(t["row"]):
+            if it["k"] == "f":
+                _marked(resolve(it["type"]), out, seen)
+
 def _parts(t, deep, out):
     """Append to out t resolved and, if deep, the types it contains."""
     t = resolve(t)
@@ -254,6 +301,13 @@ def _solve_watch(st, p):
             p["subj"] = r
             attach(st, r, p)
             return
+    for r in parts:
+        if r["k"] == "var" and r["rigid"] and r["kind"] == "type" and not _has_mark(r):
+            # a type parameter of an annotation: whether it may be None is
+            # the caller's, which the bound says
+            report(st, p["ctx"], "type parameter '" + (r["name"] or "?") + "' may stand for a type with a None in it, " +
+                                 "which would make this None: give it the bound Contagious")
+            r["preds"].append({"kind": "contagious", "subj": r, "args": [], "op": None, "ctx": p["ctx"]})
     _watch_fire(st, p, False)
 
 def _watch_fire(st, p, opt):
@@ -811,6 +865,13 @@ def add_pred(st, p, ctx):
     if k == "watch":
         _solve_watch(st, p)
         return
+    if k == "contagious":
+        # (a mark, not a constraint: what it marks is a variable, or no
+        # longer matters: apply_contagious looks at it where a def is called)
+        s = resolve(p["subj"])
+        if s["k"] == "var" and s["kind"] == "type" and not s["rigid"] and not _has_mark(s):
+            attach(st, s, p)
+        return
     if k == "rows":
         err = unify_rows(st, p["args"][0]["row"], p["args"][1]["row"], p["ctx"], p["op"])
         if err != None:
@@ -1281,6 +1342,15 @@ def default_pending(st, level):
                 continue
             if p["kind"] == "watch":
                 s["preds"] = [q for q in s["preds"] if q.get("id") != p["id"]]
+                # the def about to be generalized can't tell if what it
+                # watches will be None: it is marked Contagious, so that a
+                # call where it may be makes the call None (apply_contagious)
+                parts = []
+                for t in p["args"]:
+                    _parts(t, True, parts)
+                for r in parts:
+                    if r["k"] == "var" and r["kind"] == "type" and not r["rigid"] and r["level"] > level and r["level"] != GENERIC:
+                        mark_contagious(st, r, p["ctx"])
                 _watch_fire(st, p, False)
                 again = True
                 continue

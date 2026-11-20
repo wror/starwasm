@@ -1,0 +1,7 @@
+tests/types/err_contagious_bound.star:9:12: error: type parameter 'T' may stand for a type with a None in it, which would make this None: give it the bound Contagious
+    9 |         if x:
+      |            ^
+tests/types/err_contagious_bound.star:14:12: error: type parameter 'T' may stand for a type with a None in it, which would make this None: give it the bound Contagious
+   14 |     return sorted(xs)
+      |            ^
+2 type errors in tests/types/err_contagious_bound.star

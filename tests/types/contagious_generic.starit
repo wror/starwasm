@@ -1,0 +1,20 @@
+# Types inferred from contagious_generic.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_generic.start instead.
+
+def n_true[T: Iterable[U] & Contagious, U: Contagious](xs: T) -> int:
+    n: int
+    x: U
+def use[T, U](d: dict[T, U], k: T) -> int | None
+def use_ok[T](xs: T) -> int
+def later[X: Iterable[T] & Contagious, T](xs: X) -> list[T]
+def use_later[T, U](d: dict[T, U], k: T) -> list[U | None] | None
+def same[T: Contagious, U: Contagious](a: T, b: U) -> bool
+def use_same[T, U](d: dict[T, U], k: T) -> bool | None
+def ident[T](x: T) -> T
+def use_ident[T, U](d: dict[T, U], k: T) -> list[U | None]
+def through[T: Iterable[U] & Contagious, U: Contagious](xs: T) -> int
+def use_through[T, U](d: dict[T, U], k: T) -> int | None
+def count[X: Sized](xs: X) -> int
+def use_count[T, U](d: dict[T, U], k: T) -> int
+tick: int
+tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]

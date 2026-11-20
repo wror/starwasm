@@ -81,6 +81,7 @@ load(
     "unify",
     "unify_report",
     "watch",
+    "contagious_vars",
     WIDENABLE = "WIDENABLE",
 )
 
@@ -859,9 +860,10 @@ def _fails(st, fc):
     if st["contagious"] and fc["def"] != None:
         fc["def"]["fails"] = True
 
-def _maybe_fails(st, fc, t):
+def _maybe_fails(st, fc, t, pos):
     """t, the type of what an if, while or for statement tests or iterates
-    over: if it may be None, the def may fail (_fails); t without the None."""
+    over (at pos): if it may be None, the def may fail (_fails); t without
+    the None."""
     if st["contagious"]:
         s = _strip_opt(t)
         if s != None:
@@ -869,7 +871,7 @@ def _maybe_fails(st, fc, t):
             return s
         if fc["def"] != None:
             # (a type not known yet may turn out to be optional)
-            watch(st, [t], ("fails", fc["def"]), _ctx(fc, (0, 0)))
+            watch(st, [t], ("fails", fc["def"]), _ctx(fc, pos, "a test of it"))
     return t
 
 def infer_stmt(st, fc, s):
@@ -893,7 +895,7 @@ def infer_stmt(st, fc, s):
         pos = s["value"]["pos"] if s["value"] != None else s["pos"]
         flow_report(st, t, fc["ret"], _ctx(fc, pos, "return value of " + fc["def"]["name"] + "()"))
     elif k == "if":
-        _maybe_fails(st, fc, infer_expr(st, fc, s["test"]))
+        _maybe_fails(st, fc, infer_expr(st, fc, s["test"]), s["test"]["pos"])
         yes, no = cond_narrow(st, fc, s["test"])
         saved = fc["narrow"]
         fc["narrow"] = _with(fc, yes)
@@ -912,7 +914,7 @@ def infer_stmt(st, fc, s):
         else:
             fc["narrow"] = {n: t for n, t in after_body.items() if n in after_else}
     elif k == "for":
-        it = _maybe_fails(st, fc, infer_expr(st, fc, s["iter"]))
+        it = _maybe_fails(st, fc, infer_expr(st, fc, s["iter"]), s["iter"]["pos"])
         elem = _fresh(st, fc)
         add_pred(st, pred("iter", it, [elem], _ctx(fc, s["iter"]["pos"], "for loop over it")), _ctx(fc, s["iter"]["pos"]))
         saved = fc["narrow"]
@@ -926,7 +928,7 @@ def infer_stmt(st, fc, s):
         saved = fc["narrow"]
         fc["narrow"] = dict(saved)
         _forget(fc, s["body"])
-        _maybe_fails(st, fc, infer_expr(st, fc, s["test"]))
+        _maybe_fails(st, fc, infer_expr(st, fc, s["test"]), s["test"]["pos"])
         yes, _ = cond_narrow(st, fc, s["test"])
         fc["narrow"].update(yes)
         infer_block(st, fc, s["body"])
@@ -1532,15 +1534,18 @@ LOOKS_INSIDE = {
 
 def _inner_nones(t):
     """(Is a type that t contains (not t itself) optional?, the types it
-    contains that aren't known yet.)"""
+    contains that aren't known yet, t itself included.)"""
     parts = []
-    _contents(resolve(t), parts)
+    r = resolve(t)
+    _contents(r, parts)
     found = False
-    unknown = []
+    # (t itself, if it isn't known yet: what it turns out to hold may be; a
+    # type parameter of an annotation is one: watch checks its bound)
+    unknown = [r] if r["k"] == "var" and r["kind"] == "type" else []
     for p in parts:
         if is_con(p, "opt"):
             found = True
-        elif p["k"] == "var" and p["kind"] == "type" and not p["rigid"]:
+        elif p["k"] == "var" and p["kind"] == "type":
             unknown.append(p)
     return found, unknown
 
@@ -1659,7 +1664,17 @@ def infer_call(st, fc, e):
                     unknown.append(ret)
             if positional:
                 i += 1
+    # a def's type parameters marked Contagious (unify.star): if what one
+    # stands for here may have a None in it, the call may be None
+    marked = contagious_vars(ft) if st["contagious"] else []
     t = apply(st, fc, ft, args, pos, _callee_name(f))
+    for v in marked:
+        r = resolve(v)
+        found, unk = _inner_nones(r)
+        if found or is_con(r, "opt"):
+            maybe = True
+        else:
+            unknown += unk
     if not maybe:
         t = _lift_later(st, fc, unknown, t, pos)
     if maybe or (st["contagious"] and _fallible_call(st, e, args)):

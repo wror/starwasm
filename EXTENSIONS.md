@@ -1215,7 +1215,17 @@ types (but see None below) and no classes; types are structural.
   call is checked on the argument without its Nones (`sorted([1, x])` is
   `list[int] | None`). Builtins that only copy, count or show elements
   (`list`, `len`, `str`, `zip`, ...) don't. (Code: `LOOKS_INSIDE`,
-  `_inner_nones`, `_formats` in typecheck/infer.star.) An `if` or `while`
+  `_inner_nones`, `_formats` in typecheck/infer.star.) A def that does
+  any of this to values of one of its type parameters (tests, loops
+  over, compares, sorts them...) can't tell where it is defined whether
+  they will be None: the type parameter gets the bound `Contagious`
+  (`def n_true[T: Iterable[U] & Contagious, U: Contagious](xs: T) ->
+  int`), and a call where it stands for a type that may have a None in
+  it (`n_true([d.get(k)])`) is `int | None`. The bound looks inside: a
+  call with a None among a list's elements is lifted even where the def
+  only loops over the list. A `.start` annotation must give the bound
+  where the def needs it ("give it the bound Contagious"). (Code:
+  `mark_contagious`, `contagious_vars` in typecheck/unify.star.) An `if` or `while`
   testing, a `for` looping over or an unpacking of a value that may be
   None fails at run time, so a def that does gives None: its result is `T
   | None` (and one declared `-> T` in a `.start` file is an error); this
@@ -1261,7 +1271,9 @@ types (but see None below) and no classes; types are structural.
   (a method that several builtin types have, such as `pop`), `(int,
   float)` (one of these types), and the operators `Add[B, R]` (`x + B`
   is an `R`; likewise `Sub Mul Div FloorDiv Mod Or And Xor LShift
-  RShift`, and `RAdd[A, R]` etc. for the right operand). One exception
+  RShift`, and `RAdd[A, R]` etc. for the right operand), and, with
+  contagious None, `Contagious` (a None in it makes the call None: see
+  "Fallible operations"). One exception
   keeps common code simple: an operand of unknown type next to a number
   is taken to be a number. Next to an int it is either kind, and so is
   the result, of its kind (`def inc(x): return x + 1` is `def inc[T:
