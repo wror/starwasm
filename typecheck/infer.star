@@ -81,6 +81,7 @@ load(
     "unify",
     "unify_report",
     "watch",
+    WIDENABLE = "WIDENABLE",
 )
 
 MISSING = "?"  # the name of the placeholder type of an unannotated parameter
@@ -752,13 +753,42 @@ def infer_block(st, fc, stmts):
 def _records(stmts):
     """The variables that stmts (a module's or def's body) bind exactly
     once, to a dict or list literal, and that nothing calls .pop, .remove
-    or .clear on (nested defs and lambdas included): name -> the literal."""
+    or .clear on (nested defs and lambdas included), and that is only ever
+    indexed or has a method called on it (not passed, returned, stored or
+    aliased, which would let other code remove its entries): name -> the
+    literal."""
     binds = {}
     lits = {}
     _count_binds(stmts, binds, lits)
     removed = {}
     _removals(stmts, removed)
-    return {n: lit for n, lit in lits.items() if binds.get(n) == 1 and not removed.get(n, False)}
+    bare = {}
+    _bare_uses(stmts, bare)
+    return {n: lit for n, lit in lits.items() if binds.get(n) == 1 and not removed.get(n, False) and not bare.get(n, False)}
+
+def _bare_uses(x, out):
+    """out[name] = True for each name in AST x used other than as
+    `name[...]`, `name.method(...)` or the target of an assignment."""
+    t = type(x)
+    if t == "list" or t == "tuple":
+        for v in x:
+            _bare_uses(v, out)
+        return
+    if t != "dict":
+        return
+    k = x.get("kind")
+    if k == "name":
+        out[x["id"]] = True
+        return
+    if (k == "index" or k == "dot") and type(x.get("x")) == "dict" and x["x"].get("kind") == "name":
+        _bare_uses(x.get("i"), out)
+        return
+    for key, v in x.items():
+        if key == "pos" or key == "target":
+            continue
+        if key == "lhs" and type(v) == "dict" and v.get("kind") == "name":
+            continue
+        _bare_uses(v, out)
 
 def _count_binds(stmts, binds, lits):
     for s in stmts:
@@ -955,8 +985,33 @@ def _infer_assign(st, fc, s):
     bop = op[:-1]
     ctx = _ctx(fc, s.get("oppos") or s["pos"], "operand of " + op)
     add_pred(st, binop_pred(bop, lt, rt, res, ctx), ctx)
+    if st["contagious"] and _fallible_op({"op": bop, "x": lhs, "y": s["rhs"]}):
+        res = mk_opt(res)  # (x //= y: as x // y)
     if lhs["kind"] in ["name", "index", "dot"]:
         assign_target(st, fc, lhs, res, "result of " + op)
+
+def _widen_elements(st, ct, t):
+    """With contagious None: t, a value that may be None, stored as an
+    element of ct, a list or dict (x[i] = t). Where the element type is
+    known yet, it can't become optional now: as for a variable
+    (assign_target), the list or dict literal (or comprehension) that made
+    ct is noted, to have optional elements from the start when the module
+    is checked again, and t is taken as an element until then. (A list or
+    dict made otherwise gives an error instead: the value may be None.)"""
+    r = resolve(t)
+    if _strip_opt(t) == None and not is_con(r, "None"):
+        return t
+    h = resolve(ct)
+    if not (is_con(h, "list") or is_con(h, "dict")):
+        return t
+    el = resolve(h["args"][0] if is_con(h, "list") else h["args"][1])
+    if (el["k"] == "var" and not el["num"] and el["lit"] == None) or is_con(el, "opt"):
+        return t  # (it widens: an int or string literal's type doesn't)
+    at = h.get("at")
+    if at == None or not WIDENABLE.get(at.get("role"), False):
+        return t
+    st["widen"][at["file"] + ":" + str(at["pos"])] = True
+    return el
 
 def _widen_key(fc, pos):
     return fc["mod"]["path"] + ":" + str(pos)
@@ -971,11 +1026,6 @@ def assign_target(st, fc, target, t, what):
     k = target["kind"]
     pos = target["pos"]
     if st["contagious"] and _strip_opt(t) != None:
-        # with contagious None, a value that may be None is stored as what
-        # it is otherwise in an element of a list or dict (as in a struct's
-        # field)
-        if k == "index":
-            t = _strip_opt(t)
         # A variable whose type is already known not to be optional (an
         # earlier assignment, or a use, fixed it) can't become optional now:
         # what it was used for is decided. It is noted, to be declared
@@ -1014,6 +1064,8 @@ def assign_target(st, fc, target, t, what):
         ct = infer_expr(st, fc, target["x"])
         kt = infer_expr(st, fc, target["i"])
         ctx = _ctx(fc, pos, "item assignment")
+        if st["contagious"]:
+            t = _widen_elements(st, ct, t)
         add_pred(st, pred("setitem", ct, [kt, t], ctx), ctx)
         return
     if k == "dot":
@@ -1037,6 +1089,8 @@ def destructure(st, fc, t, n, pos):
                 return [T_ANY] * n
             return h["args"]
         if name == "vtuple" or name == "list" or name == "set" or name == "dict":
+            if st["contagious"] and fc["def"] != None:
+                _fails(st, fc)  # (of another length: unpacking fails)
             return [h["args"][0]] * n
         if name == "range":
             return [con("int", [], ctx)] * n
@@ -1131,6 +1185,8 @@ def infer_expr(st, fc, e):
             xt = infer_expr(st, fc, x)
             t = xt if first else join(st, t, xt, _ctx(fc, x["pos"], "list elements have different types"))
             first = False
+        if _widened(st, fc, pos):
+            t = mk_opt(t)  # (an element stored in it may be None: _widen_elements)
         return con("list", [t], _ctx(fc, pos, "a list"))
     if k == "tuple":
         return con("tuple", [infer_expr(st, fc, x) for x in e["elems"]], _ctx(fc, pos, "a tuple"))
@@ -1144,6 +1200,8 @@ def infer_expr(st, fc, e):
             kt = k1 if first else join(st, kt, k1, _ctx(fc, key["pos"], "dict keys have different types"))
             vt = v1 if first else join(st, vt, v1, _ctx(fc, val["pos"], "dict values have different types"))
             first = False
+        if _widened(st, fc, pos):
+            vt = mk_opt(vt)  # (a value stored in it may be None: _widen_elements)
         return con("dict", [kt, vt], _ctx(fc, pos, "a dict"))
     if k == "unop":
         t = infer_expr(st, fc, e["x"])
@@ -1296,9 +1354,10 @@ def _infer_binop(st, fc, e):
     if maybe or (st["contagious"] and _fallible_op(e)):
         return mk_opt(t)
     if st["contagious"] and op in COMPARISONS:
-        # an operand whose type isn't known yet may turn out to be optional
+        # an operand, or something in one (a comparison looks inside), may
+        # be None, or its type isn't known yet and may turn out to be
         res = _fresh(st, fc)
-        watch(st, [a, b], ("res", res), _ctx(fc, pos, "a comparison"))
+        watch(st, [a, b], ("res", res), _ctx(fc, pos, "a comparison"), True)
         return res
     return t
 
@@ -1308,11 +1367,15 @@ def _fallible_op(e):
     """Can binary operation e fail on operands of the right types (and so,
     with contagious None, give None)? Division and remainder, unless by a
     nonzero number written out; `%` formatting with a string written out
-    is taken to be right."""
+    is taken to be right; shifts, unless by a count from 0 to 511 written
+    out."""
     op = e["op"]
+    y = e["y"]
+    if op == "<<" or op == ">>":
+        # by a negative count, or one too large
+        return not (y["kind"] == "int" and y["val"] >= 0 and y["val"] < 512)
     if op != "/" and op != "//" and op != "%":
         return False
-    y = e["y"]
     if (y["kind"] == "int" or y["kind"] == "float") and y["val"] != 0:
         return False
     if op == "%" and e["x"]["kind"] == "string":
@@ -1380,9 +1443,12 @@ def _infer_comp(st, fc, e):
     if e["comp"] == "dict":
         kt = infer_expr(st, cfc, e["body"][0])
         vt = infer_expr(st, cfc, e["body"][1])
+        if _widened(st, fc, e["pos"]):
+            vt = mk_opt(vt)
         t = con("dict", [kt, vt], _ctx(fc, e["pos"], "a dict comprehension"))
     else:
-        t = con("list", [infer_expr(st, cfc, e["body"])], _ctx(fc, e["pos"], "a list comprehension"))
+        et = infer_expr(st, cfc, e["body"])
+        t = con("list", [mk_opt(et) if _widened(st, fc, e["pos"]) else et], _ctx(fc, e["pos"], "a list comprehension"))
     return mk_opt(t) if maybe else t
 
 def _infer_lambda(st, fc, e):
@@ -1499,18 +1565,36 @@ def _fallible_call(st, e, args):
     right types (and so, with contagious None, give None)?"""
     f = e["fn"]
     npos = len([a for a in e["args"] if a["name"] == None and a["star"] == ""])
+    first = e["args"][0]["value"] if npos > 0 else None
     if f["kind"] == "dot":
         if f["name"] == "pop" and npos == 2:
             return False  # d.pop(k, default)
+        if f["name"] == "split" or f["name"] == "rsplit":
+            # by an empty separator
+            return first != None and not (first["kind"] == "string" and first["val"] != "")
         return FALLIBLE_METHODS.get(f["name"], False)
     if f["kind"] != "name":
         return False
     n = f["id"]
     if n == "int" or n == "float":
-        # from a string (not one written out: taken to be right)
+        # from a string (not one written out: taken to be right); int of
+        # a float that is infinite or not a number
         if len(args) == 0 or e["args"][0]["value"]["kind"] in ["string", "int", "float"]:
             return False
-        return not (is_con(resolve(args[0]["type"]), "int") or is_con(resolve(args[0]["type"]), "float"))
+        t = resolve(args[0]["type"])
+        return not (is_con(t, "int") or (is_con(t, "float") and n == "float"))
+    if n == "ord":
+        # of a string that isn't one character
+        return not (first != None and first["kind"] == "string" and len(first["val"]) == 1)
+    if n == "chr":
+        # of a number that is no code point
+        return not (first != None and first["kind"] == "int")
+    if n == "range":
+        # by a step of 0
+        if npos < 3:
+            return False
+        step = e["args"][2]["value"]
+        return not (step["kind"] == "int" and step["val"] != 0)
     if n == "min" or n == "max":
         return npos == 1  # of a sequence, which may be empty
     if n == "getattr":
