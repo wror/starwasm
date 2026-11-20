@@ -501,11 +501,15 @@ def transform(cg, mc):
             relations[n] = True
             implicit.append(n)
     # each relation has an implicit one, <name>Error (see _r_reject): a
-    # definition with no fields, which is never evaluated
-    for name in list(relations):
+    # definition with no fields, which is never evaluated; with contagious
+    # None, so does every lone variable (a None it may not hold makes an
+    # update fail: _r_transact)
+    errored = list(relations) if mc["contagious_none"] == False else list(reactive)
+    for name in errored:
         ename = name + ERRORS
         if reactive.get(ename) != None:
-            _err(main, reactive[ename]["pos"], "reactive variable " + ename + " defined twice (relation " + name + " defines it: its errors)")
+            what = "relation " if relations.get(name, False) else ""
+            _err(main, reactive[ename]["pos"], "reactive variable " + ename + " defined twice (" + what + name + " defines it: its errors)")
         r = reactive[name]
         reactive[ename] = {"kind": "reactive", "name": ename, "relation": True, "pos": r["pos"], "value": {"args": []}}
         relations[ename] = True
@@ -551,6 +555,10 @@ def transform(cg, mc):
     # None (the default here), nothing: a relation with no member for an
     # update reads as None (_r_read).
     unset = {} if mc["contagious_none"] != False else dict(relations)
+    # with contagious None, a definition may be None only where it says so
+    # (`... ?? None`): any other None makes an update fail as a whole
+    # (_r_transact), and on the first run leaves the variable unset (_r_init)
+    strict = mc["contagious_none"] != False
     for s in stmts:
         k = s["kind"]
         if defined:
@@ -606,8 +614,11 @@ def transform(cg, mc):
             if redefined.get(name, False):
                 # its kind, field shapes and condition are this definition's
                 # (_r_apply, _r_reject)
+                block = s["value"].get("block", False)
                 args = [_name(STATE, posn), _str(name, posn), _shape(s["value"], posn) if relation else _none(posn),
-                        _name("True" if cond != None else "False", posn)]
+                        _name("True" if cond != None else "False", posn),
+                        _shape(s["value"], posn) if block else {"kind": "tuple", "pos": posn, "elems": []},
+                        _nullable_tuple(s["value"], posn)]
                 out.append({"kind": "expr", "pos": posn, "x": _prelude_call("_r_meta", args, posn)})
             redef_value = None
             if relation and redef:
@@ -620,11 +631,19 @@ def transform(cg, mc):
                     out.append({"kind": "expr", "pos": posn, "x": init})
                 defined[name + ERRORS] = True
             else:
+                if strict and not redef:
+                    # its relation of errors (with contagious None)
+                    init = _prelude_call("_r_relation", [_name(VALUES, posn), _str(name + ERRORS, posn)], posn)
+                    out.append({"kind": "expr", "pos": posn, "x": init})
+                    defined[name + ERRORS] = True
                 if keyed:
                     out.append(_tid_stmt(name, deps, False, posn))
                 value = s["value"]
                 if required:
                     value = _if_ready(value, required, _name("%prelude._unset", posn))
+                if strict:
+                    # a None its definition doesn't allow leaves it unset
+                    value = _prelude_call("_r_init", [_name(STATE, posn), _str(name, posn), value], posn)
                 if redef:
                     redef_value = value  # assigned once its node is in place
                 else:
@@ -659,8 +678,15 @@ def transform(cg, mc):
             deps, _ = _top_uses(cx, defined, s["x"], observer = True)
             # observers read relations' lists, which are always set
             required = [d for d in deps if unset.get(d, False) and not relations.get(d, False)]
+            lone = [d for d in deps if not relations.get(d, False)]
             if required:
                 out.append({"kind": "expr", "pos": s["pos"], "x": _if_ready(s["x"], required, _none(s["pos"]))})
+            elif strict and lone:
+                # (not run while a variable it reads is unset: _r_init)
+                p = s["pos"]
+                names = {"kind": "tuple", "pos": p, "elems": [_str(d, p) for d in lone]}
+                test = _prelude_call("_r_set", [_name(STATE, p), names], p)
+                out.append({"kind": "expr", "pos": p, "x": {"kind": "cond", "test": test, "then": s["x"], "else_": _none(p), "pos": p}})
             else:
                 out.append(s)
             if deps:
@@ -796,6 +822,32 @@ def _if_ready(e, required, otherwise):
     test = _prelude_call("_r_ready", [_name(VALUES, posn), names], posn)
     return {"kind": "cond", "test": test, "then": e, "else_": otherwise, "pos": posn}
 
+def _marked_none(e):
+    """Does definition (or field) e allow None: is it `... ?? None`, or
+    None itself? (With contagious None, any other one that is None makes
+    its update fail as a whole: _r_bad.)"""
+    if e["kind"] == "binop" and e["op"] == "??":
+        e = e["y"]
+    return e["kind"] == "name" and e["id"] == "None"
+
+def _nullable(value, prefix, out):
+    """Append to out the paths ("" for the value itself, "f" for a field
+    of a struct block, "f.g" in a nested one) of value, a definition, that
+    may be None (_marked_none)."""
+    if not value.get("block", False):
+        if _marked_none(value):
+            out.append(prefix)
+        return
+    for a in value["args"]:
+        if a["name"] != None and a["name"] != "id":
+            _nullable(a["value"], prefix + "." + a["name"] if prefix else a["name"], out)
+
+def _nullable_tuple(value, posn):
+    out = []
+    if value.get("kind") != None:
+        _nullable(value, "", out)
+    return {"kind": "tuple", "pos": posn, "elems": [_str(p, posn) for p in out]}
+
 def _shape(block, posn):
     """The fields of a struct block, as a tuple of (name, shape of the
     field's own block: () unless it is a nested one)."""
@@ -812,19 +864,34 @@ def _state_dict(reactive, relations, whens, posn):
     runtime's state
     (see _reactive_input); a relation's shape is its block's fields
     (_shape; the implicit id isn't one: it is never None), for
-    _r_holds_none; whens are the relations with a condition (`a name when
+    _r_nones; whens are the relations with a condition (`a name when
     cond:`). (A relation of errors, xError, has no fields here: its members
-    hold a None, and always apply.)"""
-    def table(names, shapes):
+    hold a None, and always apply.) Also "shapes": every reactive
+    variable's shape (() for one that isn't a struct block), "nullable":
+    the paths in each that may be None (_nullable), "unset": the variables
+    not computed yet (_r_init), "abort": the Nones that make the update
+    under way fail (_r_bad, _r_transact)."""
+    def table(names, what):
         es = []
         for i, n in enumerate(sorted(names)):
             p = (posn[0], posn[1] + i)
-            es.append((_str(n, p), _shape(reactive[n]["value"], p) if shapes else _name("True", p)))
+            v = reactive[n]["value"]
+            if what == "shape":
+                x = _shape(v, p) if v.get("block", False) or v.get("kind") == None else {"kind": "tuple", "pos": p, "elems": []}
+            elif what == "nullable":
+                x = _nullable_tuple(v, p)
+            else:
+                x = _name("True", p)
+            es.append((_str(n, p), x))
         return {"kind": "dict", "entries": es, "colons": [e[0]["pos"] for e in es], "pos": posn}
     entries = [
         (_str("lineno", posn), {"kind": "int", "val": 0, "pos": posn}),
-        (_str("relations", posn), table(relations, True)),
-        (_str("whens", posn), table(whens, False)),
+        (_str("relations", posn), table(relations, "shape")),
+        (_str("whens", posn), table(whens, None)),
+        (_str("shapes", posn), table(reactive, "shape")),
+        (_str("nullable", posn), table(reactive, "nullable")),
+        (_str("unset", posn), {"kind": "dict", "entries": [], "colons": [], "pos": posn}),
+        (_str("abort", posn), {"kind": "list", "elems": [], "pos": posn}),
         (_str("tid", posn), _none(posn)),
         (_str("wself", posn), _none(posn)),
         (_str("trigger", posn), _none(posn)),
@@ -966,53 +1033,97 @@ def _reactive_input(values, nodes, state, before):
             continue
         if not assigns:
             continue
-        saved = dict(values)
-        errors = _n_errors()  # (ext/none.star: with --rollback, caught errors undo the update)
         # (_n_tag, _n_none, _n_skip: ext/none.star; a None assigned here
         # passed through the variable, at this line)
-        ok = _try(lambda: _reactive_update(values, nodes, state, [
+        _r_transact(values, nodes, state, [
             (n, _n_tag(v, "reactive", n, "<stdin>", state["lineno"]))
             for n, v in assigns
-        ]))
-        state["changed"] = {}
-        state["tid"] = None
-        state["wself"] = None
-        state["trigger"] = None
-        if not ok or _n_failed(errors):
-            values.clear()
-            values.update(saved)
+        ], 0)
+
+def _r_transact(values, nodes, state, assigns, depth):
+    """Apply assigns and recompute what depends on them (_reactive_update),
+    as a whole or not at all. If it fails (an error that isn't caught, or
+    with --rollback any error), every reactive variable gets its value
+    back. With contagious None, if a variable gets a None its definition
+    doesn't allow (_r_bad), the update stops there and is undone too; then
+    the variable's relation of errors, xError, gets a member for each such
+    None, as an update of its own (depth 1), and what reads it is
+    recomputed. (If that one fails as well, nothing more is done: it is
+    reported on standard error.) Observers run only once an update has
+    succeeded, each with the values it left."""
+    saved = dict(values)
+    saved_unset = dict(state["unset"])
+    state["abort"] = []
+    errors = _n_errors()  # (ext/none.star: with --rollback, caught errors undo the update)
+    observers = []
+    ok = _try(lambda: _reactive_update(values, nodes, state, assigns, observers))
+    aborted = state["abort"]
+    state["abort"] = []
+    state["changed"] = {}
+    state["tid"] = None
+    state["wself"] = None
+    state["trigger"] = None
+    if not ok or aborted or _n_failed(errors):
+        values.clear()
+        values.update(saved)
+        state["unset"].clear()
+        state["unset"].update(saved_unset)
+    if not ok or _n_failed(errors):
+        return
+    if aborted:
+        if depth > 0:
+            for name, _, _, f, _ in aborted:
+                _eprint("update of " + name + "'s errors not applied: " + (f or name) + " is None")
+            return
+        _r_transact(values, nodes, state, [
+            (name + "Error", struct(**{name + "_id": mid, "trigger": trigger, "field": f, "value": x}))
+            for name, mid, trigger, f, x in aborted
+        ], depth + 1)
+        return
+    # (an observer that fails undoes the update, as an error in the update
+    # does: without contagious None, or with --rollback)
+    if not _try(lambda: [_n_try(f) for f in observers]) or _n_failed(errors):
+        values.clear()
+        values.update(saved)
+        state["unset"].clear()
+        state["unset"].update(saved_unset)
 
 def _r_freeze():
     """A placeholder: a call of it in the main module is compiled to code
     that freezes the module (direct_call in compiler/ext/reactive.star)."""
     pass
 
-def _reactive_update(values, nodes, state, assigns):
+def _reactive_update(values, nodes, state, assigns, observers):
     """Set the assigned variables, then go through nodes (source order is
     a topological order) recomputing each variable that reads a changed
-    one, and re-running each observer that does. A recomputed variable
+    one, and appending to observers each observer that does (to be run
+    once the update is done: _r_transact). A recomputed variable
     counts as changed only if its new value differs (!=) from the old (or,
     with ext/none.star, is a None that came another way than the old). A
     relation's new value is a member, added to its list or replacing the
     one with the same id (_r_upsert); it always counts as changed: an
-    update removes a member and adds one. A member that is None or has a
-    None field isn't applied: the relation stays as it was, unchanged, and
-    its relation of errors gets a member for each None (_r_reject). A node
+    update removes a member and adds one. With contagious None, a value
+    that is None, or has a None field, where its definition doesn't allow
+    it (_r_bad, _r_reject) stops the update: _r_transact undoes it. A node
     that reads a variable not
-    set yet (a relation with no member, or a lone variable computed from
-    one) is skipped."""
+    set yet (without contagious None: a relation with no member, or a lone
+    variable computed from one) is skipped; an observer that reads a
+    variable left unset (_r_init) too."""
     rels = state["relations"]
     changed = {}
     state["changed"] = changed  # for _r_tid
     for name, v in assigns:
         v = _r_with_id(values, name, v, name in rels)
+        state["trigger"] = name
         if name in rels:
-            state["trigger"] = name
             if _r_reject(values, state, name, [v]):
-                continue
+                return
             _r_upsert(values, name, v)
         else:
+            if _r_bad(values, state, name, v):
+                return
             values[name] = v
+            state["unset"].pop(name, None)
         changed[name] = True
     for name, f, deps, required in nodes[:]:  # a copy: an error would leave nodes marked as iterated
         hit = False
@@ -1023,10 +1134,10 @@ def _reactive_update(values, nodes, state, assigns):
         if not hit or not _r_ready(values, required):
             continue
         # (_n_try: with contagious None, an error in f is printed and gives
-        # None, and the update goes on; without, it is plain f(), and the
-        # error ends the update)
+        # None; without, it is plain f(), and the error ends the update)
         if name == None:
-            _n_try(f)
+            if _r_set(state, deps):
+                observers.append(f)
             continue
         state["trigger"] = [d for d in deps if changed.get(d, False)][0]  # for _r_reject
         if name in rels and not _n_on() and _r_unmatched(values, state, name, deps):
@@ -1034,10 +1145,46 @@ def _reactive_update(values, nodes, state, assigns):
         v = _n_try(f)
         if name in rels:
             _r_apply(values, state, name, v, changed)
+            if state["abort"]:
+                return
             continue
+        if _r_bad(values, state, name, v):
+            return
         if v != values[name] or _n_changed(values[name], v):
             changed[name] = True
         values[name] = v
+        state["unset"].pop(name, None)
+
+def _r_bad(values, state, name, v):
+    """With contagious None: does v, lone variable name's new value, have a
+    None where its definition doesn't allow it (that isn't `... ?? None`)?
+    Then the update fails: each such None is noted in state["abort"], as
+    (name, the id of v if it has one, the trigger, the field, the None)."""
+    nones = []
+    _r_nones(v, state["shapes"].get(name, ()), "", state["nullable"].get(name, ()), nones)
+    if not nones:
+        return False
+    mid = getattr(v, "id", None) if type(v) == "struct" else None
+    state["abort"] += [(name, mid, state["trigger"], f, x) for f, x in nones]
+    return True
+
+def _r_init(state, name, v):
+    """v, the value of lone variable name's definition on the first run: if
+    it has a None its definition doesn't allow (_r_bad), name is unset
+    until an update computes it, and what reads it isn't run till then (it
+    reads as v, the None, in the definitions computed on this run)."""
+    nones = []
+    _r_nones(v, state["shapes"].get(name, ()), "", state["nullable"].get(name, ()), nones)
+    if nones:
+        state["unset"][name] = True
+    return v
+
+def _r_set(state, names):
+    """Are none of names unset (_r_init)?"""
+    for n in names:
+        if state["unset"].get(n, False):
+            return False
+    return True
 
 # ---- relations (`a name:` / `an name:` + a struct block): a reactive list
 # of structs, values[name + "[]"], which starts empty; values[name] is its
@@ -1076,13 +1223,16 @@ def _r_apply(values, state, name, v, changed):
     _r_upsert(values, name, v)
     changed[name] = True
 
-def _r_meta(state, name, shape, when):
+def _r_meta(state, name, shape, when, fields, nullable):
     """Relation name's kind as its (re)definition says (--globalreassign):
     its fields' shape (or None: not a relation) and whether it has a
-    condition."""
+    condition; for any reactive variable, its block's shape (fields: ()
+    if it isn't one) and the paths that may be None (_nullable)."""
     if shape != None:
         state["relations"][name] = shape
     state["whens"][name] = when
+    state["shapes"][name] = fields
+    state["nullable"][name] = nullable
 
 def _r_add_node(nodes, entry):
     """Add node entry (name, function, deps, required), replacing the node
@@ -1129,7 +1279,13 @@ def _r_drop_node(nodes, name):
 def _r_redefine(values, nodes, state, name, v):
     """A redefinition of lone variable name (--globalreassign) gave value
     v: set it, and recompute what reads it, as for standard input."""
-    _reactive_update(values, nodes, state, [(name, v)])
+    if _n_on():
+        _r_transact(values, nodes, state, [(name, v)], 0)
+        return
+    observers = []
+    _reactive_update(values, nodes, state, [(name, v)], observers)
+    for f in observers:
+        f()
     state["changed"] = {}
     state["tid"] = None
     state["wself"] = None
@@ -1230,50 +1386,42 @@ def _r_relation(values, name):
     values[name + "[]"] = []
     values[name] = _unset
 
-def _r_nones(v, shape, path, out):
+def _r_nones(v, shape, path, nullable, out):
     """Append to out (field, the None) for each None among the fields of
-    v, a relation's new member (shape: its block's fields, ((name, shape of
-    a nested block), ...), see _shape; a nested block's fields are
-    "outer.inner"); if v itself is None, ("", v). (Only with contagious
-    None: without, _n_none is always false.)"""
+    v, a new value of a reactive variable (shape: its block's fields,
+    ((name, shape of a nested block), ...), see _shape; a nested block's
+    fields are "outer.inner"); if v itself is None, ("", v); except where
+    the definition allows a None: the paths in nullable (_nullable). (Only
+    with contagious None: without, _n_none is always false.)"""
     if _n_none(v):
-        out.append((path, v))
+        if path not in nullable:
+            out.append((path, v))
         return
     for f, sub in shape:
         if hasattr(v, f):
-            _r_nones(getattr(v, f), sub, path + "." + f if path else f, out)
+            _r_nones(getattr(v, f), sub, path + "." + f if path else f, nullable, out)
 
 def _r_reject(values, state, name, members):
     """Should members, the new members of relation name, not be applied,
-    because one of them is None or has a None field? Then relation name +
-    "Error" gets a member for each of those Nones: struct(id = the next
-    one, <name>_id = the id of the member that wasn't applied, trigger =
-    the name of the variable whose change caused this (the first changed
-    one that the definition reads; the relation itself, if it was
-    assigned), field = the field's name ("" if the member itself is None),
-    value = the None), and counts as changed."""
+    because one of them is None or has a None field (where its definition
+    doesn't allow it)? Then the update fails (_r_transact): each of those
+    Nones is noted in state["abort"], as (name, the id of the member that
+    wasn't applied, the trigger: the name of the variable whose change
+    caused this (the first changed one that the definition reads; the
+    relation itself, if it was assigned), the field's name ("" if the
+    member itself is None), the None), for relation name + "Error"."""
     shape = state["relations"][name]
+    nullable = state["nullable"].get(name, ())
     found = []
     for v in members:
         nones = []
-        _r_nones(v, shape, "", nones)
+        _r_nones(v, shape, "", nullable, nones)
         mid = getattr(v, "id", None)
         if _n_none(mid):
             mid = _r_rel_id(values, state, name)
-        found += [(mid, f, x) for f, x in nones]
-    ename = name + "Error"
-    if not found or ename not in state["relations"]:
-        return len(found) > 0
-    for mid, f, x in found:
-        _r_upsert(values, ename, struct(**{
-            "id": _r_rel_id(values, {"tid": None}, ename),
-            name + "_id": mid,
-            "trigger": state["trigger"],
-            "field": f,
-            "value": x,
-        }))
-    state["changed"][ename] = True
-    return True
+        found += [(name, mid, state["trigger"], f, x) for f, x in nones]
+    state["abort"] += found
+    return len(found) > 0
 
 def _r_with_id(values, name, v, relation):
     """v, assigned to name on standard input: if it is a struct with no
