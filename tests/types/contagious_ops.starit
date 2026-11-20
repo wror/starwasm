@@ -19,3 +19,4 @@ def in_loop[T: GetItem[U, int], U, V: Iterable[U]](d: T, ks: V) -> int | None:
 def param_reassigned[T: GetItem[str, str]](x: str, d: T) -> str | None:
     y: str
 tick: int
+tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]

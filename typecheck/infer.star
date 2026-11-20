@@ -274,6 +274,13 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
     collect_bound(stmts, bound, order)
     if where == "":
         _implicit_relations(stmts, scope, bound, order)
+        if st["contagious"]:
+            # with contagious None, a lone reactive variable has a relation
+            # of errors too (as a relation does: collect_bound)
+            for name in list(order):
+                r = bound[name]["reactive"]
+                if r != None and r.get("kind") == "reactive" and not r.get("relation", False):
+                    _bound(bound, order, name + "Error", r["pos"])["reactive"] = {"relation": True, "errors_of": name}
     for name in order:
         info = bound[name]
         pos = info["pos"]
@@ -1060,7 +1067,41 @@ def _infer_reactive(st, fc, s):
             t = rec(row([idf, h["row"]]), h["at"])
     if b == None or (b["kind"] != "var" and b["kind"] != "relation") or s.get("superseded", False):
         return
+    if st["contagious"]:
+        t = _committed(st, s["value"], t)
     flow_report(st, t, b["type"], _ctx(fc, s["pos"], "definition of '" + s["name"] + "'"))
+
+def _marked_none(e):
+    """Does reactive definition (or block field) e allow None: is it
+    `... ?? None`, or None? (As compiler/ext/reactive.star has it.)"""
+    if e["kind"] == "binop" and e["op"] == "??":
+        e = e["y"]
+    return e["kind"] == "name" and e["id"] == "None"
+
+def _committed(st, e, t):
+    """With contagious None: t, the type of reactive definition e, as the
+    variable holds it: an update in which it is None, or a field of its
+    struct block (a nested one's too) is, fails as a whole, unless that
+    definition or field allows it (_marked_none). So t without those
+    Nones."""
+    if not e.get("block", False):
+        if _marked_none(e):
+            return t
+        s = _strip_opt(t)
+        return s if s != None else t
+    h = resolve(t)
+    if h["k"] != "rec":
+        return t
+    fields = {a["name"]: a["value"] for a in e["args"] if a["name"] != None}
+    items = []
+    for it in flatten(h["row"]):
+        if it["k"] == "f":
+            l = resolve_label(it["label"])
+            v = fields.get(l["name"]) if l["k"] == "lit" else None
+            if v != None:
+                it = field(it["label"], _committed(st, v, it["type"]), it["at"])
+        items.append(it)
+    return rec(row(items), h["at"])
 
 # ---------------------------------------------------------------- expressions
 
@@ -1607,11 +1648,9 @@ def _sp_struct(st, fc, e):
                 report(st, _ctx(fc, a.get("pos") or a["value"]["pos"]), "field '" + a["name"] + "' is given twice")
                 continue
             seen[a["name"]] = True
-            if st["contagious"]:
-                # (fields are taken not to be None: a relation's member
-                # with a None field isn't applied)
-                s = _strip_opt(t)
-                t = s if s != None else t
+            # (a field may hold a None: storing one is no operation; a
+            # reactive definition's are taken out where it is committed,
+            # _committed)
             items.append(field(lit(a["name"]), t, _ctx(fc, a.get("pos") or a["value"]["pos"], "field '" + a["name"] + "' of the struct")))
     return rec(row(items), _ctx(fc, e["pos"], "a struct made here"))
 

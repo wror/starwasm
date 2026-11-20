@@ -284,11 +284,11 @@ standard input.
     member for the update (it is empty, or none matches the key) reads as
     None in a definition, whose provenance says so (`("relation", "fill",
     file, line)`, the line of the read). `??` replaces it (`fill.qty ??
-    0`); a field left None holds the member back, and its `xError` member
-    says which field and why (see "No None fields"). A lone definition
-    computed from an empty relation is evaluated too, and so may be None
-    or hold None fields (`response struct(id = 1, name = None, qty =
-    None)` before the first order). Tests:
+    0`); a field left None (where it doesn't end in `?? None`) makes the
+    update fail, and its `xError` member says which field and why (see
+    "No None fields"). A lone definition computed from an empty relation
+    is unset until the relation has a member (see "Atomic updates": the
+    observers that read it don't run till then). Tests:
     tests/extensions/reactive_relation_keyed.star, and
     reactive_relation_keyed_off.star without contagious None.
   - A lone struct block that reads a relation is always "updated" by the
@@ -356,24 +356,24 @@ standard input.
     reactive_relation_err_implicit*.star, the end of tests/types/reactive.star
     and of tests/repl/session.in.
   - No None fields: a member that would have None in one of its block's
-    fields (a nested block's fields too) isn't applied at all. The
-    relation stays exactly as it was (no member is added or replaced, no
-    field of the old member changes), it doesn't count as changed, and so
-    nothing that reads it is recomputed for that update. The same goes for
-    a member assigned on standard input, and for one whose definition
-    fails altogether. With a condition (`when`), if any of the members it
-    would replace or add has a None field, none of them is applied. This
-    needs contagious None (the default in a reactive program: only there
-    is a None something that went wrong; with `--nocontagiousnone` a None
-    field is a value like any other). A lone struct block is not
-    affected: its fields can be None.
-  - Errors: each relation `x` implicitly defines a second relation,
-    `xError` (`order` gives `orderError`), right after it. Whenever a
-    member of x isn't applied, xError gets a new member for each None
-    that caused it:
+    fields (a nested block's fields too), where the field doesn't end in
+    `?? None`, makes the whole update fail (see "Atomic updates"): every
+    reactive variable stays exactly as it was. The same goes for a member
+    assigned on standard input, for one whose definition fails
+    altogether, and, with a condition (`when`), for any of the members it
+    would replace or add. Lone struct blocks and plain reactive variables
+    are held to the same rule. This needs contagious None (the default in
+    a reactive program: only there is a None something that went wrong;
+    with `--nocontagiousnone` a None field is a value like any other).
+  - Errors: each reactive variable `x` (with contagious None; else each
+    relation) implicitly defines a relation, `xError` (`order` gives
+    `orderError`), right after it. Whenever an update fails because of
+    a None in x, xError gets a new member for that None (the first one
+    met), in an update of its own:
 
         struct(id = 3,              # 1, 2, 3...: each is a new member
-               order_id = 7,        # the id of the member not applied
+               order_id = 7,        # the id of x's value (for a relation,
+                                    # the member) not applied, if it has one
                trigger = "request", # the reactive variable whose change
                                     # caused the update
                field = "price",     # the field that would have been None
@@ -510,9 +510,11 @@ standard input.
   (`!=`) from the old, so `big : size > 20` stops propagation when it
   stays the same.
 - Errors during an update: by default (contagious None, below, is on in a
-  program with reactive variables) an error doesn't fail the update: it
+  program with reactive variables) an error doesn't stop the program: it
   is printed with its traceback on stderr, and what failed gives a None
-  that carries the error; see "Errors in a reactive program" below. With
+  that carries the error. A definition that gets a None it doesn't allow
+  (`... ?? None`) makes the update fail as a whole: see "Errors in a
+  reactive program" and "Atomic updates" below. With
   `--nocontagiousnone` an error ends the update instead: it is reported
   with a traceback on stderr (the frame of the definition or statement
   shows as `<toplevel>`), every reactive variable gets back its value
@@ -655,8 +657,12 @@ Sending `n : 0` on standard input prints, on stderr,
       prog.star:2:14: in ratio
     Error: floored division by zero
 
-and on stdout `half is None`; the program then waits for the next line,
-and `n : 5` prints `half is 20`.
+and nothing on stdout: `half` may not be None (its definition doesn't end
+in `?? None`), so the update fails as a whole, every reactive variable
+keeps its value (`n` is still 4), and `halfError` gets a member that
+says why (see "Atomic updates" below). The program then waits for the
+next line, and `n : 5` prints `half is 20`. Defined as `half : ratio(100,
+n) ?? None`, it may be None: then `n : 0` prints `half is None`.
 
 - When: during updates, i.e. whenever a line of standard input (or, in
   the REPL, an assignment to a reactive variable) is being applied: the
@@ -679,29 +685,59 @@ and `n : 5` prints `half is 20`.
   - anything else in a function (a statement: an unpacking, an
     assignment to a frozen list, `fail`): the call of that function is
     None;
-  - anything else in a definition: the variable is None; in an observer
+  - anything else in a definition: its value is None; in an observer
     (a top-level expression statement): the statement stops there, and
-    the update goes on with the next one; in a relation's struct block
-    or condition: no member is added or replaced (as for any None in a
-    member's fields), and the relation's `Error` relation says why (see
-    "No None fields" and "Errors" under relations);
+    the next observer runs; in a relation's condition: there is no
+    member (the condition failed as a whole).
 
-  So nothing is rolled back (unless `--rollback` says so, below): the variables that could be computed have
-  their new values, and the ones that couldn't are None until an update
-  makes them computable again.
+  A definition that is None, or a field of its struct block that is,
+  then makes the update fail, unless it allows the None (below).
+- Atomic updates: an update (a line of standard input, or a
+  redefinition with `--globalreassign`) applies as a whole or not at all.
+  Each definition may be None only where it says so, by ending in `??
+  None` (`sale : prices.get(item) ?? None`, or a field `note: x.note ??
+  None`), or by being `None`. If any other one gets a None, or a field of
+  its struct block does (a nested block's too), whether from an error or
+  from a None it read, the update stops there and is undone: every
+  reactive variable gets back the value it had before the line, the line
+  included (an input that leads to such a None is rejected). The
+  variable's relation of errors, `<name>Error`, then gets a member for
+  that None, as an update of its own (which recomputes what reads it);
+  see "Errors" under relations: every reactive variable has one. So a
+  variable is never None where its definition doesn't say it may be, and
+  what reads it can count on it (the type checker does: "Fallible
+  operations" under "Static types"). (If the update of the errors fails
+  as well, it is reported on stderr and nothing more is done.)
+  - Observers run once an update has succeeded, each once, in source
+    order, with the values the update left; an update that fails runs
+    none (the error update runs those that read the relations of errors).
+  - On the first run, a definition that is None where it doesn't allow it
+    (because it reads an empty relation, say) leaves its variable unset:
+    the observers that read it don't run, and it is computed by the
+    first update that changes what it reads (which fails if it is still
+    None then). A definition that reads an unset variable reads None.
+  - `x ?? None` is x itself, its None and where it comes from included:
+    it only says that x may be None.
+  - A relation that must wait for another (no shipment until there is a
+    fill) does so with a condition (`a shipment when (fill.qty ?? 0) >
+    0:`), which adds no member while it is false, rather than with a
+    None, which would reject what triggers it.
+
+  Code: ext/reactive.star (`_r_transact`, `_r_bad`, `_r_reject`,
+  `_r_init`, `_nullable`), ext/none.star (`??`). Tests:
+  tests/extensions/none_reactive.star, none_reactive_errors.star,
+  none_reactive_relation.star, reactive_relation_keyed.star.
 - Rollback, if asked for: with the compiler option `--rollback`
   (compiler/main.star, host/run.mjs, host/repl.mjs; a test's
   `# option:rollback`), an update in which any error was caught is undone
-  once it has run: every reactive variable gets back the value it had
-  before the input line, so the program's state is that of the last
-  update without errors. The update still runs to its end first: every
-  error is printed, and the observers that ran saw the Nones (what they
-  printed stays printed); only the values are put back. Without the
-  option (the default) nothing is undone. `--rollback` does nothing
-  without contagious None (`--nocontagiousnone` always undoes a failed
-  update, at its first error). Code: the runtime counts the errors
-  caught during updates (`catch_count`), and `_reactive_input` restores
-  its saved values if the count moved (`_n_failed`). Test:
+  too, even where the definition allows the None it gave (`?? None`, or
+  `??` with a default): every reactive variable gets back the value it
+  had before the input line. Errors in observers count too (the values
+  are put back, what they printed stays printed). `--rollback` does
+  nothing without contagious None (`--nocontagiousnone` always undoes a
+  failed update, at its first error). Code: the runtime counts the errors
+  caught during updates (`catch_count`), and `_r_transact` restores its
+  saved values if the count moved (`_n_failed`). Test:
   tests/extensions/none_reactive_rollback.star.
 - The original error, for the programmer, in two places:
   - on stderr, when it happens: the same traceback and message as if it
@@ -1168,12 +1204,17 @@ types (but see None below) and no classes; types are structural.
   assignment or use had settled its type otherwise: the module is then
   checked again with the variable optional from the start (narrowed, as
   ever, after an assignment of a value that isn't None; a parameter is
-  what the caller passed until then). Values stored in a struct's field
-  or a list or dict element are taken not to be None (a relation's
-  member with a None field isn't applied); a builtin that just stores an
-  argument (`append`, `insert`, `print`, ...) keeps its `T | None`.
+  what the caller passed until then). A struct's field keeps the `T |
+  None` of its value, as a builtin that just stores an argument
+  (`append`, `insert`, `print`, ...) does; an element stored with `x[i] =
+  v` is taken not to be None. A reactive variable's type, and its struct
+  block's fields', have no None unless its definition (or the field's)
+  ends in `?? None` (or is `None`): an update in which it would be None
+  fails as a whole ("Atomic updates"). With contagious None every
+  reactive variable `x` has a relation of errors, `xError`.
   Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`, `STORES`,
-  `_maybe_fails`, `_records`, `_record_entry`, `assign_target`),
+  `_maybe_fails`, `_records`, `_record_entry`, `assign_target`,
+  `_committed`),
   typecheck/unify.star (the `contagious` cases in `dispatch`,
   `solve_binop`, `attr_type`; `watch`), typecheck/main.star (`check`).
 - **Numbers**: an `int` is accepted where a `float` is wanted. An int

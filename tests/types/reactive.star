@@ -36,3 +36,20 @@ a delivery:
     to: shipment.address.upper()
     weight: shipment.kg * 2
 print([s.kg for s in shipment], shipmentError)
+
+# A definition, or a field of a struct block, may be None only where it ends
+# in `?? None`: an update in which any other one would be None fails as a
+# whole. So its type has no None unless it says so; a struct made by
+# struct() elsewhere keeps the Nones of its fields.
+stock = {"apple": 3}
+wanted : "apple"
+count : stock.get(wanted)                 # int: an update giving None fails
+maybe : stock.get(wanted) ?? None         # int | None
+an offer:
+    item: request.name
+    have: stock[request.name]
+    left: stock.get(request.name + "-left") ?? None
+    detail:
+        price: stock[request.name] * 2
+def entry(d, k):
+    return struct(n = d[k])

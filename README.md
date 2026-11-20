@@ -27,5 +27,7 @@ See [NOTES.md](NOTES.md) for the design and layout, and
 Among them: reactive variables (`total : price * qty`, recomputed as
 standard input assigns new values); contagious None, which makes a
 running reactive program keep going through errors: what fails becomes a
-None that carries the error; and serving a reactive program as web
+None that carries the error, and an update in which a variable would be
+None where its definition doesn't allow it (`... ?? None`) is undone as a
+whole and recorded in that variable's relation of errors; and serving a reactive program as web
 pages, from HTML templates.
