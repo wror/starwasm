@@ -1,0 +1,22 @@
+# Types inferred from contagious_inside.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_inside.start instead.
+
+def srt[T](d: dict[T, int], k: T) -> list[int] | None
+def srt_ok[X: Iterable[T], T](xs: X) -> list[T]
+def srt_tuples[T, U](d: dict[T, U], k: T) -> list[tuple[int, U]] | None
+def srt_key[X: Iterable[T], T, U](xs: X, d: dict[T, U]) -> list[T] | None
+def mx[T](d: dict[T, int], k: T) -> int | None
+def mx_one[T: Iterable[U], U: Ordered](xs: T) -> U | None
+def mx_two[T: Ordered](a: T, b: T) -> T
+def mx_args[T](d: dict[T, int], k: T) -> int | None
+def joined[T](d: dict[T, str], k: T) -> str | None
+def joined_ok[X: Iterable[str]](ss: X) -> str
+def pairs[T](d: dict[T, tuple[str, int]], k: T) -> dict[str, int] | None
+def fmt[T, U](d: dict[T, U], k: T) -> str | None
+def fmt_s[T, U](d: dict[T, U], k: T) -> str
+def fmt_key[T, U](d: dict[T, U], k: T) -> str | None
+def fmt_ok[T](n: T) -> str
+def starts[T, U](s: str, d: dict[T, U], k: T) -> bool | None
+def length[T, U](d: dict[T, U], k: T) -> int
+tick: int
+tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]

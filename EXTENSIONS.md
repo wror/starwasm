@@ -1206,7 +1206,16 @@ types (but see None below) and no classes; types are structural.
   whose type is only found out later to be optional is `bool | None` all
   the same, and so is one that meets a None inside its operands, as
   the runtime's look inside (`[x] == [1]`, `(1, x) != (1, 2)`, `1 in [x,
-  1]`). An `if` or `while`
+  1]`). So is a builtin that looks inside an argument where a None may be
+  ("None further in"): `sorted` (and what its `key` returns), `min` and
+  `max` (and of one sequence, which may be empty), `.join`,
+  `.startswith` and `.endswith` with a tuple, `dict` of pairs, and `%`
+  formatting (unless with a string written out whose conversions are all
+  `%s` and `%r`, which show a None): its result is `T | None`, and the
+  call is checked on the argument without its Nones (`sorted([1, x])` is
+  `list[int] | None`). Builtins that only copy, count or show elements
+  (`list`, `len`, `str`, `zip`, ...) don't. (Code: `LOOKS_INSIDE`,
+  `_inner_nones`, `_formats` in typecheck/infer.star.) An `if` or `while`
   testing, a `for` looping over or an unpacking of a value that may be
   None fails at run time, so a def that does gives None: its result is `T
   | None` (and one declared `-> T` in a `.start` file is an error); this

@@ -216,7 +216,8 @@ def attach(st, v, p):
 # ---- watch: with contagious None, what happens if a type that isn't known
 # yet turns out to be T | None. A watch is {"kind": "watch", "subj": the
 # variable it waits on, "args": the types watched, "op": what then happens:
-# ("res", v): v is bool | None (else bool: a comparison's result), or
+# ("res", v): v is bool | None (else bool: a comparison's result),
+# ("lift", v, t): v is t | None (else t: a builtin that looks inside), or
 # ("fails", def): the def may fail (a statement's test)}. It is dropped,
 # as if the types weren't optional, where they are generalized.
 
@@ -256,8 +257,12 @@ def _solve_watch(st, p):
     _watch_fire(st, p, False)
 
 def _watch_fire(st, p, opt):
-    what, x = p["op"]
-    if what == "res":
+    what, x = p["op"][0], p["op"][1]
+    if what == "lift":
+        # ("lift", v, t): v is t | None, else t
+        t = p["op"][2]
+        unify(st, x, mk_opt(t) if opt else t, p["ctx"])
+    elif what == "res":
         unify(st, x, mk_opt(con("bool", [], p["ctx"])) if opt else con("bool", [], p["ctx"]), p["ctx"])
     elif opt:
         x["fails"] = True
