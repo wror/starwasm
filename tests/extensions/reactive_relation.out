@@ -1,4 +1,3 @@
-response struct(id = 1, name = None, qty = None)
 orders []
 product requests []
 response struct(id = 1, name = "foo", qty = 2)

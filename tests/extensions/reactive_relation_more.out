@@ -1,5 +1,4 @@
 notes []
-richest struct(balance = None, id = 1, owner = None)
 accounts []
 ledger []
 ticks []

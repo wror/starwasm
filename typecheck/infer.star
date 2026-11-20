@@ -80,6 +80,7 @@ load(
     "report",
     "unify",
     "unify_report",
+    "watch",
 )
 
 MISSING = "?"  # the name of the placeholder type of an unannotated parameter
@@ -273,6 +274,13 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
     collect_bound(stmts, bound, order)
     if where == "":
         _implicit_relations(stmts, scope, bound, order)
+        if st["contagious"]:
+            # with contagious None, a lone reactive variable has a relation
+            # of errors too (as a relation does: collect_bound)
+            for name in list(order):
+                r = bound[name]["reactive"]
+                if r != None and r.get("kind") == "reactive" and not r.get("relation", False):
+                    _bound(bound, order, name + "Error", r["pos"])["reactive"] = {"relation": True, "errors_of": name}
     for name in order:
         info = bound[name]
         pos = info["pos"]
@@ -335,7 +343,7 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
             t = to_type(cv, d["type"])
         else:
             t = _fresh(st, fc)
-            if info["none"]:
+            if info["none"] or _widened(st, fc, pos):
                 t = mk_opt(t)
             if name in ann_defs:
                 report(st, {"file": cv["file"], "pos": ann_defs[name]["pos"], "role": None},
@@ -500,11 +508,17 @@ def infer_def(st, b):
             else:
                 flow_report(st, dt, p["type"], _ctx(outer_fc, pnode["default"]["pos"], "default value of parameter '" + p["name"] + "'"))
         local = p["type"]
+        ppos = pnode.get("namepos") or pnode["pos"]
         if p["star"] == "*":
             local = con("vtuple", [p["type"]])
         elif p["star"] == "**":
             local = con("dict", [con("str"), p["type"]])
-        _declare(scope, p["name"], {"kind": "var", "type": local, "pos": pnode.get("namepos") or pnode["pos"], "param": True})
+        elif _widened(st, fc, ppos) and _strip_opt(local) == None:
+            # assigned a value that may be None (assign_target): what the
+            # caller passes isn't, until then
+            fc["narrow"][p["name"]] = local
+            local = mk_opt(local)
+        _declare(scope, p["name"], {"kind": "var", "type": local, "pos": ppos, "param": True})
     rs = {"value": False, "none": False}
     _returns(node["body"], rs)
     falls = not terminates(node["body"])
@@ -670,7 +684,8 @@ def cond_narrow(st, fc, e):
         return no, yes
     if k == "binop":
         op = e["op"]
-        if op == "!=" or op == "==":
+        if (op == "!=" or op == "==") and not st["contagious"]:
+            # (with contagious None, comparing with None is an error)
             x, y = e["x"], e["y"]
             if _is_none(x):
                 x, y = y, x
@@ -822,6 +837,9 @@ def _maybe_fails(st, fc, t):
         if s != None:
             _fails(st, fc)
             return s
+        if fc["def"] != None:
+            # (a type not known yet may turn out to be optional)
+            watch(st, [t], ("fails", fc["def"]), _ctx(fc, (0, 0)))
     return t
 
 def infer_stmt(st, fc, s):
@@ -940,16 +958,32 @@ def _infer_assign(st, fc, s):
     if lhs["kind"] in ["name", "index", "dot"]:
         assign_target(st, fc, lhs, res, "result of " + op)
 
+def _widen_key(fc, pos):
+    return fc["mod"]["path"] + ":" + str(pos)
+
+def _widened(st, fc, pos):
+    """Is the variable declared at pos to be optional from the start
+    (assign_target)?"""
+    return st["contagious"] and st["widen"].get(_widen_key(fc, pos), False)
+
 def assign_target(st, fc, target, t, what):
     """Bind assignment target `target` to a value of type t."""
     k = target["kind"]
     pos = target["pos"]
     if st["contagious"] and _strip_opt(t) != None:
         # with contagious None, a value that may be None is stored as what
-        # it is otherwise in an element of a list or dict, or in a variable
-        # already of a type that isn't optional (as in a struct's field)
+        # it is otherwise in an element of a list or dict (as in a struct's
+        # field)
+        if k == "index":
+            t = _strip_opt(t)
+        # A variable whose type is already known not to be optional (an
+        # earlier assignment, or a use, fixed it) can't become optional now:
+        # what it was used for is decided. It is noted, to be declared
+        # optional from the start when the module is checked again (check
+        # in main.star), and taken as not None until then.
         b = fc["scope"]["vars"].get(target["id"]) if k == "name" else None
-        if k == "index" or (b != None and b["kind"] == "var" and resolve(b["type"])["k"] != "var" and _strip_opt(b["type"]) == None):
+        if b != None and b["kind"] == "var" and not b.get("declared", False) and resolve(b["type"])["k"] != "var" and _strip_opt(b["type"]) == None:
+            st["widen"][_widen_key(fc, b["pos"])] = True
             t = _strip_opt(t)
     if k == "name":
         name = target["id"]
@@ -1033,7 +1067,41 @@ def _infer_reactive(st, fc, s):
             t = rec(row([idf, h["row"]]), h["at"])
     if b == None or (b["kind"] != "var" and b["kind"] != "relation") or s.get("superseded", False):
         return
+    if st["contagious"]:
+        t = _committed(st, s["value"], t)
     flow_report(st, t, b["type"], _ctx(fc, s["pos"], "definition of '" + s["name"] + "'"))
+
+def _marked_none(e):
+    """Does reactive definition (or block field) e allow None: is it
+    `... ?? None`, or None? (As compiler/ext/reactive.star has it.)"""
+    if e["kind"] == "binop" and e["op"] == "??":
+        e = e["y"]
+    return e["kind"] == "name" and e["id"] == "None"
+
+def _committed(st, e, t):
+    """With contagious None: t, the type of reactive definition e, as the
+    variable holds it: an update in which it is None, or a field of its
+    struct block (a nested one's too) is, fails as a whole, unless that
+    definition or field allows it (_marked_none). So t without those
+    Nones."""
+    if not e.get("block", False):
+        if _marked_none(e):
+            return t
+        s = _strip_opt(t)
+        return s if s != None else t
+    h = resolve(t)
+    if h["k"] != "rec":
+        return t
+    fields = {a["name"]: a["value"] for a in e["args"] if a["name"] != None}
+    items = []
+    for it in flatten(h["row"]):
+        if it["k"] == "f":
+            l = resolve_label(it["label"])
+            v = fields.get(l["name"]) if l["k"] == "lit" else None
+            if v != None:
+                it = field(it["label"], _committed(st, v, it["type"]), it["at"])
+        items.append(it)
+    return rec(row(items), h["at"])
 
 # ---------------------------------------------------------------- expressions
 
@@ -1081,7 +1149,15 @@ def infer_expr(st, fc, e):
         t = infer_expr(st, fc, e["x"])
         op = e["op"]
         if op == "not":
-            return con("bool", [], _ctx(fc, pos, "result of not"))
+            res = con("bool", [], _ctx(fc, pos, "result of not"))
+            if st["contagious"]:
+                # (not None is None)
+                if _strip_opt(t) != None:
+                    return mk_opt(res)
+                v = _fresh(st, fc)
+                watch(st, [t], ("res", v), _ctx(fc, pos, "result of not"))
+                return v
+            return res
         ctx = _ctx(fc, pos, "operand of unary " + op)
         if op == "~":
             unify_report(st, t, con("int"), ctx)
@@ -1093,7 +1169,7 @@ def infer_expr(st, fc, e):
     if k == "binop":
         return _infer_binop(st, fc, e)
     if k == "cond":
-        infer_expr(st, fc, e["test"])
+        tt = infer_expr(st, fc, e["test"])
         yes, no = cond_narrow(st, fc, e["test"])
         saved = fc["narrow"]
         fc["narrow"] = _with(fc, yes)
@@ -1101,7 +1177,10 @@ def infer_expr(st, fc, e):
         fc["narrow"] = _with({"narrow": saved}, no)
         b = infer_expr(st, fc, e["else_"])
         fc["narrow"] = saved
-        return join(st, a, b, _ctx(fc, e["else_"]["pos"], "the branches of a conditional expression have different types"))
+        t = join(st, a, b, _ctx(fc, e["else_"]["pos"], "the branches of a conditional expression have different types"))
+        if st["contagious"] and _strip_opt(tt) != None:
+            return mk_opt(t)  # (a if None else b is None)
+        return t
     if k == "call":
         return infer_call(st, fc, e)
     if k == "index":
@@ -1188,7 +1267,8 @@ def _infer_binop(st, fc, e):
         fc["narrow"] = _with(fc, yes if op == "and" else no)
         b = infer_expr(st, fc, e["y"])
         fc["narrow"] = saved
-        if op == "or":
+        if op == "or" and not st["contagious"]:
+            # (with contagious None, None or y is None: only ?? replaces it)
             s = _strip_opt(a)
             if s != None:
                 a = s
@@ -1199,6 +1279,12 @@ def _infer_binop(st, fc, e):
     b = infer_expr(st, fc, e["y"])
     maybe = False
     if st["contagious"]:
+        if (op == "==" or op == "!=") and (_is_none(e["x"]) or _is_none(e["y"])):
+            # (as the compiler has it: ext/none.star)
+            x = e["x"] if _is_none(e["x"]) else e["y"]
+            report(st, _ctx(fc, x["pos"]), op + " None: an operation on None is always None (contagious None); " +
+                                           "to replace a None, use ??")
+            return con("bool", [], _ctx(fc, pos, "a comparison"))
         # an operand that may be None makes the result None (contagious
         # None): the operation is checked on what it is otherwise
         sa = _strip_opt(a)
@@ -1208,8 +1294,15 @@ def _infer_binop(st, fc, e):
         b = sb if sb != None else b
     t = _infer_binop_on(st, fc, e, a, b)
     if maybe or (st["contagious"] and _fallible_op(e)):
-        t = mk_opt(t)
+        return mk_opt(t)
+    if st["contagious"] and op in COMPARISONS:
+        # an operand whose type isn't known yet may turn out to be optional
+        res = _fresh(st, fc)
+        watch(st, [a, b], ("res", res), _ctx(fc, pos, "a comparison"))
+        return res
     return t
+
+COMPARISONS = {"==": True, "!=": True, "<": True, "<=": True, ">": True, ">=": True, "in": True, "not in": True}
 
 def _fallible_op(e):
     """Can binary operation e fail on operands of the right types (and so,
@@ -1555,11 +1648,9 @@ def _sp_struct(st, fc, e):
                 report(st, _ctx(fc, a.get("pos") or a["value"]["pos"]), "field '" + a["name"] + "' is given twice")
                 continue
             seen[a["name"]] = True
-            if st["contagious"]:
-                # (fields are taken not to be None: a relation's member
-                # with a None field isn't applied)
-                s = _strip_opt(t)
-                t = s if s != None else t
+            # (a field may hold a None: storing one is no operation; a
+            # reactive definition's are taken out where it is committed,
+            # _committed)
             items.append(field(lit(a["name"]), t, _ctx(fc, a.get("pos") or a["value"]["pos"], "field '" + a["name"] + "' of the struct")))
     return rec(row(items), _ctx(fc, e["pos"], "a struct made here"))
 

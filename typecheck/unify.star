@@ -210,8 +210,40 @@ def attach(st, v, p):
     v["preds"].append(p)
     for x in _pred_types(p):
         lower(st, x, v)
-    if p["kind"] == "binop" or p["kind"] == "rbinop":
+    if p["kind"] == "binop" or p["kind"] == "rbinop" or p["kind"] == "watch":
         st["pending"].append(p)
+
+# ---- watch: with contagious None, what happens if a type that isn't known
+# yet turns out to be T | None. A watch is {"kind": "watch", "subj": the
+# variable it waits on, "args": the types watched, "op": what then happens:
+# ("res", v): v is bool | None (else bool: a comparison's result), or
+# ("fails", def): the def may fail (a statement's test)}. It is dropped,
+# as if the types weren't optional, where they are generalized.
+
+def watch(st, ts, then, ctx):
+    """Watch types ts (see above): then is ("res", v) or ("fails", def)."""
+    _solve_watch(st, {"kind": "watch", "subj": None, "args": ts, "op": then, "ctx": ctx})
+
+def _solve_watch(st, p):
+    for t in p["args"]:
+        r = resolve(t)
+        if is_con(r, "opt"):
+            _watch_fire(st, p, True)
+            return
+    for t in p["args"]:
+        r = resolve(t)
+        if r["k"] == "var" and r["kind"] == "type" and not r["rigid"]:
+            p["subj"] = r
+            attach(st, r, p)
+            return
+    _watch_fire(st, p, False)
+
+def _watch_fire(st, p, opt):
+    what, x = p["op"]
+    if what == "res":
+        unify(st, x, mk_opt(con("bool", [], p["ctx"])) if opt else con("bool", [], p["ctx"]), p["ctx"])
+    elif opt:
+        x["fails"] = True
 
 MERGED = {"iter": True, "contains": True, "sized": True, "ordered": True, "slice": True, "hasattr": True}
 
@@ -623,6 +655,15 @@ def flow(st, actual, expected, ctx):
         return flow(st, a, e["args"][0], ctx)
     if is_con(a, "opt"):
         if e["k"] == "var" and not e["rigid"]:
+            if e["num"] or e["lit"] != None:
+                # e is a literal's type (x = 0, then x = <T | None>): T is
+                # of that kind (a number, a string), as e would have been
+                k = new_var(st, "type", e["level"])
+                k["num"] = e["num"]
+                k["lit"] = e["lit"]
+                err = unify(st, a["args"][0], k, ctx)
+                if err != None:
+                    return err
             return bind(st, e, a, ctx)
         return failure(actual, expected, "the value may be None")
     if (is_con(a, "int") or _is_num(a)) and is_con(e, "float"):
@@ -716,6 +757,9 @@ def add_pred(st, p, ctx):
     k = p["kind"]
     if k == "binop" or k == "rbinop":
         solve_binop(st, p, ctx)
+        return
+    if k == "watch":
+        _solve_watch(st, p)
         return
     if k == "rows":
         err = unify_rows(st, p["args"][0]["row"], p["args"][1]["row"], p["ctx"], p["op"])
@@ -910,7 +954,7 @@ def dispatch(st, s, p, ctx):
             _pred_error(st, p, ctx, show(s) + " values cannot be ordered with < or >")
     elif k == "among":
         if name not in p["op"]:
-            _pred_error(st, p, ctx, "expected " + " or ".join(p["op"]) + ", got " + show(s))
+            _pred_error(st, p, ctx, "expected " + " or ".join(p["op"]) + ", got " + show(s) + (": the value may be None" if name == "opt" else ""))
     elif k == "hasattr":
         t = attr_type(st, s, p["op"], pctx, _level_of(args[0]))
         _check(st, p, ctx, args[0], t, None, False)
@@ -948,6 +992,32 @@ def _binop_error(st, p, ctx, l, r):
 def _result(st, p, t, ctx):
     _check(st, p, ctx, t, p["res"], "result of " + p["op"], True)
 
+def _numeric_param(t):
+    """Is t a type parameter whose bound is (int, float), or a part of it?"""
+    if t["k"] != "var" or not t["rigid"]:
+        return False
+    for q in t["preds"]:
+        if q["kind"] == "among" and len([n for n in q["op"] if n not in ["int", "float"]]) == 0:
+            return True
+    return False
+
+def _numeric_param_result(op, l, r, ctx):
+    """The type of l <op> r where an operand is a number type parameter N
+    (_numeric_param) and the other is N, an int or a float: N, or float
+    for / or a float operand. None if that isn't the case."""
+    ln = _numeric_param(l)
+    rn = _numeric_param(r)
+    if not ln and not rn:
+        return None
+    for x, isn in [(l, ln), (r, rn)]:
+        if not (isn or _is_num(x) or is_con(x, "int") or is_con(x, "float")):
+            return None
+    if op == "/" or is_con(l, "float") or is_con(r, "float"):
+        return con("float", [], ctx)
+    if ln and rn and l["id"] != r["id"]:
+        return None
+    return l if ln else r
+
 def solve_binop(st, p, ctx):
     """l <op> r is a res: decide from l's type, or else r's; wait if
     neither says enough."""
@@ -958,6 +1028,11 @@ def solve_binop(st, p, ctx):
     if is_con(l, "Any") or is_con(r, "Any"):
         unify(st, p["res"], T_ANY, pctx)
         return
+    if op in NUMERIC_OPS:
+        t = _numeric_param_result(op, l, r, pctx)
+        if t != None:
+            _result(st, p, t, ctx)
+            return
     if op in NUMERIC_OPS and (_is_num(l) or _is_num(r)):
         # an operand is an int literal (or a variable that so far only
         # held one): the result is a float if the other operand is, and
@@ -1124,10 +1199,11 @@ def solve_binop(st, p, ctx):
 def default_pending(st, level):
     """Operator constraints still waiting on variables deeper than level
     (those a def is about to generalize; level -1: all, at the end of a
-    module): where one operand is a number or the other operand's type is
-    the only one left to try, the unknown operand gets the known one's
-    type. So `def inc(x): return x + 1` is (x: int) -> int rather than
-    generic in x; annotate x as float to have floats."""
+    module): where the other operand is a number, the unknown operand is
+    one too. Next to an int, in a def, it gets the bound (int, float) and
+    the result is of its type: `def inc(x): return x + 1` is
+    def inc[T: (int, float)](x: T) -> T. Otherwise (a float, /, or at the
+    top level) it gets the known operand's type, or float for /."""
     for _ in range(4):
         again = False
         todo = st["pending"]
@@ -1140,7 +1216,21 @@ def default_pending(st, level):
             if s["level"] <= level or s["level"] == GENERIC:
                 keep.append(p)
                 continue
+            if p["kind"] == "watch":
+                s["preds"] = [q for q in s["preds"] if q.get("id") != p["id"]]
+                _watch_fire(st, p, False)
+                again = True
+                continue
             other = head(st, p["l"] if p["kind"] == "rbinop" else p["r"])
+            if level >= 0 and p["op"] != "/" and is_con(other, "int"):
+                # x <op> int, in a def about to generalize x: x is a number
+                # of either kind, and so is the result, of x's kind
+                s["preds"] = [q for q in s["preds"] if q.get("id") != p["id"]]
+                if len([q for q in s["preds"] if q["kind"] == "among"]) == 0:
+                    attach(st, s, pred("among", s, [], p["ctx"], ["int", "float"]))
+                unify_report(st, p["res"], s, p["ctx"])
+                again = True
+                continue
             if other["k"] == "con" and other["name"] in ["int", "float"]:
                 # (x / 2 is as good for a float x, and an int is fine where
                 # a float is wanted)

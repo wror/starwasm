@@ -1,6 +1,7 @@
-# A relation's member with a None field isn't applied (EXTENSIONS.md): the
-# relation stays as it was, none of the member's fields are updated, and
-# what reads the relation isn't recomputed. (The errors are on stderr.)
+# A relation's member with a None field (where its definition doesn't say
+# `... ?? None`) makes the update fail as a whole (EXTENSIONS.md): every
+# reactive variable stays as it was, and the relation's relation of errors
+# says why. (The errors are on stderr.)
 prices = {"apple": 3, "pear": 2}
 request:
     item: "apple"
@@ -24,7 +25,8 @@ a sale:
     item: ""
     price: 0
 
-# computed from the relation: not recomputed when no member is applied
+# computed from the relation: unset until it has a member (its observer
+# doesn't run till then), and not recomputed when an update fails
 last : order.item
 print("last", last)
 
@@ -40,8 +42,8 @@ print("parcels", parcel)
 print("sales", sale)
 print("lines", line)
 
-# Each relation has a relation of errors, <name>Error: a member for each
-# None that kept a member from being applied
+# Each relation has a relation of errors, <name>Error: a member for the
+# None that made an update fail (the first one met)
 def show(label, errors):
     for e in errors:
         print(label, e.id, e.trigger, repr(e.field), [p[:2] for p in provenance(e.value)][:1])

@@ -1,0 +1,7 @@
+tests/types/err_contagious.star:5:18: error: == None: an operation on None is always None (contagious None); to replace a None, use ??
+    5 |     if d["a"] == None:
+      |                  ^
+tests/types/err_contagious.star:10:22: error: != None: an operation on None is always None (contagious None); to replace a None, use ??
+   10 |     return d["a"] != None
+      |                      ^
+2 type errors in tests/types/err_contagious.star

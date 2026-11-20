@@ -4,39 +4,21 @@ big True []
 order 12 []
 order.sub 3 []
 struct(cost = 12, id = 1, item = "apple", note = "apple", sub = struct(price = 3)) int
-total None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14"]
-running None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive running tests/extensions/none_reactive.star:15"]
-big None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
-order None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
-order.sub None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "reactive order.sub.price tests/extensions/none_reactive.star:22"]
-struct(cost = None, id = 2, item = "pear", note = "applepear", sub = struct(price = None)) NoneType
-total None ["literal None <stdin>:2", "reactive qty <stdin>:2", "reactive total tests/extensions/none_reactive.star:14"]
-big None ["literal None <stdin>:2", "reactive qty <stdin>:2", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
-order None ["literal None <stdin>:2", "reactive qty <stdin>:2", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
-order.sub 3 []
-struct(cost = None, id = 3, item = "apple", note = "applepearapple", sub = struct(price = 3)) NoneType
-total 24 []
-big True []
-order 24 []
-order.sub 3 []
-struct(cost = 24, id = 4, item = "apple", note = "applepearapple", sub = struct(price = 3)) int
-total None ["literal None <stdin>:5", "reactive qty <stdin>:5", "reactive total tests/extensions/none_reactive.star:14"]
-big None ["literal None <stdin>:5", "reactive qty <stdin>:5", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
-order None ["literal None <stdin>:5", "reactive qty <stdin>:5", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
-order.sub 3 []
-struct(cost = None, id = 5, item = "apple", note = "applepearapple", sub = struct(price = 3)) NoneType
-total None ["literal None <stdin>:8", "reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14"]
-big None ["literal None <stdin>:8", "reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
-order None ["literal None <stdin>:8", "reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
-order.sub None ["literal None <stdin>:8", "reactive item <stdin>:8", "reactive price tests/extensions/none_reactive.star:13", "reactive order.sub.price tests/extensions/none_reactive.star:22"]
-struct(cost = None, id = 6, item = None, note = None, sub = struct(price = None)) NoneType
-total None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14"]
-big None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive big tests/extensions/none_reactive.star:16"]
-order None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "function double tests/extensions/none_reactive.star:5", "reactive total tests/extensions/none_reactive.star:14", "reactive order.cost tests/extensions/none_reactive.star:19"]
-order.sub None ["builtin get tests/extensions/none_reactive.star:13", "reactive price tests/extensions/none_reactive.star:13", "reactive order.sub.price tests/extensions/none_reactive.star:22"]
-struct(cost = None, id = 7, item = "nut", note = None, sub = struct(price = None)) NoneType
-total 12 []
-big True []
+sale None ["builtin get tests/extensions/none_reactive.star:17", "reactive sale tests/extensions/none_reactive.star:17"]
+priceError []
+totalError []
+priceError [("item", "", ("builtin", "get"))]
 order 12 []
 order.sub 3 []
-struct(cost = 12, id = 8, item = "apple", note = None, sub = struct(price = 3)) int
+struct(cost = 12, id = 2, item = "apple", note = "appleapple", sub = struct(price = 3)) int
+total 24 []
+running 36 []
+order 24 []
+order.sub 3 []
+struct(cost = 24, id = 3, item = "apple", note = "appleapple", sub = struct(price = 3)) int
+priceError [("item", "", ("builtin", "get")), ("item", "", ("builtin", "get"))]
+total 12 []
+running 48 []
+order 12 []
+order.sub 3 []
+struct(cost = 12, id = 4, item = "apple", note = "appleappleapple", sub = struct(price = 3)) int

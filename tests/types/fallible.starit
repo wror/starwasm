@@ -2,7 +2,7 @@
 # Rewritten by every check: put annotations in fallible.start instead.
 
 def ratio[T: Div[U, V], U, V](a: T, b: U) -> V | None
-def scaled[T: Div[U, int], U](a: T, b: U) -> int | None
+def scaled[T: Div[U, V], U, V: (int, float)](a: T, b: U) -> V | None
 def safe[T: Div[U, int], U](a: T, b: U) -> int
 def half(n: float) -> float
 def sign[T: GetItem[U, int], U](xs: T, i: U) -> int | None
@@ -15,3 +15,4 @@ def names[T: Iterable[dict[str, U]], U](rows: T) -> list[U | None]:
     out: list[U | None]
     r: dict[str, U]
 tick: int
+tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]

@@ -212,8 +212,22 @@ def check(path, starts, all_starts, repl = False, contagious = None):
     """Check the program at path. Returns (st, module record). contagious:
     check for contagious None (EXTENSIONS.md, "Fallible operations"):
     True, False, or None for the default, on if the program defines
-    reactive variables (as the compiler's)."""
+    reactive variables (as the compiler's).
+    With contagious None, a variable found to be assigned a value that may
+    be None only after its type was decided otherwise (infer.star,
+    assign_target) makes the module be checked again, with it optional
+    from the start."""
+    widen = {}
+    for _ in range(8):
+        st, mod = _check(path, starts, all_starts, repl, contagious, widen)
+        if len(st["widen"]) == len(widen):
+            break
+        widen = st["widen"]
+    return st, mod
+
+def _check(path, starts, all_starts, repl, contagious, widen):
     st = {
+        "widen": dict(widen),
         "repl": repl,
         "contagious": contagious,
         "next": 0,

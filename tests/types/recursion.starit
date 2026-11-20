@@ -2,8 +2,8 @@
 # Rewritten by every check: put annotations in recursion.start instead.
 
 def fact(n: int) -> int
-def is_even(n: int) -> bool
-def is_odd(n: int) -> bool
+def is_even[T: (int, float)](n: T) -> bool
+def is_odd[T: (int, float)](n: T) -> bool
 def depth[T: Iterable[struct[children: T, **R]], **R](tree: struct[children: T, **R]) -> int
 def flatten[T: Iterable[U], U](xs: T, out: list[U]) -> list[U]:
     x: U
@@ -17,8 +17,8 @@ def pairs[T: Iterable[U], U](xs: T) -> list[tuple[U, U]]:
 def outer[T](k: T) -> list[T]:
     def middle(v: T) -> (w: T) -> list[T]:
         def inner(w: T) -> list[T]
-def ping[T](x: T, n: int) -> T
-def pong[T](x: T, n: int) -> T
+def ping[T, U: (int, float)](x: T, n: U) -> T
+def pong[T, U: (int, float)](x: T, n: U) -> T
 def tree_sum[T: Add[T, T], U: Iterable[struct[value: T, kids: U, **R]], **R](t: struct[value: T, kids: U, **R]) -> T:
     def go[V: Add[V, V], W: Iterable[struct[value: V, kids: W, **R2]], **R2](n: struct[value: V, kids: W, **R2]) -> V:
         s: V

@@ -13,5 +13,21 @@ lineError: list[struct[id: int, line_id: Any, trigger: str, field: str, value: N
 summary: struct[id: int, last: str, lines: int]
 delivery: list[struct[id: int, to: str, weight: int]]
 deliveryError: list[struct[id: int, delivery_id: Any, trigger: str, field: str, value: None]]
+stock: dict[str, int]
+wanted: str
+count: int
+maybe: int | None
+offer: list[struct[id: int, item: str, have: int, left: int | None, detail: struct[price: int]]]
+offerError: list[struct[id: int, offer_id: Any, trigger: str, field: str, value: None]]
+def entry[T: GetItem[U, V], U, V](d: T, k: U) -> struct[n: V | None]
 shipment: list[struct[address: str, kg: int, **Any]]
 shipmentError: list[struct[id: int, shipment_id: Any, trigger: str, field: str, value: None]]
+widthError: list[struct[id: int, width_id: Any, trigger: str, field: str, value: None]]
+heightError: list[struct[id: int, height_id: Any, trigger: str, field: str, value: None]]
+sizeError: list[struct[id: int, size_id: Any, trigger: str, field: str, value: None]]
+totalError: list[struct[id: int, total_id: Any, trigger: str, field: str, value: None]]
+requestError: list[struct[id: int, request_id: Any, trigger: str, field: str, value: None]]
+summaryError: list[struct[id: int, summary_id: Any, trigger: str, field: str, value: None]]
+wantedError: list[struct[id: int, wanted_id: Any, trigger: str, field: str, value: None]]
+countError: list[struct[id: int, count_id: Any, trigger: str, field: str, value: None]]
+maybeError: list[struct[id: int, maybe_id: Any, trigger: str, field: str, value: None]]

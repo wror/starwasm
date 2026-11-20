@@ -65,7 +65,6 @@ session cleared
 h is 5
 h = 2
 2
-h = None
 Traceback (most recent call last):
   <input 32>:1:9: in <toplevel>
   <input 30>:2:15: in half
@@ -105,7 +104,6 @@ b = 14
 <input 54>:1:5: want a value (a number, a string, True, False, None, a list [...] or struct(name = value, ...)), got "b"
 session cleared
 []
-struct(id = 1, name = None, qty = None)
 order = struct(id = 1, product = "foo", size = 2)
 product_request = struct(id = 1, product = "foo")
 response = struct(id = 1, name = "foo", qty = 2)
