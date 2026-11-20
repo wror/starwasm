@@ -1393,6 +1393,10 @@ def _r_nones(v, shape, path, nullable, out):
     fields are "outer.inner"); if v itself is None, ("", v); except where
     the definition allows a None: the paths in nullable (_nullable). (Only
     with contagious None: without, _n_none is always false.)"""
+    if _is_id(v):
+        # a self-reference with no previous value, left as it is (`f:
+        # x.f` in a new member of x): nothing computed it
+        v = _n_tag(None, "self", path, "", 0) if _n_on() else v
     if _n_none(v):
         if path not in nullable:
             out.append((path, v))

@@ -457,6 +457,15 @@ def expr(cg, mc, fc, e):
     k = e["kind"]
     if k == "binop" and e["op"] == "??":
         # x ?? y: y if x is None, else x (in every module, on or off)
+        y = e["y"]
+        if y["kind"] == "name" and y["id"] == "None" and cg["lookup"](mc, fc, "None", y["pos"])[0] == "const":
+            # x ?? None is x, its None included (where it came from): it
+            # says that x may be None (ext/reactive.star, _marked_none)
+            x = e["x"]
+            if e.get("%via"):
+                x = dict(x)
+                x["%via"] = list(x.get("%via") or []) + list(e["%via"])
+            return cg["gen"](mc, fc, x)
         t = cg["temp"](fc, V)
         return [set(t, cg["gen"](mc, fc, e["x"])), if_(_is_none(t), cg["gen"](mc, fc, e["y"]), get(t), result = V)]
     if not _active(mc) or e.get("%core", False):

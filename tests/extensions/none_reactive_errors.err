@@ -1,35 +1,17 @@
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:31:13: in <toplevel>
-  tests/extensions/none_reactive_errors.star:9:14: in ratio
+  tests/extensions/none_reactive_errors.star:34:13: in <toplevel>
+  tests/extensions/none_reactive_errors.star:12:14: in ratio
 Error: floored division by zero
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:33:12: in <toplevel>
-  tests/extensions/none_reactive_errors.star:12:14: in pick
-Error: list index -4 out of range [-3:2]
-Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:49:24: in <toplevel>
-Error: list index -4 out of range [-3:2]
-Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:32:14: in <toplevel>
+  tests/extensions/none_reactive_errors.star:35:14: in <toplevel>
 Error: key "zz" not in dict
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:36:13: in <toplevel>
-  tests/extensions/none_reactive_errors.star:22:14: in size
-Error: for: cannot iterate over None
-Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:33:12: in <toplevel>
-  tests/extensions/none_reactive_errors.star:12:14: in pick
+  tests/extensions/none_reactive_errors.star:36:12: in <toplevel>
+  tests/extensions/none_reactive_errors.star:15:14: in pick
 Error: list index 496 out of range [-3:2]
 Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:33:12: in <toplevel>
-  tests/extensions/none_reactive_errors.star:12:21: in pick
+  tests/extensions/none_reactive_errors.star:36:12: in <toplevel>
+  tests/extensions/none_reactive_errors.star:15:21: in pick
 Error: list index 497 out of range [-3:2]
-Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:34:13: in <toplevel>
-  tests/extensions/none_reactive_errors.star:17:13: in checked
-Error in fail: fail: too big: 500
-Traceback (most recent call last):
-  tests/extensions/none_reactive_errors.star:49:24: in <toplevel>
-Error: list index 496 out of range [-3:2]
 <stdin>:5:7: want ; or the end of the line after a value (a value is a literal: no expressions)
 <stdin>:6:15: want ; or the end of the line after a value (a value is a literal: no expressions)

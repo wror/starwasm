@@ -1,7 +1,8 @@
 # option:rollback
-# With --rollback, an update in which an error was caught is undone: the
-# errors are printed (.err) and their Nones are seen by what runs in that
-# update, but then every reactive variable has its value from before.
+# With --rollback, an update in which an error was caught is undone, even
+# where the definition allows the None it gives (`... ?? None`, which
+# otherwise keeps the update): the errors are printed (.err), and every
+# reactive variable has its value from before.
 
 def show(label, v):
     print(label, repr(v), ["%s | %s | %s:%d" % e for e in provenance(v)])
@@ -22,11 +23,11 @@ table = {"a": 1}
 n : 4
 key : "a"
 items : [1, 2, 3]
-half : ratio(100, n)
-entry : table[key] + 1
-pair : pick(items, n - 4)
-ok : checked(n)
-both : half + entry
+half : ratio(100, n) ?? None
+entry : table[key] + 1 ?? None
+pair : pick(items, n - 4) ?? None
+ok : checked(n) ?? None
+both : half + entry ?? None
 safe : half ?? -1
 a row when n > 0:
     n: n

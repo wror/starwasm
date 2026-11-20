@@ -1,23 +1,18 @@
-last None
 orders []
 parcels []
 sales []
 lines []
 order ids []
 line ids []
-struct(about = None, id = 1, what = None)
 last apple
 orders [struct(count = 1, id = 1, item = "apple", price = 3)]
 parcels [struct(cost = struct(total = 6), id = 1, item = "apple")]
 orderError 1 request "price" [("reactive", "order.price")]
 order ids [1]
-parcelError 1 request "cost.total" [("error", "key \"kiwi\" not in dict")]
 struct(about = 1, id = 1, what = "price of order, after request")
 orderError 1 request "price" [("reactive", "order.price")]
 orderError 2 request "price" [("reactive", "order.price")]
 order ids [1, 2]
-parcelError 1 request "cost.total" [("error", "key \"kiwi\" not in dict")]
-parcelError 2 request "cost.total" [("error", "key \"kiwi\" not in dict")]
 struct(about = 2, id = 2, what = "price of order, after request")
 last pear
 orders [struct(count = 2, id = 1, item = "pear", price = 2)]

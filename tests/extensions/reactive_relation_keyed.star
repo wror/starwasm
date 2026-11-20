@@ -11,8 +11,11 @@ an order:
     qty: request.qty ?? order.qty
     executed: order.executed + (fill.qty ?? 0)
 
-# no `??`: an order isn't shipped until it has a fill
-a shipment:
+# An update in which a definition is None where it doesn't say `?? None`
+# fails as a whole: were the shipment defined without a condition, a request
+# (which changes order, which it reads) would be rejected while there is no
+# fill. A condition waits instead: no member until it holds.
+a shipment when (fill.qty ?? 0) > 0:
     qty: fill.qty
     of: order.qty
 

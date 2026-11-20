@@ -1,10 +1,4 @@
 Traceback (most recent call last):
-  tests/extensions/none_reactive_relation.star:19:22: in <toplevel>
-Error: key "kiwi" not in dict
-Traceback (most recent call last):
-  tests/extensions/none_reactive_relation.star:19:22: in <toplevel>
-Error: key "kiwi" not in dict
-Traceback (most recent call last):
-  tests/extensions/none_reactive_relation.star:34:3: in <toplevel>
-  tests/extensions/none_reactive_relation.star:36:16: in <toplevel>
+  tests/extensions/none_reactive_relation.star:36:3: in <toplevel>
+  tests/extensions/none_reactive_relation.star:38:16: in <toplevel>
 Error: floored division by zero

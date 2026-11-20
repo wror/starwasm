@@ -1,6 +1,9 @@
 # After the first run, a reactive program (contagious None: its default)
-# turns every error into a None that carries the error: an update never
-# fails. The errors are printed on stderr as they happen (.err).
+# turns every error into a None that carries the error: the program never
+# stops. An update in which a definition gets such a None (where it doesn't
+# say `... ?? None`) is undone, and the variable's relation of errors,
+# <name>Error, gets the None, with the error. The errors are printed on
+# stderr as they happen (.err).
 
 def show(label, v):
     print(label, repr(v), ["%s | %s | %s:%d" % e for e in provenance(v)])
@@ -47,3 +50,13 @@ show("count", count)
 show("safe", safe)
 print("row", row)
 print("observer", items[n - 4])
+
+def errors(label, es):
+    for e in es:
+        show(label + "Error " + e.trigger, e.value)
+errors("half", halfError)
+errors("entry", entryError)
+errors("pair", pairError)
+errors("count", countError)
+errors("n", nError)
+errors("items", itemsError)
