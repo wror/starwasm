@@ -1353,6 +1353,13 @@ def _infer_binop(st, fc, e):
     t = _infer_binop_on(st, fc, e, a, b)
     if maybe or (st["contagious"] and _fallible_op(e)):
         return mk_opt(t)
+    if st["contagious"] and op == "%" and _formats(e["x"]):
+        # formatting with values that may have a None inside (in a tuple or
+        # dict of them), which a conversion other than %s and %r fails on
+        found, unknown = _inner_nones(b)
+        if found:
+            return mk_opt(t)
+        return _lift_later(st, fc, unknown, t, pos)
     if st["contagious"] and op in COMPARISONS:
         # an operand, or something in one (a comparison looks inside), may
         # be None, or its type isn't known yet and may turn out to be
@@ -1360,6 +1367,33 @@ def _infer_binop(st, fc, e):
         watch(st, [a, b], ("res", res), _ctx(fc, pos, "a comparison"), True)
         return res
     return t
+
+def _formats(x):
+    """Is `x % values` formatting that may fail on a None among the values:
+    x isn't a string written out whose conversions are all %s, %r (or
+    %%)? (A number % is no formatting: its operands have no inside.)"""
+    if x["kind"] != "string":
+        return True
+    v = x["val"]
+    i = v.find("%")
+    for _ in range(len(v) + 1):
+        if i < 0:
+            return False
+        j = i + 1
+        if j < len(v) and v[j] == "(":
+            j = v.find(")", j)  # a mapping key: %(name)d
+            if j < 0:
+                return True
+            j += 1
+        for _ in range(len(v)):
+            if j < len(v) and v[j] in "0123456789.-+ #*":
+                j += 1
+            else:
+                break
+        if j >= len(v) or v[j] not in "sr%":
+            return True
+        i = v.find("%", j + 1)
+    return True
 
 COMPARISONS = {"==": True, "!=": True, "<": True, "<=": True, ">": True, ">=": True, "in": True, "not in": True}
 
@@ -1485,6 +1519,74 @@ def _callee_name(f):
 # block that is still being typed (--attrs-probe in main.star).
 PROBE = "_complete_probe_"
 
+# ---- a None inside: builtins that look inside an argument (its elements,
+# at any depth) give None where they meet one (EXTENSIONS.md, "None further
+# in"), with contagious None. Their positional arguments that they look
+# inside, and whether what their `key` function returns counts too.
+LOOKS_INSIDE = {
+    "sorted": (0,),
+    "join": (0,),
+    "startswith": (0,),
+    "endswith": (0,),
+}
+
+def _inner_nones(t):
+    """(Is a type that t contains (not t itself) optional?, the types it
+    contains that aren't known yet.)"""
+    parts = []
+    _contents(resolve(t), parts)
+    found = False
+    unknown = []
+    for p in parts:
+        if is_con(p, "opt"):
+            found = True
+        elif p["k"] == "var" and p["kind"] == "type" and not p["rigid"]:
+            unknown.append(p)
+    return found, unknown
+
+def _contents(t, out):
+    if len(out) > 1000:
+        return
+    if t["k"] == "con" and t["name"] != "opt":
+        for a in t["args"]:
+            r = resolve(a)
+            out.append(r)
+            _contents(r, out)
+    elif t["k"] == "con":
+        _contents(resolve(t["args"][0]), out)
+    elif t["k"] == "rec":
+        for it in flatten(t["row"]):
+            if it["k"] == "f":
+                r = resolve(it["type"])
+                out.append(r)
+                _contents(r, out)
+
+def _without_nones(t):
+    """t with no None in what it contains (nor in itself): what a builtin
+    that looks inside it sees when it doesn't give None."""
+    t = resolve(t)
+    if is_con(t, "opt"):
+        return _without_nones(t["args"][0])
+    if t["k"] == "con" and t["args"]:
+        return con(t["name"], [_without_nones(a) for a in t["args"]], t["at"])
+    if t["k"] == "rec":
+        items = []
+        for it in flatten(t["row"]):
+            if it["k"] == "f":
+                it = field(it["label"], _without_nones(it["type"]), it["at"])
+            items.append(it)
+        return rec(row(items), t["at"])
+    return t
+
+def _lift_later(st, fc, unknown, t, pos):
+    """t, or, if some of the types unknown (not known yet) turn out to have
+    a None inside, t | None (a watch)."""
+    if not unknown:
+        return t
+    r = _fresh(st, fc)
+    watch(st, unknown, ("lift", r, t), _ctx(fc, pos, "a None met inside"), True)
+    return r
+
 def infer_call(st, fc, e):
     f = e["fn"]
     pos = e["pos"]
@@ -1533,7 +1635,33 @@ def infer_call(st, fc, e):
         if is_con(h, "opt"):
             ft = h["args"][0]  # (a method of a value that may be None)
             maybe = True
+    unknown = []
+    callee = f["name"] if f["kind"] == "dot" else f["id"] if f["kind"] == "name" and _special(fc, f["id"]) else ""
+    if st["contagious"] and callee in LOOKS_INSIDE:
+        # a None inside an argument it looks inside makes the result None;
+        # the call is checked on what it is otherwise
+        inside = LOOKS_INSIDE[callee]
+        i = 0
+        for a in args:
+            positional = a["name"] == None and a["star"] == ""
+            if positional and i in inside:
+                found, unk = _inner_nones(a["type"])
+                if found:
+                    a["type"] = _without_nones(a["type"])
+                    maybe = True
+                unknown += unk
+            elif a["name"] == "key":
+                r = resolve(a["type"])
+                ret = resolve(r["ret"]) if r["k"] == "fn" else r
+                if is_con(ret, "opt"):
+                    maybe = True
+                elif ret["k"] == "var":
+                    unknown.append(ret)
+            if positional:
+                i += 1
     t = apply(st, fc, ft, args, pos, _callee_name(f))
+    if not maybe:
+        t = _lift_later(st, fc, unknown, t, pos)
     if maybe or (st["contagious"] and _fallible_call(st, e, args)):
         t = mk_opt(t)
     return t
@@ -1801,9 +1929,29 @@ def _sp_minmax(st, fc, e):
         t = infer_expr(st, fc, pos_args[0]["value"])
         for a in pos_args[1:]:
             t = join(st, t, infer_expr(st, fc, a["value"]), _ctx(fc, a["value"]["pos"], "arguments of " + name + "() have different types"))
+    lift = False
+    unknown = []
+    if st["contagious"]:
+        # of one sequence, which may be empty; a None among the values
+        # (inside one too), or returned by key, gives None
+        lift = len(pos_args) == 1
+        found, unknown = _inner_nones(t)
+        if found:
+            t = _without_nones(t)
+            lift = True
+        for a in e["args"]:
+            if a["name"] == "key":
+                r = resolve(infer_expr(st, fc, a["value"]))
+                ret = resolve(r["ret"]) if r["k"] == "fn" else r
+                if is_con(ret, "opt"):
+                    lift = True
+                elif ret["k"] == "var":
+                    unknown.append(ret)
     if not has_key:
         add_pred(st, pred("ordered", t, [], ctx), ctx)
-    return t
+    if lift:
+        return mk_opt(t)
+    return _lift_later(st, fc, unknown, t, e["pos"])
 
 def _sp_zip(st, fc, e):
     if len([a for a in e["args"] if a["name"] != None or a["star"] != ""]) > 0:
@@ -1825,6 +1973,7 @@ def _sp_dict(st, fc, e):
         return None
     kt = _fresh(st, fc)
     vt = _fresh(st, fc)
+    none_pair = False
     if pos_args:
         a = pos_args[0]["value"]
         t = infer_expr(st, fc, a)
@@ -1833,6 +1982,10 @@ def _sp_dict(st, fc, e):
         if is_con(h, "dict"):
             kt, vt = h["args"]
         else:
+            if st["contagious"] and h["k"] == "con" and h["name"] in ["list", "vtuple", "set"] and _strip_opt(h["args"][0]) != None:
+                # a pair that may be None: dict() gives None then
+                t = con(h["name"], [_strip_opt(h["args"][0])], h["at"])
+                none_pair = True
             add_pred(st, pred("iter", t, [con("tuple", [kt, vt], ctx)], ctx), ctx)
     first = not pos_args
     for a in e["args"]:
@@ -1841,7 +1994,8 @@ def _sp_dict(st, fc, e):
             v1 = infer_expr(st, fc, a["value"])
             vt = v1 if first else join(st, vt, v1, _ctx(fc, a["value"]["pos"], "dict values have different types"))
             first = False
-    return con("dict", [kt, vt], _ctx(fc, e["pos"], "result of dict()"))
+    t = con("dict", [kt, vt], _ctx(fc, e["pos"], "result of dict()"))
+    return mk_opt(t) if none_pair else t
 
 SPECIAL = {
     "struct": _sp_struct,
