@@ -1181,11 +1181,20 @@ types (but see None below) and no classes; types are structural.
   say, which the REPL passes from its dialect): an operation that can fail
   on values of the right types gives None there, so its type is `T |
   None`: `/`, `//` and `%` (unless by a nonzero number written out, or
-  `%` formatting of a string written out), indexing (but not a tuple by
+  `%` formatting of a string written out), `<<` and `>>` (unless by a
+  count from 0 to 511 written out), and their augmented assignments
+  (`n //= k`); indexing (but not a tuple by
   an int written out, nor a *record* by a key or index written out that
   it has: a variable bound once, to a dict or list literal, that nothing
-  calls `.pop`, `.remove` or `.clear` on, as in `state = {"n": 0}` shared
-  by closures, Starlark having no `nonlocal`), `int` and `float` of a string (not one written out),
+  calls `.pop`, `.remove` or `.clear` on and that is only ever indexed or
+  has a method called on it (not passed on, returned or aliased), as in
+  `state = {"n": 0}` shared by closures, Starlark having no `nonlocal`),
+  `int` and `float` of a string (not one written out), `int` of a float,
+  `ord` (but of a one-character string written out), `chr` (but of an
+  int written out), `.split` and `.rsplit` by a separator that may be
+  empty (one not written out), `range` with a step that may be 0,
+  unpacking a list (or other sequence that isn't a tuple: it may have
+  another length),
   `.index`, `.rindex`, `.remove`, `.pop` (without a default), `getattr`
   without a default, `min` and `max` of one sequence, and `fail`. So
   `def f(a, b): return a / b` is `-> V | None`, and so is what calls it.
@@ -1195,7 +1204,9 @@ types (but see None below) and no classes; types are structural.
   gives back a `T`. Comparing with None written out (`x == None`, `x !=
   None`) is an error, as the compiler has it. A comparison of a value
   whose type is only found out later to be optional is `bool | None` all
-  the same. An `if` or `while`
+  the same, and so is one that meets a None inside its operands, as
+  the runtime's look inside (`[x] == [1]`, `(1, x) != (1, 2)`, `1 in [x,
+  1]`). An `if` or `while`
   testing, a `for` looping over or an unpacking of a value that may be
   None fails at run time, so a def that does gives None: its result is `T
   | None` (and one declared `-> T` in a `.start` file is an error); this
@@ -1206,8 +1217,13 @@ types (but see None below) and no classes; types are structural.
   ever, after an assignment of a value that isn't None; a parameter is
   what the caller passed until then). A struct's field keeps the `T |
   None` of its value, as a builtin that just stores an argument
-  (`append`, `insert`, `print`, ...) does; an element stored with `x[i] =
-  v` is taken not to be None. A reactive variable's type, and its struct
+  (`append`, `insert`, `print`, ...) does, and so does a list or dict
+  that `x[i] = v` stores a value that may be None in: where its element
+  (value) type was known already, the list or dict literal (or
+  comprehension) that made it has optional elements from the start, the
+  module being checked again (one made otherwise is an error: the value
+  may be None). A list or dict literal used where one with optional
+  elements is wanted gets them the same way. A reactive variable's type, and its struct
   block's fields', have no None unless its definition (or the field's)
   ends in `?? None` (or is `None`): an update in which it would be None
   fails as a whole ("Atomic updates"). With contagious None every

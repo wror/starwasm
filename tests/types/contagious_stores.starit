@@ -1,0 +1,36 @@
+# Types inferred from contagious_stores.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_stores.start instead.
+
+def shifted(k: int) -> int | None
+def by_three(x: int) -> int
+def code[T](s: T) -> int | None
+def parts(s: str, sep: str) -> list[str] | None
+def steps(n: int, k: int) -> range | None
+def rounded(x: float) -> int | None
+def first_two[X: Iterable[T], T](xs: X) -> T | None:
+    a: T
+    b: T
+def halved[T: FloorDiv[U, T], U](n: T | None, k: U) -> T | None
+def counter() -> () -> int:
+    state: dict[str, int]
+    def inc() -> int
+def aliased() -> int | None:
+    state: dict[str, int]
+    other: dict[str, int]
+def listed[T, U](d: dict[T, U], k: T) -> bool | None
+def paired[T, U](d: dict[T, U], k: T) -> bool | None
+def among[T](d: dict[T, int], k: T) -> bool | None
+def stored[T](d: dict[T, str], k: T) -> list[str | None]:
+    xs: list[str | None]
+def recorded[T](d: dict[T, int], k: T) -> int | None:
+    state: dict[str, int | None]
+def filled[T, X: Iterable[T]](d: dict[T, int], ks: X) -> int | None:
+    out: list[int | None]
+    i: int
+    k: T
+    total: int | None
+    v: int | None
+def cleared() -> list[int | None]:
+    xs: list[int | None]
+tick: int
+tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]

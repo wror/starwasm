@@ -220,18 +220,35 @@ def attach(st, v, p):
 # ("fails", def): the def may fail (a statement's test)}. It is dropped,
 # as if the types weren't optional, where they are generalized.
 
-def watch(st, ts, then, ctx):
-    """Watch types ts (see above): then is ("res", v) or ("fails", def)."""
-    _solve_watch(st, {"kind": "watch", "subj": None, "args": ts, "op": then, "ctx": ctx})
+def watch(st, ts, then, ctx, deep = False):
+    """Watch types ts (see above): then is ("res", v) or ("fails", def).
+    deep: the types they contain too (a comparison looks inside lists,
+    tuples, dicts and structs: [x] == [1] is None if x is)."""
+    _solve_watch(st, {"kind": "watch", "subj": None, "args": ts, "op": then, "ctx": ctx, "deep": deep})
+
+def _parts(t, deep, out):
+    """Append to out t resolved and, if deep, the types it contains."""
+    t = resolve(t)
+    out.append(t)
+    if not deep or len(out) > 1000:
+        return
+    if t["k"] == "con" and t["name"] != "opt":
+        for a in t["args"]:
+            _parts(a, deep, out)
+    elif t["k"] == "rec":
+        for it in flatten(t["row"]):
+            if it["k"] == "f":
+                _parts(it["type"], deep, out)
 
 def _solve_watch(st, p):
+    parts = []
     for t in p["args"]:
-        r = resolve(t)
+        _parts(t, p.get("deep", False), parts)
+    for r in parts:
         if is_con(r, "opt"):
             _watch_fire(st, p, True)
             return
-    for t in p["args"]:
-        r = resolve(t)
+    for r in parts:
         if r["k"] == "var" and r["kind"] == "type" and not r["rigid"]:
             p["subj"] = r
             attach(st, r, p)
@@ -678,7 +695,35 @@ def flow(st, actual, expected, ctx):
         return None
     if a["k"] == "rec" and e["k"] == "rec":
         return unify_rows(st, a["row"], e["row"], ctx, True)
+    if _literal_widens(st, a, e, ctx):
+        return None
     return unify(st, actual, expected, ctx)
+
+# the list and dict literals (and comprehensions) whose elements may be
+# made optional from the start (infer.star, _widen_elements)
+WIDENABLE = {"a list": True, "a dict": True, "a list comprehension": True, "a dict comprehension": True}
+
+def _literal_widens(st, a, e, ctx):
+    """With contagious None: is a, a list or dict made by a literal, used
+    where one with optional elements (values) is wanted, its own being
+    known not to be? Then the literal is noted, to have optional elements
+    from the start when the module is checked again (a fresh list may
+    hold what it is to hold), and the use is taken to be right until
+    then."""
+    if not st.get("contagious") or "widen" not in st:
+        return False
+    for name, i in [("list", 0), ("dict", 1)]:
+        if is_con(a, name) and is_con(e, name) and len(a["args"]) > i and len(e["args"]) > i:
+            ae = resolve(a["args"][i])
+            ee = resolve(e["args"][i])
+            at = a.get("at")
+            if is_con(ee, "opt") and not is_con(ae, "opt") and (ae["k"] != "var" or ae["num"] or ae["lit"] != None) and \
+               at != None and WIDENABLE.get(at.get("role"), False) and flow(st, ae, ee, ctx) == None:
+                if i == 1 and unify(st, a["args"][0], e["args"][0], ctx) != None:
+                    return False
+                st["widen"][at["file"] + ":" + str(at["pos"])] = True
+                return True
+    return False
 
 def join(st, a, b, ctx):
     """The type of a value that is either an `a` or a `b` (the branches of
@@ -935,7 +980,8 @@ def dispatch(st, s, p, ctx):
             _pred_error(st, p, ctx, show(s) + " has no len()")
     elif k == "contains":
         if name == "list" or name == "set" or name == "vtuple" or name == "dict":
-            _check(st, p, ctx, args[0], s["args"][0], None, False)
+            # (an int is looked for among T | None, or floats, as well)
+            _check(st, p, ctx, args[0], s["args"][0], None, True)
         elif name == "str":
             _check(st, p, ctx, args[0], con("str"), None, False)
         elif name == "range":
@@ -1017,6 +1063,16 @@ def _numeric_param_result(op, l, r, ctx):
     if ln and rn and l["id"] != r["id"]:
         return None
     return l if ln else r
+
+def _without_none(t):
+    """t resolved, without its None (all of them: T | None may be (T |
+    None) | None while its variables are being solved)."""
+    t = resolve(t)
+    for _ in range(64):
+        if not is_con(t, "opt"):
+            break
+        t = resolve(t["args"][0])
+    return t
 
 def solve_binop(st, p, ctx):
     """l <op> r is a res: decide from l's type, or else r's; wait if
@@ -1105,9 +1161,11 @@ def solve_binop(st, p, ctx):
     if (ln == "opt" or is_con(r, "opt")) and st.get("contagious"):
         # contagious None: the result may be None; the operation is checked
         # on what the operands are otherwise
+        # (the operands are taken after the result is bound, without their
+        # Nones: in `n = n // k` the left operand is the result)
         res = new_var(st, "type", _level_of(p["res"]))
-        q = binop_pred(op, l["args"][0] if ln == "opt" else p["l"], r["args"][0] if is_con(r, "opt") else p["r"], res, pctx)
         unify(st, p["res"], mk_opt(res), pctx)
+        q = binop_pred(op, _without_none(p["l"]), _without_none(p["r"]), res, pctx)
         solve_binop(st, q, ctx)
         return
     if ln == "opt" or is_con(r, "opt"):
@@ -1222,7 +1280,7 @@ def default_pending(st, level):
                 again = True
                 continue
             other = head(st, p["l"] if p["kind"] == "rbinop" else p["r"])
-            if level >= 0 and p["op"] != "/" and is_con(other, "int"):
+            if level >= 0 and p["op"] in ["+", "-", "*", "//", "%"] and is_con(other, "int"):
                 # x <op> int, in a def about to generalize x: x is a number
                 # of either kind, and so is the result, of x's kind
                 s["preds"] = [q for q in s["preds"] if q.get("id") != p["id"]]
