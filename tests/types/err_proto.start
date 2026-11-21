@@ -1,0 +1,1 @@
+def title(node: sw.p3.Nod) -> str

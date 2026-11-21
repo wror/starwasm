@@ -1,0 +1,94 @@
+tests/types/err_proto.star:3:17: error: no file 'p4.proto' in the descriptor set (did you mean 'p2.proto'?)
+    3 | p4 = proto.file("p4.proto")
+      |                 ^
+tests/types/err_proto.star:4:7: error: proto.FileDescriptor["p3.proto"] has no .Scalar member (did you mean 'Scalars'?)
+    4 | S = p3.Scalar
+      |       ^
+tests/types/err_proto.star:5:22: error: .Scalars() has no parameter 'i33' (did you mean 'i32'?)
+    5 | s = p3.Scalars(i33 = 1)
+      |                      ^
+tests/types/err_proto.star:6:22: error: argument 'i32' of .Scalars(): expected int | None, got str (str vs int)
+    6 | t = p3.Scalars(i32 = "one", color = "REDD")
+      |                      ^
+tests/types/err_proto.star:6:37: error: invalid name "REDD" for enum sw.p3.Color (did you mean 'RED'?)
+    6 | t = p3.Scalars(i32 = "one", color = "REDD")
+      |                                     ^
+tests/types/err_proto.star:7:6: error: sw.p3.Scalars has no .i33 field (did you mean 'i32'?)
+    7 | x = s.i33
+      |      ^
+tests/types/err_proto.star:5:7: note: sw.p3.Scalars comes from here (a message made here)
+    5 | s = p3.Scalars(i33 = 1)
+      |       ^
+tests/types/err_proto.star:8:2: error: assignment to .s of sw.p3.Scalars: expected str | None, got int (int vs str)
+    8 | s.s = 1
+      |  ^
+tests/types/err_proto.star:9:11: error: invalid name "BLEU" for enum sw.p3.Color
+    9 | s.color = "BLEU"
+      |           ^
+tests/types/err_proto.star:10:14: error: invalid name "PURPLE" for enum sw.p3.Color
+   10 | c = p3.Color("PURPLE")
+      |              ^
+tests/types/err_proto.star:11:17: error: sw.p3.Color has no .value member
+   11 | v = p3.Color.RED.value
+      |                 ^
+tests/types/err_proto.star:12:20: error: sw.p3.Scalars has no .nope field
+   12 | has = proto.has(s, "nope")
+      |                    ^
+tests/types/err_proto.star:13:31: error: argument 'field' of proto.get_field(): expected proto.FieldDescriptor[sw.p3.Scalars, _], got proto.FieldDescriptor[sw.p3.Node, str] (sw.p3.Node vs sw.p3.Scalars)
+   13 | f = proto.get_field(s, p3.Node.name)
+      |                               ^
+tests/types/err_proto.star:5:7: note: sw.p3.Scalars is expected because of this (a message made here)
+    5 | s = p3.Scalars(i33 = 1)
+      |       ^
+tests/types/err_proto.star:14:24: error: argument 'field' of proto.get_field(): expected a proto.FieldDescriptor (pkg.Msg.field), not a field name
+   14 | g = proto.get_field(s, "i32")
+      |                        ^
+tests/types/err_proto.star:16:15: error: argument 'x' of .append(): expected int, got str
+   16 | r.i32s.append("x")
+      |               ^
+tests/types/err_proto.star:17:11: error: 'in' does not work on proto.RepeatedField[int] (use list(...) first)
+   17 | found = 1 in r.i32s
+      |           ^
+tests/types/err_proto.star:19:11: error: map key: expected str, got int
+   19 | n = mp.s2i[1]
+      |           ^
+tests/types/err_proto.star:20:33: error: argument 'data' of proto.unmarshal(): expected bytes, got str
+   20 | m = proto.unmarshal(p3.Scalars, "text")
+      |                                 ^
+tests/types/err_proto.star:21:19: error: argument 'msg' of proto.marshal(): expected a proto message, got int
+   21 | b = proto.marshal(1)
+      |                   ^
+tests/types/err_proto.star:22:3: error: cannot assign to .Node of proto.FileDescriptor["p3.proto"]: only a message's fields can be assigned
+   22 | p3.Node = None
+      |   ^
+tests/types/err_proto.star:27:13: error: argument 'm' of set_bytes(): sw.p3.Node has no .by field
+   27 | set_bytes(p3.Node(), "x")
+      |             ^
+tests/types/err_proto.star:25:6: note: required here (assignment to .by)
+   25 |     m.by = v
+      |      ^
+tests/types/err_proto.star:33:22: error: -1 is out of range for field .u32 (uint32)
+   33 | u = p3.Scalars(u32 = -1, color = 7)
+      |                      ^
+tests/types/err_proto.star:33:34: error: invalid number 7 for enum sw.p3.Color
+   33 | u = p3.Scalars(u32 = -1, color = 7)
+      |                                  ^
+tests/types/err_proto.star:34:22: error: sw.p3.Node.Inner has no .y field
+   34 | w = p3.Node(inner = {"y": 1}, kids = [{"nam": "k"}])
+      |                      ^
+tests/types/err_proto.star:34:40: error: sw.p3.Node has no .nam field (did you mean 'name'?)
+   34 | w = p3.Node(inner = {"y": 1}, kids = [{"nam": "k"}])
+      |                                        ^
+tests/types/err_proto.star:35:19: error: Scalars() takes a message or dict, or fields by name, not both
+   35 | both = p3.Scalars({"i32": 1}, s = "x")
+      |                   ^
+tests/types/err_proto.star:36:20: error: invalid name "PURPLE" for enum sw.p3.Color
+   36 | r.colors = ["RED", "PURPLE"]
+      |                    ^
+tests/types/err_proto.star:37:17: error: invalid number 9 for enum sw.p3.Color
+   37 | mp.b2c = {True: 9}
+      |                 ^
+tests/types/err_proto.start:1:17: error: no message or enum 'sw.p3.Nod' in the descriptor set (did you mean 'sw.p3.Node'?)
+    1 | def title(node: sw.p3.Nod) -> str
+      |                 ^
+28 type errors in tests/types/err_proto.star

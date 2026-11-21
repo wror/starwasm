@@ -1,6 +1,6 @@
 # main.star — the type checker's command line.
 #
-#   bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]... prog.star
+#   bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]... [--descriptor_set=FILE] prog.star
 #   ... --repl [--only=NAME]: for the REPL (host/repl_core.mjs): `_` may be
 #       assigned values of different types at top level, source lines are
 #       shown without their numbers, and --only prints just NAME's type;
@@ -20,6 +20,10 @@
 # EXTENSIONS.md ("Static types") documents the type system and the
 # language of the two files.
 #
+# --descriptor_set=FILE: the binary FileDescriptorSet the program is
+# compiled and run with (as bin/starhost's and the compiler's): the
+# proto module's values are then typed from its schema (proto.star).
+#
 # Starlark can't ask whether a file exists, so which annotation files
 # there are is said on the command line: --start=FILE for each one (for
 # prog.star and the modules it loads), or --start=* to read the .start
@@ -31,6 +35,7 @@
 
 load("builtins.star", "load_builtins")
 load("infer.star", "check_module", "new_scope")
+load("proto.star", "decode_pool", pb_members = "members")
 load("unify.star", "method_type")
 load("types.star", "collect_generic", "con", "flatten", "new_namer", "resolve", "resolve_label", "show", "show_params", "show_tparams")
 
@@ -187,6 +192,11 @@ def attributes(st, mod, name):
                 if l["k"] == "lit":
                     out.append(l["name"] + "\t" + show(it["type"], nm))
         return out
+    ms = pb_members(st["pb"], t)
+    if ms != None:
+        nm = new_namer(True)
+        nm["all"] = True
+        return [n + "\t" + show(mt, nm) for n, mt in ms]
     tyname = None
     if t["k"] == "lab" or (t["k"] == "var" and t["lit"] != None):
         tyname = "str"
@@ -208,7 +218,7 @@ def names(st, mod):
             out.append(n)
     return out
 
-def check(path, starts, all_starts, repl = False, contagious = None):
+def check(path, starts, all_starts, repl = False, contagious = None, pool = None):
     """Check the program at path. Returns (st, module record). contagious:
     check for contagious None (EXTENSIONS.md, "Fallible operations"):
     True, False, or None for the default, on if the program defines
@@ -219,14 +229,15 @@ def check(path, starts, all_starts, repl = False, contagious = None):
     from the start."""
     widen = {}
     for _ in range(8):
-        st, mod = _check(path, starts, all_starts, repl, contagious, widen)
+        st, mod = _check(path, starts, all_starts, repl, contagious, widen, pool)
         if len(st["widen"]) == len(widen):
             break
         widen = st["widen"]
     return st, mod
 
-def _check(path, starts, all_starts, repl, contagious, widen):
+def _check(path, starts, all_starts, repl, contagious, widen, pool):
     st = {
+        "pb": pool,
         "widen": dict(widen),
         "repl": repl,
         "contagious": contagious,
@@ -262,6 +273,7 @@ def main():
     starts = {}
     all_starts = False
     contagious = None
+    pool = None
     files = []
     for a in argv:
         if a == "--print":
@@ -282,6 +294,8 @@ def main():
             params = a[len("--params="):]
         elif a == "--names":
             listing = True
+        elif a.startswith("--descriptor_set="):
+            pool = decode_pool(read_file(a[len("--descriptor_set="):]))
         elif a == "--contagiousnone" or a == "--nocontagiousnone":
             contagious = a == "--contagiousnone"
         elif a.startswith("--"):
@@ -289,9 +303,9 @@ def main():
         else:
             files.append(a)
     if len(files) != 1:
-        fail("usage: typecheck/main.star [--print] [--start=FILE]... <program.star>")
+        fail("usage: typecheck/main.star [--print] [--start=FILE]... [--descriptor_set=FILE] <program.star>")
     path = files[0]
-    st, mod = check(path, starts, all_starts, repl, contagious)
+    st, mod = check(path, starts, all_starts, repl, contagious, pool)
     if attrs != None or params != None or probe != None or listing:
         # for completion: answered whatever type errors there are
         if params != None or probe == "--params-probe":

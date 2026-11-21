@@ -20,11 +20,13 @@ fail=0
 n=0
 nerr=0
 starts=$(for f in tests/types/modules/*.start; do printf ' --start=%s' "$f"; done)
+# the proto tests' schemas (tests/proto/README.md), for every program
+ds=--descriptor_set=tests/proto/test.binpb
 
 # interpreted <file.star> [--start=...]: prints what the driver would
 # (types on stdout; else diagnostics and the summary line)
 interpreted() {
-  if bin/starhost --recursion typecheck/main.star --print "$@" > out/types.out 2> out/types.stderr; then
+  if bin/starhost --recursion typecheck/main.star --print $ds "$@" > out/types.out 2> out/types.stderr; then
     cat out/types.out
   else
     cat out/types.out
@@ -38,7 +40,7 @@ for src in tests/types/*.star; do
   own=""
   [ -f "tests/types/$name.start" ] && own="--start=tests/types/$name.start"
   s1=0; interpreted $own $starts "$src" > "out/types_$name.interp" || s1=1
-  s2=0; node host/typecheck.mjs --print "$src" > "out/types_$name.wasm" 2>&1 || s2=$?
+  s2=0; node host/typecheck.mjs --print $ds "$src" > "out/types_$name.wasm" 2>&1 || s2=$?
   if [ -f "tests/types/$name.err" ] || { [ $update = 1 ] && [ $s1 = 1 ]; }; then
     want="tests/types/$name.err"; ws=1
   else
