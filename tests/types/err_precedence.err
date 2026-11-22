@@ -52,4 +52,25 @@ tests/types/err_precedence.star:23:11: error: operator precedence: `<<` and `>>`
 tests/types/err_precedence.star:24:11: error: operator precedence: `%` and `%` don't group: % doesn't chain: add parentheses, as in (a % b) % c (how it parses) or a % (b % c)
    24 |         x % y % z,
       |           ^
-18 type errors in tests/types/err_precedence.star
+tests/types/err_precedence.star:29:13: error: operator precedence: the spacing says otherwise: `a+b * c` is `a+(b * c)`, as `*` binds more tightly than `+`: space `*` no more widely than `+`, or add parentheses
+   29 |         x+y * z,                   # spacing that says otherwise
+      |             ^
+tests/types/err_precedence.star:30:11: error: operator precedence: the spacing says otherwise: `a * b+c` is `(a * b)+c`, as `*` binds more tightly than `+`: space `*` no more widely than `+`, or add parentheses
+   30 |         x * y+z,
+      |           ^
+tests/types/err_precedence.star:31:11: error: operator precedence: the spacing says otherwise: `a - b-c` is `(a - b)-c`, as `-` and `-` group from the left: space the first `-` no more widely than the `-` after it, or add parentheses
+   31 |         x - y-z,
+      |           ^
+tests/types/err_precedence.star:32:11: error: operator precedence: the spacing says otherwise: `a + b==c` is `(a + b)==c`, as `+` binds more tightly than `==`: space `+` no more widely than `==`, or add parentheses
+   32 |         x + 1==y,
+      |           ^
+tests/types/err_precedence.star:33:9: error: operator precedence: the spacing says otherwise: `not  a or b` is `(not  a) or b`, as `not` binds more tightly than `or`: space `not` no more widely than `or`, or add parentheses
+   33 |         not  a or b,
+      |         ^
+tests/types/err_precedence.star:34:17: error: operator precedence: the spacing says otherwise: `a or b  and  c` is `a or (b  and  c)`, as `and` binds more tightly than `or`: space `and` no more widely than `or`, or add parentheses
+   34 |         a or b  and  a,
+      |                 ^
+tests/types/err_precedence.star:35:9: error: operator precedence: the spacing says otherwise: `- a+b` is `(- a)+b`, as `-` binds more tightly than `+`: space `-` no more widely than `+`, or add parentheses
+   35 |         - x+y,
+      |         ^
+25 type errors in tests/types/err_precedence.star

@@ -39,4 +39,10 @@ def checks(a, b, c, x, y, z, n, m, flags, mask, xs):
         "%d items" % x + "!",
         (x * y) % z,
         x / (y * z),
+        x + y*z,                   # spacing that agrees with precedence
+        x+y+z,
+        x*y + z,
+        x+1 < y,
+        x +
+            y * z,                 # (a line break says nothing)
     )

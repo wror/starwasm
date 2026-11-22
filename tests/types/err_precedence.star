@@ -23,3 +23,14 @@ def mixes(a, b, c, x, y, z, n, flags, mask, k, j):
         x << 1 >> 2,
         x % y % z,
     )
+
+def spacing(a, b, x, y, z):
+    return (
+        x+y * z,                   # spacing that says otherwise
+        x * y+z,
+        x - y-z,
+        x + 1==y,
+        not  a or b,
+        a or b  and  a,
+        - x+y,
+    )

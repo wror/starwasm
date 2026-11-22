@@ -146,7 +146,7 @@ def check_module(st, path, from_ctx = None):
     src = st["read"](path)
     st["sources"][path] = src
     stmts = parse_file(src, path)
-    for at, msg in check_stmts(stmts):
+    for at, msg in check_stmts(stmts, src):
         # operands that need parentheses (PRECEDENCE.md)
         report(st, {"file": path, "pos": at, "role": None}, msg)
     if st.get("contagious") == None:

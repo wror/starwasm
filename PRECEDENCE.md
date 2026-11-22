@@ -10,14 +10,16 @@ surprise readers:
     x / y * z              # (x / y) * z
     count ?? 0 + 1         # count ?? (0 + 1), not (count ?? 0) + 1
     ready ?? a or b        # ready ?? (a or b)
+    a+b * c                # a+(b * c), though it is spaced as (a+b) * c
 
 starwasm's **type checker** (`node host/typecheck.mjs prog.star`, and
 `.check on` in the REPL) holds programs to a stricter rule. Operators are
 ranked against each other only where there is a convention everyone
 shares, such as `*` before `+`, `and` before `or`, and arithmetic before
 comparison. Where there is no such convention, the two operators can't be
-mixed without parentheses. The checker reports each such place as an
-error:
+mixed without parentheses. Nor may the spacing around operators suggest
+a grouping other than the real one. The checker reports each such place
+as an error:
 
     prog.star:3:10: error: operator precedence: `&` and `==` have no precedence relative to each other: add parentheses, as in (a & b) == c (how it parses) or a & (b == c)
         3 | if flags & mask == 0:
@@ -136,6 +138,40 @@ keywords mark off their parts, so each part may be any expression. Used as
 an operand they must be in parentheses, and Starlark's parser already
 requires that.
 
+## Spacing
+
+Where operators may be mixed, the spacing must not contradict how they
+group. An operator that binds more tightly may not be spaced more widely
+than the operator around it:
+
+    a+b * c                # error: a+(b * c), spaced as (a+b) * c
+    a * b+c                # error: (a * b)+c, spaced as a * (b+c)
+    a - b-c                # error: (a - b)-c, spaced as a - (b-c)
+    x + 1==y               # error: (x + 1)==y, spaced as x + (1==y)
+    not  a or b            # error: (not  a) or b, spaced as not (a or b)
+    a or b  and  c         # error: a or (b  and  c), spaced as (a or b) and c
+    - x+y                  # error: (- x)+y, spaced as -(x+y)
+
+    a + b*c                # a + (b*c)
+    a+b+c                  # (a+b)+c
+    x+1 < y                # (x+1) < y
+    a or b and c           # a or (b and c)
+
+The precise rule:
+
+- An operator's **width** is the number of spaces or tabs on its wider
+  side. For a prefix operator (`not`, `-`, `+`, `~`), it is the number
+  after it.
+- Wherever one operator's expression is the unparenthesized operand of
+  another, the inner operator's width must be no greater than the outer
+  one's. Equal widths are always fine, so `a + b * c` and `a+b*c` are
+  both accepted.
+- An operator with a line break, a comment or a backslash continuation on
+  either side has no width and is not checked. Where a long expression
+  breaks across lines, the break says nothing about grouping.
+- A prefix operator right after another operator, as in `a * -b` or
+  `a or not  b`, can be read only one way, so its spacing is not checked.
+
 ## Why
 
 This follows Jeff Walker, ["Operator Precedence: We can do
@@ -167,12 +203,13 @@ without parentheses.
 - `typecheck/precedence.star`: the groups (`GROUP`), what chains
   (`ASSOC`) and the relation (`CHAINS`). The relation is written in the
   article's notation: each chain says that every set of groups in it
-  binds less tightly than every set after it, and nothing else. The check
-  is `check_stmts`, run on each module the checker reads (`check_module`
-  in `typecheck/infer.star`).
+  binds less tightly than every set after it, and nothing else. The
+  spacing rule is `_spacing`. Both checks are in `check_stmts`, run on
+  each module the checker reads (`check_module` in
+  `typecheck/infer.star`).
 - `compiler/parser.star` marks every parenthesized expression with
   `paren: True`. That is how the checker tells `(a & b) == c` from
   `a & b == c`.
 - Tests: `tests/types/precedence.star` (accepted) and
   `tests/types/err_precedence.star` (each kind of error), run by
-  `tests/types.sh`.
+  `tests/types.sh`; `tests/precedence_test.star` (unit tests).

@@ -34,7 +34,7 @@ def test_consistent():
     check_eq("and, + unrelated", ("and", "add") in BELOW or ("add", "and") in BELOW, False)
 
 def _errors(src):
-    return len(check_stmts(parse_file("x = " + src + "\n", "<test>")))
+    return len(check_stmts(parse_file("x = " + src + "\n", "<test>"), "x = " + src + "\n"))
 
 def test_check():
     for src in [
@@ -42,12 +42,16 @@ def test_check():
         "a ?? not b", "not not a", "-a and b", "~a == b", "a and -b", "a ?? b ?? c",
         "a + b ?? c", "a ?? b * c", "a | b & c", "a ^ b & c", "a | b << c", "a ^ b >> c", "(a & b) == c", "x + 1 if a & b else y",
         "f((a & b) == c)",
+        "a + b*c", "a+b+c", "a*b + c", "a+1 < b", "a+1 not in b", "a+1  not  in b", "not a or b", "a+(b * c)", "a * -b",
+        "a or not  b", "(a +\n    b * c)",
     ]:
         check_eq("accepted: " + src, _errors(src), 0)
     for src in [
         "a & b == c", "not a == b", "a and b + c", "a / b * c", "a / b / c", "a << b >> c",
         "a ?? b or c", "a ?? b == c", "not a ?? b", "a | b ^ c", "a ^ b | c", "a & b << c", "a << b & c", "1 << n - 1",
         "[a & b == c]", "f(x = a & b == c)", "lambda: a and b + c",
+        "a+b * c", "a * b+c", "a - b-c", "a + b==c", "not  a or b", "a or b  and  c", "- a+b",
+        "a  +  1 not in b",
     ]:
         check_eq("rejected: " + src, _errors(src), 1)
 

@@ -1419,7 +1419,8 @@ most 100 are printed per program. The exit status is 1 if there are any;
 
 The checker also reports operators mixed without parentheses where their
 precedence is not a shared convention (`a & b == c`, `not x == y`,
-`x / y * z`, `n ?? 0 == 1`): see [PRECEDENCE.md](PRECEDENCE.md).
+`x / y * z`, `n ?? 0 == 1`), and spacing that contradicts the precedence
+(`a+b * c`): see [PRECEDENCE.md](PRECEDENCE.md).
 
 ### In the REPL
 
