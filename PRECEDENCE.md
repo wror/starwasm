@@ -96,20 +96,20 @@ Put the other way round, these are the mixes that need parentheses:
 
     x + y * z                  # x + (y * z)
     x - y - z                  # (x - y) - z
-    x + 1 < y * 2              # comparisons take arithmetic operands
-    x in xs + [1]
+    x + 1 < y * 2              # (x + 1) < (y * 2)
+    x in xs + [1]              # x in (xs + [1])
     a or b and c               # a or (b and c)
     not a and b                # (not a) and b
-    x < y and y < z
-    -x * y                     # prefix - + ~ bind tightest
-    a and -b
-    ~mask & flags
+    x < y and y < z            # (x < y) and (y < z)
+    -x * y                     # (-x) * y
+    a and -b                   # a and (-b)
+    ~mask & flags              # (~mask) & flags
     flags | mask & 1           # flags | (mask & 1)
     "%d items" % n + "!"       # ("%d items" % n) + "!"
-    total + tax ?? 0           # (total + tax) ?? 0: ?? is below arithmetic
-    n ?? m ?? 0
-    x + 1 if ok else y - 1     # if/else mark the branches off
-    x if a else y if b else z
+    total + tax ?? 0           # (total + tax) ?? 0
+    n ?? m ?? 0                # (n ?? m) ?? 0
+    x + 1 if ok else y - 1     # (x + 1) if ok else (y - 1)
+    x if a else y if b else z  # x if a else (y if b else z)
 
 ### Prefix operators
 
