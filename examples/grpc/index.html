@@ -1,0 +1,18 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orders over gRPC</title>
+<h1>Orders over gRPC</h1>
+<form method="post" action="/order">
+  <label>Customer <input name="customer" value="ann"></label>
+  <label>SKU <input name="sku" value="apple"></label>
+  <label>Qty <input name="qty" value="1"></label>
+  <button>Place</button>
+</form>
+<h2>Placed</h2>
+<ul>
+  <li $for="placed">#$placed.order_id: $placed.status ($placed.skus)</li>
+</ul>
+<h2>Failed</h2>
+<ul>
+  <li $for="failed">call $failed.call: $failed.code $failed.message</li>
+</ul>

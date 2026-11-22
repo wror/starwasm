@@ -135,10 +135,16 @@ def analyze(src, filename):
 
 def start(config):
     """Starts the program config["program"] (run by the command
-    config["run"]; config["id"] names this run) and returns the server's state, for handle()."""
+    config["run"]; config["id"] names this run) and returns the server's state, for handle().
+    config["extra"] (optional): implicit relations of the program to
+    observe as well (serve/grpc.star's), each with its relation of errors."""
     path = config["program"]
     src = read_file(path)
     reactives = analyze(src, path)
+    for name in config.get("extra", []):
+        if name not in reactives:
+            reactives[name] = {"relation": True, "source": True, "fields": None, "type": "string"}
+            reactives[name + "Error"] = {"relation": True, "source": True, "fields": None, "type": "string"}
     if not src.endswith("\n"):
         src += "\n"
     src += "%s : \"\"\n" % SYNC
@@ -154,6 +160,7 @@ def start(config):
         "templates": config["templates"],
         "run": config["id"],
         "seq": 0,
+        "changed": {},  # the variables changed since grpc.star last looked
     }
     _exchange(server, [])  # the first run's output (and a journal's replay)
     return server
@@ -185,7 +192,16 @@ def _exchange(server, lines):
         x = _literal(parse_file(text + "\n", "<" + name + ">")[0]["x"])
         server["values"][name] = x[0] if x != None else text  # (not data: its repr)
         changed[name] = True
+    server["changed"].update(changed)
     return changed, log
+
+def exchange(server, lines):
+    """_exchange, for serve/grpc.star."""
+    return _exchange(server, lines)
+
+def source(v):
+    """_source, for serve/grpc.star."""
+    return _source(v)
 
 # ------------------------------------------------------------------ values
 

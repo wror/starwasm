@@ -1665,3 +1665,101 @@ reads no other becomes a line of the program's standard input.
   of the program that start with `%serve ` are taken for the server's.
 - Tests: tests/serve.sh (the requests, with curl) and
   tests/serve/order.out (the expected responses), on examples/order/.
+
+## gRPC
+
+    bin/starserve --addr=none --descriptor_set=examples/grpc/shop.binpb \
+        --grpc=localhost:50062 --grpc_target=shop.Prices=localhost:50061 \
+        examples/grpc/shop.star
+
+`bin/starserve` also serves a reactive program over gRPC and makes gRPC
+calls for it, from the services of a descriptor set (`protoc
+--include_imports --descriptor_set_out`). Requests, replies and calls are
+members of relations named after a method, so a program serves or calls
+`M` (any unary method of the descriptor set's services) by defining or
+reading these relations:
+
+| relation | what it is | who makes it |
+| --- | --- | --- |
+| `M_request` | a request the program serves | starserve (an implicit relation, or one the program defines) |
+| `M_response` | the answer to it: the member with the request's `id` | the program: defining it serves `M` |
+| `M_call` | a request to make: each new member is a call | the program: defining it calls `M` (with `--grpc_target`) |
+| `M_reply` | the reply to a call | starserve, if the program reads it |
+| `M_failure` | a call that failed: `code`, `message` | starserve, if the program reads it |
+
+    # prices.star: a server
+    a Quote_response:
+        sku: Quote_request.sku
+        price: PRICES.get(Quote_request.sku, 1.0)
+
+    # shop.star: a server that calls another before it answers
+    a Quote_call:
+        sku: Place_request.items[0].sku
+        customer: Place_request.customer        # not sent: it comes back in the reply
+    a Place_response:
+        status: "%s at %s" % (Quote_reply.customer, Quote_reply.price)
+
+- Messages are structs of their fields: a nested message is a struct, a
+  repeated field a list, an enum its value's name (a number if it has
+  none), bytes a string, a map a list of `struct(key = ..., value = ...)`
+  (by key; standard input has no dicts), a float that isn't finite None.
+  A request has every field but a message that isn't set and the members
+  of a oneof that aren't (so a field read may be missing), and its field
+  `id` only if it is set: without one, the relation gives the member the
+  next id. Going the other way (`M_response`, `M_call`), the struct's
+  fields named like the message's are its fields (an enum by name or
+  number; a map from a list of `struct(key, value)` or a dict; None leaves
+  a field out); its other fields (`id`, references, context) are not
+  sent.
+- Serving (`--grpc=HOST:PORT`): a request is sent to the program as `M_request
+  : struct(...)`. The answer is the member of `M_response` whose `id` is
+  the request's, in that update or a later one: as implicit ids carry
+  through relations, an answer made from a call's reply has it too
+  (shop.star). In the request's own update, a member of `M_response` added
+  with another (an explicit) `id` is the answer too. Errors, as gRPC
+  statuses: a request the program refuses (its update fails: the message
+  names the variable that would be None) is `INVALID_ARGUMENT`, and
+  `INTERNAL` if that is `M_response` itself (an update that fails is
+  undone as a whole, the request with it), as is a member of
+  `M_responseError` for the request in a later update; no answer before the
+  request's deadline (or `--grpc_timeout`, 30s by default) is
+  `DEADLINE_EXCEEDED`; a method the program doesn't define `M_response` for
+  is `UNIMPLEMENTED`. starserve stops at the start if the program serves
+  nothing, or defines `M_response` for a streaming method or for a name
+  two services have.
+- Calling (`--grpc_target=[SERVICE=]HOST:PORT`, repeatable; without
+  `SERVICE`, for any service): each new member of `M_call` (a new value,
+  for a lone variable) is a call, made while the program goes on. Its
+  reply becomes a member of `M_reply`: the call's fields first (its
+  *context*: what goes on from the reply can read everything there and
+  nothing else, so that it is computed once, when the reply comes), then
+  the reply's fields, `M_call_id` (the call's id) and `id` (the call's,
+  unless the reply has a field `id`). A call that fails becomes a member
+  of `M_failure`: the call's fields, `M_call_id`, `code` (`UNAVAILABLE`,
+  `DEADLINE_EXCEEDED`, ... as gRPC names them) and `message`. Each is only
+  sent if the program reads it. Calls that the first run (or a journal's
+  replay) makes aren't made again.
+- One update at a time, as for HTTP (a form posted, a request, a reply
+  are each an update); a program may serve HTTP and gRPC at once
+  (`--addr=none`: gRPC only), and serve and call.
+- The type checker (`node host/typecheck.mjs --descriptor_set=FILE`) types
+  these relations from the messages: `M_request` is `struct[id: int,
+  <the request's fields>]`, `M_reply` `struct[id: int, M_call_id: int,
+  <the reply's fields>, <M_call's fields>]` and `M_failure` likewise with
+  `code` and `message`; and it checks what `M_response` and `M_call` give
+  the messages' fields (`Place_response (as a shop.OrderReply, for
+  shop.Shop/Place): expected int for total_qty, got str`), and that a
+  field read of a reply is the reply's or the call's.
+- Not covered: streaming methods; TLS and authentication (calls and the
+  server are plaintext); metadata and deadlines set by the program; a
+  program choosing a status code for its answer; several services with a
+  method of the same name.
+- Code: serve/grpc.star (which methods, the requests, the answers, the
+  calls), host/serve/grpc.go (grpc-go, with dynamic messages from the
+  descriptor set; the conversion of messages), typecheck/infer.star
+  (`_grpc_inputs`, `_grpc_outputs`) and proto.star (`grpc_struct`).
+  Examples: examples/grpc/ (shop.proto; regenerate shop.binpb with `go run
+  -C tools/protoc . -I ../../examples/grpc -o ../../examples/grpc/shop.binpb
+  shop.proto`). Tests: tests/grpc.sh (three servers: prices, shop and
+  tests/grpc/caller.star, driven by forms), tests/types/grpc.star,
+  err_grpc.star.

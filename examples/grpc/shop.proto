@@ -1,0 +1,46 @@
+// The gRPC examples' service (examples/grpc/; EXTENSIONS.md, "gRPC").
+syntax = "proto3";
+
+package shop;
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  BUY = 1;
+  SELL = 2;
+}
+
+message Item {
+  string sku = 1;
+  int32 qty = 2;
+}
+
+message OrderRequest {
+  string customer = 1;
+  Side side = 2;
+  repeated Item items = 3;
+  map<string, string> notes = 4;
+}
+
+message OrderReply {
+  int64 id = 1;
+  string status = 2;
+  int32 total_qty = 3;
+  repeated string skus = 4;
+}
+
+message PriceRequest {
+  string sku = 1;
+}
+
+message PriceReply {
+  string sku = 1;
+  double price = 2;
+}
+
+service Shop {
+  rpc Place(OrderRequest) returns (OrderReply);
+}
+
+service Prices {
+  rpc Quote(PriceRequest) returns (PriceReply);
+}

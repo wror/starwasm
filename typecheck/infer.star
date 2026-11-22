@@ -31,7 +31,7 @@
 load("../compiler/parser.star", "parse_file")
 load("../compiler/resolve.star", "called_names", "dotted_names", "free_names")
 load("../compiler/spell.star", "nearest")
-load("proto.star", "FIELD", "FILE", "MAP", "MODULE", "TYPE", "file_type", "message_field", pb_field_type = "field_type", pb_hint = "hint", pb_kind = "kind")
+load("proto.star", "grpc_role", "grpc_struct", "GRPC_ROLES", "FIELD", "FILE", "MAP", "MODULE", "TYPE", "file_type", "message_field", pb_field_type = "field_type", pb_hint = "hint", pb_kind = "kind")
 load(
     "stubs.star",
     "child_scope",
@@ -82,6 +82,7 @@ load(
     "unify",
     "unify_report",
     "setter",
+    "hint",
     "watch",
     "contagious_vars",
     WIDENABLE = "WIDENABLE",
@@ -175,6 +176,8 @@ def check_module(st, path, from_ctx = None):
     declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, "")
     infer_block(st, fc, stmts)
     finish_scope(st, scope)
+    if st["pb"] != None:
+        _grpc_outputs(st, fc, scope)
     default_pending(st, -1)
     mod["state"] = "done"
     return mod
@@ -364,6 +367,8 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
             h = nearest(name, order)
             report(st, ctx, mod["path"] + " has no " + kind + " '" + name + "'" + (" in " + where if where else "") +
                             (" (did you mean '" + h + "'?)" if h else ""))
+    if where == "" and st["pb"] != None:
+        _grpc_inputs(st, fc, scope)
 
 def _node_params(node):
     """The def's parameters as (name, star, has default, keyword-only)."""
@@ -2314,3 +2319,135 @@ def _pb_assign(st, fc, m, target, t, value):
     if st["contagious"] and not _pb_safe(st, g, t, value):
         _fails(st, fc)
     flow_report(st, t, mk_opt(setter(st, g, fc["scope"]["level"], ctx)), ctx)
+
+# ---- gRPC (EXTENSIONS.md, "gRPC"): bin/starserve gives a reactive program
+# the requests and replies of a method M as members of relations named
+# M_request, M_reply, M_failure, and takes M_response and M_call's members
+# as answers and calls; with a descriptor set they are typed from the
+# messages (proto.star's grpc_struct).
+
+def _grpc_inputs(st, fc, scope):
+    """The relations a program is given: their members' types."""
+    pool = st["pb"]
+    for name in scope["order"]:
+        b = scope["vars"][name]
+        r = grpc_role(pool, name)
+        if r == None or GRPC_ROLES[r[1]][1] != "in" or b["kind"] not in ("relation", "var"):
+            continue
+        m, suffix, msg = r
+        at = _ctx(fc, b["pos"], "what bin/starserve gives " + name + " (" + m["service"] + "/" + m["name"] + ")")
+        level = scope["level"]
+        ids = [field(lit("id"), con("int"), at)]
+        if suffix == "_request":
+            t = rec(row(ids + flatten(grpc_struct(pool, msg)["row"])), at)
+        else:
+            # (then the call's own fields, which it gives back)
+            call = [field(lit(m["name"] + "_call_id"), con("int"), at)]
+            if suffix == "_reply":
+                body = [it for it in flatten(grpc_struct(pool, msg)["row"]) if resolve_label(it["label"])["name"] != "id"]
+            else:
+                body = [field(lit("code"), con("str"), at), field(lit("message"), con("str"), at)]
+            t = rec(row(ids + call + body + [new_var(st, "row", level)]), at)
+        unify_report(st, b["type"], t, at)
+
+def _grpc_fits(st, t, f, ctx, what):
+    """Can a value of type t be field f of a message, as bin/starserve
+    converts it (a name or number for an enum, a string for bytes, a
+    struct for a message, a list for a repeated field, a list of
+    struct(key, value) or a dict for a map)? Reports where it can't."""
+    pool = st["pb"]
+    r = head(st, t)
+    if is_con(r, "opt"):
+        r = head(st, r["args"][0])  # (None leaves the field out)
+    if r["k"] == "var" or is_con(r, "Any") or is_con(r, "None"):
+        return
+    sub = pool["msgs"].get(f["type_name"])
+    bad = lambda want: report(st, ctx, what + ": expected " + want + " for " + f["name"] + ", got " + show(r))
+    if f["label"] == 3 and sub != None and sub["map_entry"]:
+        if is_con(r, "dict"):
+            _grpc_fits(st, r["args"][0], sub["by_name"]["key"], ctx, what + " (a key)")
+            _grpc_fits(st, r["args"][1], sub["by_name"]["value"], ctx, what + " (a value)")
+        elif r["k"] == "con" and r["name"] in ("list", "vtuple"):
+            e = head(st, r["args"][0])
+            if e["k"] == "rec":
+                _grpc_struct_fits(st, e, sub, ctx, what)
+            elif e["k"] != "var":
+                bad("a list of struct(key, value), or a dict")
+        else:
+            bad("a list of struct(key, value), or a dict")
+        return
+    if f["label"] == 3:
+        if r["k"] == "con" and r["name"] in ("list", "vtuple", "set"):
+            g = dict(f)
+            g["label"] = 1
+            _grpc_fits(st, r["args"][0], g, ctx, what + " (an element)")
+        elif not (r["k"] == "con" and r["name"] in ("tuple", "range")):
+            bad("a list")
+        return
+    k = f["type"]
+    if sub != None:
+        if r["k"] == "rec":
+            _grpc_struct_fits(st, r, sub, ctx, what + "." + f["name"])
+        elif not is_con(r, "dict"):
+            bad("a struct of " + sub["full"] + "'s fields")
+    elif f["type_name"] in pool["enums"] or k == 14:
+        if not (is_con(r, "str") or is_con(r, "int") or r["k"] == "lab"):
+            bad("the name or number of a value of " + f["type_name"])
+    elif k == 12 or k == 9:
+        if not (is_con(r, "str") or r["k"] == "lab" or (k == 12 and is_con(r, "bytes"))):
+            bad("str")
+    elif k == 8:
+        if not is_con(r, "bool"):
+            bad("bool")
+    elif k == 1 or k == 2:
+        if not (is_con(r, "float") or is_con(r, "int")):
+            bad("float")
+    elif not is_con(r, "int"):
+        bad("int")
+
+def _grpc_struct_fits(st, r, m, ctx, what):
+    """The fields of struct type r that message m has fit them (the others
+    are not sent)."""
+    for it in flatten(r["row"]):
+        if it["k"] != "f":
+            continue
+        l = resolve_label(it["label"])
+        f = m["by_name"].get(l["name"]) if l["k"] == "lit" else None
+        if f != None:
+            _grpc_fits(st, it["type"], f, ctx, what)
+
+def _grpc_outputs(st, fc, scope):
+    """The relations a program gives bin/starserve: their members fit the
+    messages."""
+    pool = st["pb"]
+    for name in scope["order"]:
+        b = scope["vars"][name]
+        r = grpc_role(pool, name)
+        if r == None or GRPC_ROLES[r[1]][1] != "out" or b["kind"] not in ("relation", "var"):
+            continue
+        h = head(st, b["type"])
+        if h["k"] == "rec":
+            m = pool["msgs"][r[2]]
+            _grpc_struct_fits(st, h, m, _ctx(fc, b["pos"]), name + " (as a " + m["full"] + ", for " + r[0]["service"] + "/" + r[0]["name"] + ")")
+        if r[1] == "_call" and h["k"] == "rec":
+            # the call's fields that its reply or failure gives back
+            call = {resolve_label(it["label"])["name"]: it["type"] for it in flatten(h["row"]) if it["k"] == "f"}
+            for back in (r[0]["name"] + "_reply", r[0]["name"] + "_failure"):
+                x = scope["vars"].get(back)
+                if x == None:
+                    continue
+                xh = head(st, x["type"])
+                if xh["k"] != "rec":
+                    continue
+                given = pool["msgs"][r[0]["output"]]["by_name"] if back.endswith("_reply") else {"code": 1, "message": 1}
+                for it in flatten(xh["row"]):
+                    n = resolve_label(it["label"])["name"] if it["k"] == "f" else None
+                    if n == None or n in given or n == "id" or n == r[0]["name"] + "_call_id":
+                        continue
+                    if n in call:
+                        unify_report(st, it["type"], call[n], _ctx(fc, x["pos"], "a field of " + name + " that " + back + " gives back"))
+                    else:
+                        o = it.get("at") or _ctx(fc, x["pos"])
+                        report(st, {"file": o["file"], "pos": o["pos"], "role": None},
+                               back + " has no field '" + n + "': it has " + ("the reply's" if back.endswith("_reply") else "code, message") +
+                               ", and " + name + "'s" + hint(n, list(call.keys()) + list(given.keys())))
