@@ -95,7 +95,7 @@ def sleb(n):
     for _ in range(1000):
         b = n & 0x7f
         n = n >> 7  # arithmetic shift
-        if (n == 0 and b & 0x40 == 0) or (n == -1 and b & 0x40 != 0):
+        if (n == 0 and (b & 0x40) == 0) or (n == -1 and (b & 0x40) != 0):
             out.append(b)
             return out
         out.append(b | 0x80)

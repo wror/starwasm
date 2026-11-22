@@ -1047,6 +1047,9 @@ n) ?? None`, it may be None: then `n : 0` prints `half is None`.
 - Also in the type checker: for x a `T | None`, `x ?? y` is a `T` if y is
   (as `x or y` is typed, but without narrowing).
 - There is no `??=`.
+- The type checker requires parentheses where `??` is mixed with a
+  comparison, `and`, `or` or `not` (`x ?? 0 or 5`, `x ?? 1 == 1`): see
+  [PRECEDENCE.md](PRECEDENCE.md).
 - Code: the lexer's token `??`, the parser's lowest precedence level
   (`PREC` in parser.star: a `binop` node with op `"??"`), and the expr
   hook of compiler/ext/none.star, which compiles it in every module,
@@ -1413,6 +1416,10 @@ Positions in `.start` files are reported the same way: unknown names
 most 100 are printed per program. The exit status is 1 if there are any;
 `prog.starit` is then not written. A syntax error (in the program or the
 `.start` file) is reported alone, as the compiler does.
+
+The checker also reports operators mixed without parentheses where their
+precedence is not a shared convention (`a & b == c`, `not x == y`,
+`x / y * z`, `n ?? 0 == 1`): see [PRECEDENCE.md](PRECEDENCE.md).
 
 ### In the REPL
 

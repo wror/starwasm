@@ -1,0 +1,4 @@
+# Types inferred from precedence.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in precedence.start instead.
+
+def checks(a: bool, b: bool, c: bool, x: int, y: int, z: int, n: int, m: int, flags: int, mask: int, xs: list[int]) -> tuple[int, int, int, int, bool, bool, bool, bool, bool, bool, bool, bool, bool, int, bool, int, int, int, int, int, int, bool, int, int, int, int, int, bool, str, int, float]

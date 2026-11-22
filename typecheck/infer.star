@@ -31,6 +31,7 @@
 load("../compiler/parser.star", "parse_file")
 load("../compiler/resolve.star", "called_names", "dotted_names", "free_names")
 load("../compiler/spell.star", "nearest")
+load("precedence.star", "check_stmts")
 load("proto.star", "grpc_role", "grpc_struct", "GRPC_ROLES", "FIELD", "FILE", "MAP", "MODULE", "TYPE", "file_type", "message_field", pb_field_type = "field_type", pb_hint = "hint", pb_kind = "kind")
 load(
     "stubs.star",
@@ -145,6 +146,9 @@ def check_module(st, path, from_ctx = None):
     src = st["read"](path)
     st["sources"][path] = src
     stmts = parse_file(src, path)
+    for at, msg in check_stmts(stmts):
+        # operands that need parentheses (PRECEDENCE.md)
+        report(st, {"file": path, "pos": at, "role": None}, msg)
     if st.get("contagious") == None:
         # (the main file decides: contagious None is on in a program with
         # reactive variables)

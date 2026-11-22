@@ -5,6 +5,7 @@
 # Expressions:
 #   name {id}  int {val}  string {val}
 #   list {elems}  tuple {elems}  dict {entries: [(k, v)]}
+#   paren: True on any parenthesized expression (as `(x)`)
 #   binop {op, x, y}        op: "??" "or" "and" "==" "!=" "<" ">" "<=" ">=" "in"
 #                               "not in" "|" "^" "&" "<<" ">>" "+" "-" "*"
 #                               "/" "//" "%"
@@ -662,7 +663,7 @@ def parse_primary(p):
         x = parse_expr(p, True)
         if x["kind"] == "tuple":
             x["pos"] = pos(t)  # a parenthesized tuple is at its "("
-            x["paren"] = True
+        x["paren"] = True  # (the type checker's precedence rules: typecheck/precedence.star)
         consume(p, ")")
         return x
     if k == "-" or k == "+" or k == "~":
