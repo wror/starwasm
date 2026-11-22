@@ -1,20 +1,26 @@
 // repl.mjs — an interactive Starlark session on top of the compiler.
 //
-//   node host/repl.mjs [--globalreassign] [--globalredefine] [--recursion] [--contagiousnone | --nocontagiousnone]
+//   node host/repl.mjs [--check | --nocheck] [--contagiousnone | --nocontagiousnone]
+//                       [--globalreassign] [--globalredefine] [--recursion] [--rollback]
 //                       [--descriptor_set=FILE] [compiler.wasm]
 //                       (default: compiler/main.star, compiled when needed
 //                        by host/wasmcache.mjs, as host/run.mjs does)
 //
-// The session is compiled in starlark-go's default dialect, as files are:
-// no rebinding a top-level name in a later input (but `_`), no while
-// loops, no if/for at top level, no recursion; the flags turn on the
-// compiler's options of the same name (--globalredefine: --globalreassign,
-// and a function may be defined again too) (--contagiousnone and
-// --nocontagiousnone: the "contagious None" extension, on by default once
-// the session has reactive variables; EXTENSIONS.md). --descriptor_set=FILE:
+// --check (the default): each input is type checked before it runs, and
+// one with type errors is reported and not run (as after `.check on`);
+// --nocheck: inputs are not checked until `.check on`.
+// --contagiousnone (the default) and --nocontagiousnone: the "contagious
+// None" extension (EXTENSIONS.md), on or off in the whole session, with
+// reactive variables or without.
+// Otherwise the session is compiled in starlark-go's default dialect, as
+// files are: no rebinding a top-level name in a later input (but `_`), no
+// while loops, no if/for at top level, no recursion; the other flags turn
+// on the compiler's options of the same name (--globalredefine:
+// --globalreassign, and a function may be defined again too; --rollback:
+// an update in which an error was caught is undone). --descriptor_set=FILE:
 // the binary FileDescriptorSet whose .proto files proto.file() opens, as
 // for host/run.mjs; the type checker then types the proto module's values
-// from it too.
+// from it too. Any other option prints this text.
 //
 // How it works: "replay". The session is the list of inputs accepted so far.
 // Each new input is appended, the whole session is recompiled (by the
@@ -53,9 +59,10 @@
 //   is evaluated once, like any other.
 // - Types (typecheck/, EXTENSIONS.md "Static types"): `.type expr` prints
 //   the type of an expression or name without evaluating it, `.types` the
-//   types of everything defined, and after `.check on` an input with type
-//   errors is reported and not run. The checker (typecheck/main.star) is
-//   compiled when first needed, and cached like any program.
+//   types of everything defined, and while checking is on (--check, the
+//   default, or `.check on`) an input with type errors is reported and not
+//   run. The checker (typecheck/main.star) is compiled when first needed,
+//   and cached like any program.
 // - Commands: .help .history .type .types .check .reset .quit (or end of
 //   input).
 //
@@ -71,10 +78,25 @@ import { fileURLToPath } from "node:url";
 import { compileStar, defaultCompiler } from "./wasmcache.mjs";
 import { pastedInput, Session } from "./repl_core.mjs";
 
+const args = process.argv.slice(2);
 const DIALECT_FLAGS = new Set(["--globalreassign", "--globalredefine", "--recursion", "--contagiousnone", "--nocontagiousnone", "--rollback"]);
-const dialectFlags = process.argv.slice(2).filter((a) => DIALECT_FLAGS.has(a));
-const descriptorSet = process.argv.slice(2).filter((a) => a.startsWith("--descriptor_set=")).map((a) => a.slice("--descriptor_set=".length)).pop();
-const otherArgs = process.argv.slice(2).filter((a) => !DIALECT_FLAGS.has(a) && !a.startsWith("--descriptor_set="));
+const CHECK_FLAGS = new Set(["--check", "--nocheck"]);
+const isOption = (a) => a.startsWith("-") && a !== "-";
+const known = (a) => DIALECT_FLAGS.has(a) || CHECK_FLAGS.has(a) || a.startsWith("--descriptor_set=");
+// an unknown option: the usage, which is the comment at the top of this file
+if (args.some((a) => isOption(a) && !known(a))) {
+  const src = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  const usage = src.match(/^(\/\/.*\n)+/)[0].replace(/^\/\/ ?/gm, "");
+  const help = args.some((a) => a === "--help" || a === "-h");
+  (help ? process.stdout : process.stderr).write(usage);
+  process.exit(help ? 0 : 2);
+}
+const dialectFlags = args.filter((a) => DIALECT_FLAGS.has(a));
+// contagious None by default
+if (!dialectFlags.includes("--nocontagiousnone") && !dialectFlags.includes("--contagiousnone")) dialectFlags.push("--contagiousnone");
+const checking = args.filter((a) => CHECK_FLAGS.has(a)).pop() !== "--nocheck";
+const descriptorSet = args.filter((a) => a.startsWith("--descriptor_set=")).map((a) => a.slice("--descriptor_set=".length)).pop();
+const otherArgs = args.filter((a) => !known(a));
 if (descriptorSet !== undefined && !existsSync(descriptorSet)) {
   console.error(`repl: ${descriptorSet} not found`);
   process.exit(2);
@@ -163,6 +185,7 @@ const session = new Session({
   checker: () => loadModule(compileStar(fileURLToPath(new URL("../typecheck/main.star", import.meta.url)), ["--recursion"],
     otherArgs[0] !== undefined ? readFileSync(compilerPath) : null)),
 });
+session.checking = checking; // --check (the default) or --nocheck
 
 // ---- input loop
 

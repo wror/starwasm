@@ -115,6 +115,15 @@ export function pastedInput(text) {
   return typed.filter((m) => m).map((m) => (m[1] ?? "") + "\n").join("") + open;
 }
 
+// The input as the type checker sees it: an expression (assigned to `_`,
+// as it is when run), or else statements (a reactive definition, `x : 5`,
+// included).
+function checkedCode(src, num) {
+  return looksLikeStatement(src) || reactiveDefs(src).length
+    ? { num, code: src.replace(/\s+$/, ""), offset: 0 }
+    : { num, code: `_ = (\n${src}\n)`, offset: 1 };
+}
+
 function looksLikeStatement(src) {
   const word = /^\s*([A-Za-z_]\w*)/.exec(src);
   if (word && STATEMENT_KEYWORDS.has(word[1])) return true;
@@ -589,9 +598,7 @@ export class Session {
     const lines = [...this.buffer, line];
     const src = lines.join("\n");
     if (src.trim() === "") return [];
-    const r = await this.typecheck(this.history, [], looksLikeStatement(src)
-      ? { num: "?", code: src.replace(/\s+$/, ""), offset: 0 }
-      : { num: "?", code: `_ = (\n${src}\n)`, offset: 1 });
+    const r = await this.typecheck(this.history, [], checkedCode(src, "?"));
     if (r.ok) return [];
     const found = [];
     let at = null; // the diagnostic that notes belong to, if it is in this input
@@ -823,10 +830,7 @@ export class Session {
 
     if (this.checking && !candidates[0].update) {
       // .check on: an input with type errors is not run
-      const expr = !looksLikeStatement(src);
-      const t = await this.typecheck(history, [], expr
-        ? { num, code: `_ = (\n${src}\n)`, offset: 1 }
-        : { num, code: src.replace(/\s+$/, ""), offset: 0 });
+      const t = await this.typecheck(history, [], checkedCode(src, num));
       if (!t.ok) return this.err(t.error);
     }
 
