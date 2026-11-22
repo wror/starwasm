@@ -471,6 +471,44 @@ standard input.
   it to `rt_freeze` of each of the main module's globals and function
   values, except the runtime's `%` variables. Test:
   tests/extensions/reactive_frozen.star.
+- Mutation: the type checker (`node host/typecheck.mjs`) requires that a
+  reactive definition (its value, and a relation's `when`) never mutate
+  a collection that existed before it was computed. That covers:
+  - a global, or a loaded module's value;
+  - another reactive variable's value (`e : pair.append(n)`), which
+    freezing doesn't protect;
+  - a parameter's default value;
+  - a variable a closure captured.
+
+  The rule holds whether the definition mutates directly
+  (`counts.update(n = n)`), through a function it calls, transitively
+  (`via(n)`, where `via` calls `record`, which calls `log.append`), or by
+  passing to a function a collection the function mutates
+  (`fill(log, n)`). The first run, which freezing doesn't cover, is
+  checked the same way. A definition may build and fill collections of
+  its own: `fill([], n)`, or a function that makes a list, appends to it
+  and returns it.
+
+  The analysis follows where each collection comes from:
+  - made here;
+  - passed in as a parameter;
+  - a global;
+  - unknown, which counts as not made here.
+
+  Each function gets a summary of which parameters it mutates and
+  whether it mutates anything else. Globals that the inferred types say
+  hold numbers, strings, bools or None are never collections. Passing,
+  storing or returning a function that mutates counts as mutating, as it
+  may later be called with anything. So does a top-level variable that
+  holds one (`bump = make_counter()`).
+
+  Each error has notes down the chain of calls to the mutation itself.
+  Top-level expression statements (observers) are not checked: freezing
+  covers them at run time.
+
+  Code: typecheck/mutation.star (run by `check_module` in
+  typecheck/infer.star). Tests: tests/types/mutation.star,
+  err_mutation.star, modules/journal.star.
 - Input lines: `name : value`, several separated by `;` (`name = value`
   is refused: "want : after name"); blank lines and `#` comments are
   ignored. A value is a literal, nothing else: an int or float (with an

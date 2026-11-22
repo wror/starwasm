@@ -1,0 +1,58 @@
+tests/types/err_mutation.star:36:5: error: reactive variable 'a' may mutate a collection that existed before it was computed: via() is called here
+   36 | a : via(n)                     # transitively, a global
+      |     ^
+tests/types/err_mutation.star:14:12: note: record() is called here
+   14 |     return record(x) + 1
+      |            ^
+tests/types/err_mutation.star:10:8: note: log.append() mutates global variable 'log'
+   10 |     log.append(x)
+      |        ^
+tests/types/err_mutation.star:37:5: error: reactive variable 'b' may mutate a collection that existed before it was computed: fill() is called with global variable 'log' as its parameter 'out', which it mutates
+   37 | b : fill(log, n)               # a global, passed to a function that mutates it
+      |     ^
+tests/types/err_mutation.star:18:12: note: out.append() mutates parameter 'out'
+   18 |         out.append(i)
+      |            ^
+tests/types/err_mutation.star:38:5: error: reactive variable 'c' may mutate a collection that existed before it was computed: remember() is called here
+   38 | c : remember(n)                # a default value, kept between calls
+      |     ^
+tests/types/err_mutation.star:22:9: note: seen.append() mutates the default value of parameter 'seen' of remember()
+   22 |     seen.append(x)
+      |         ^
+tests/types/err_mutation.star:39:5: error: reactive variable 'd' may mutate a collection that existed before it was computed: 'bump' holds a function that mutates what it is given or keeps
+   39 | d : bump()                     # a closure's captured variable
+      |     ^
+tests/types/err_mutation.star:32:8: note: make_counter() is called here
+   32 | bump = make_counter()
+      |        ^
+tests/types/err_mutation.star:30:12: note: bump(), which mutates what it is given or keeps, is used as a value here
+   30 |     return bump
+      |            ^
+tests/types/err_mutation.star:28:12: note: assigning to box[...] mutates a collection that make_counter() made, and a function it made keeps
+   28 |         box[0] += 1
+      |            ^
+tests/types/err_mutation.star:40:9: error: reactive variable 'e' may mutate a collection that existed before it was computed: pair.append() mutates the value of reactive variable 'pair'
+   40 | e : pair.append(n)             # another reactive variable's value
+      |         ^
+tests/types/err_mutation.star:41:11: error: reactive variable 'f' may mutate a collection that existed before it was computed: counts.update() mutates global variable 'counts'
+   41 | f : counts.update(n = n)       # directly
+      |           ^
+tests/types/err_mutation.star:42:21: error: reactive variable 'g' may mutate a collection that existed before it was computed: record(), which mutates what it is given or keeps, is used as a value here
+   42 | g : [h(n) for h in [record]]   # a mutating function, as a value
+      |                     ^
+tests/types/err_mutation.star:10:8: note: log.append() mutates global variable 'log'
+   10 |     log.append(x)
+      |        ^
+tests/types/err_mutation.star:43:5: error: reactive variable 'i' may mutate a collection that existed before it was computed: note() is called here
+   43 | i : note(n)                    # a loaded module's global
+      |     ^
+tests/types/modules/journal.star:7:12: note: entries.append() mutates global variable 'entries'
+    7 |     entries.append(x)
+      |            ^
+tests/types/err_mutation.star:44:5: error: reactive variable 'j' may mutate a collection that existed before it was computed: collect() is called with global variable 'log' as its parameter 'out', which it mutates
+   44 | j : collect(log, n)            # ... and a loaded function's parameter
+      |     ^
+tests/types/modules/journal.star:11:8: note: out.append() mutates parameter 'out'
+   11 |     out.append(x)
+      |        ^
+9 type errors in tests/types/err_mutation.star
