@@ -148,8 +148,9 @@ done
 echo "bootstrap: self-compiled compiler: identical output on $n programs, identical compile errors on $nerr"
 
 # REPL (host/repl.mjs, on the self-compiled compiler): a scripted session
-# against its expected transcript.
-if node host/repl.mjs out/stage2.wasm < tests/repl/session.in > out/repl.out 2>&1 &&
+# against its expected transcript. (--nocheck: as the browser REPL starts,
+# whose transcripts are the same.)
+if node host/repl.mjs out/stage2.wasm --nocheck < tests/repl/session.in > out/repl.out 2>&1 &&
    diff -u tests/repl/session.out out/repl.out; then
   echo "repl: ok ($(grep -c . tests/repl/session.in | tr -d ' ') input lines)"
 else
@@ -171,7 +172,7 @@ else
   echo "repl (browser mode): MISMATCH"; fail=1
 fi
 # The type checker in the REPL (.type, .types, .check), both ways.
-if node host/repl.mjs out/stage2.wasm < tests/repl/types.in > out/repl_types.out 2>&1 &&
+if node host/repl.mjs out/stage2.wasm --nocheck < tests/repl/types.in > out/repl_types.out 2>&1 &&
    diff -u tests/repl/types.out out/repl_types.out &&
    node tests/repl/browser_mode.mjs out/stage2.wasm < tests/repl/types.in > out/repl_types_browser.out 2>&1 &&
    diff -u tests/repl/types.out out/repl_types_browser.out; then

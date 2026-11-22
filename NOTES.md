@@ -303,7 +303,10 @@ has warmed up the compiler.
   are top-level for/if, while and recursion; `_` is exempt (compiler
   --repl). `node host/repl.mjs --globalreassign --recursion` passes the
   flags on, and `--descriptor_set=FILE` the proto module's descriptor set
-  (to the compiler and the type checker).
+  (to the compiler and the type checker). By default it adds
+  `--contagiousnone` (unless `--nocontagiousnone`) and type checks each
+  input (`.check on`; `--nocheck` turns that off); an unknown option
+  prints the comment at the top of host/repl.mjs.
 - A failing input (compile or runtime error) is dropped, so state stays as
   before it; errors and tracebacks are mapped to `<input N>:line:col`.
 - Blocks (first line ends with ":") end with an empty line; open brackets,

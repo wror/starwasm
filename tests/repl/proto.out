@@ -1,8 +1,8 @@
 "k"
-proto.RepeatedField[sw.p3.Node]
+proto.RepeatedField[sw.p3.Node] | None
 sw.p3.Node.Inner.Kind
-sw.p3.Scalars
-str
+sw.p3.Scalars | None
+str | None
 type checking of inputs is on
 <input 4>:1:2: error: sw.p3.Node has no .nmae field
       | n.nmae
@@ -18,6 +18,6 @@ type checking of inputs is on
       |  ^
 sw.p3.Scalars(i32=4)
 p3: proto.FileDescriptor["p3.proto"]
-n: sw.p3.Node
+n: sw.p3.Node | None
 _: sw.p3.Scalars
 s: sw.p3.Scalars

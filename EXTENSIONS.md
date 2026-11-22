@@ -811,7 +811,8 @@ n) ?? None`, it may be None: then `n : 0` prints `half is None`.
   off in any other. The compiler options `--contagiousnone` and
   `--nocontagiousnone` (compiler/main.star, host/run.mjs, host/repl.mjs; a
   checkbox in the browser REPL) turn it on or off whatever the program
-  has. It applies to the whole program: the main file and the modules it
+  has; host/repl.mjs passes `--contagiousnone` unless given
+  `--nocontagiousnone`. It applies to the whole program: the main file and the modules it
   loads. Off, None is starlark-go's and `provenance` is undefined.
 - Contagion: the result of an operation with a None operand is that None
   (the first one, left to right; the operands are all evaluated, and the
@@ -1492,9 +1493,10 @@ of different types from one input to the next.
 - `.types` prints the types of everything defined so far, as a `.starit`
   file would have them.
 - `.check on` checks each input before it runs: one with type errors is
-  reported and not run (so not kept). `.check off` (the default) runs
-  everything, as before. Updates of reactive variables (`x : 5`) are not
-  checked.
+  reported and not run (so not kept). `.check off` runs everything. In
+  the terminal REPL checking is on from the start (`--nocheck`: off); in
+  the browser it starts off. Updates of reactive variables (`x : 5`) are
+  not checked.
 - Modules that the session `load()`s are checked with their `.start`
   files, if they have any; the session itself has none.
 - Protocol buffers: `node host/repl.mjs --descriptor_set=set.binpb` gives
