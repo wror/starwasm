@@ -17,6 +17,8 @@ at the top of the checkout:
     printf 'qty : 3\n' | node host/run.mjs examples/total.star   # a reactive program
     (cd host && go build -o ../bin/starserve ./serve)
     bin/starserve examples/order/order.star           # a reactive program as a web site: http://localhost:8080/
+    bin/starserve --addr=none --descriptor_set=examples/grpc/shop.binpb \
+        --grpc=localhost:50061 examples/grpc/prices.star  # ... or a gRPC server (and client: EXTENSIONS.md, "gRPC")
     ./test.sh                                         # everything
 
 A program's first run takes a while (it is compiled); the Wasm is cached
@@ -29,5 +31,6 @@ standard input assigns new values); contagious None, which makes a
 running reactive program keep going through errors: what fails becomes a
 None that carries the error, and an update in which a variable would be
 None where its definition doesn't allow it (`... ?? None`) is undone as a
-whole and recorded in that variable's relation of errors; and serving a reactive program as web
-pages, from HTML templates.
+whole and recorded in that variable's relation of errors; serving a reactive program as web
+pages, from HTML templates; and gRPC, served and called, with requests and
+replies as members of relations.

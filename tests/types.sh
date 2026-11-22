@@ -20,8 +20,9 @@ fail=0
 n=0
 nerr=0
 starts=$(for f in tests/types/modules/*.start; do printf ' --start=%s' "$f"; done)
-# the proto tests' schemas (tests/proto/README.md), for every program
-ds=--descriptor_set=tests/proto/test.binpb
+# the proto tests' schemas (tests/proto/README.md), for every program but
+# one whose first line names another: "# descriptor_set: FILE"
+ds0=--descriptor_set=tests/proto/test.binpb
 
 # interpreted <file.star> [--start=...]: prints what the driver would
 # (types on stdout; else diagnostics and the summary line)
@@ -37,6 +38,9 @@ interpreted() {
 
 for src in tests/types/*.star; do
   name=$(basename "$src" .star)
+  ds=$ds0
+  own_ds=$(sed -n '1s/^# descriptor_set: //p' "$src")
+  [ -n "$own_ds" ] && ds=--descriptor_set=$own_ds
   own=""
   [ -f "tests/types/$name.start" ] && own="--start=tests/types/$name.start"
   s1=0; interpreted $own $starts "$src" > "out/types_$name.interp" || s1=1

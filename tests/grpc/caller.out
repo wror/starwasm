@@ -1,0 +1,6 @@
+<p>Place 1: bob: 3 at 0.75 (3; pear)</p>
+<p>Place 2: cy: 4 at 1.0 (4; kiwi, kiwi)</p>
+<p>Quote 1: plum 1.25 (asked: yes)</p>
+<p>Place 3 failed: INVALID_ARGUMENT: Quote_call.sku would be None (customer di)</p>
+<p>Place 4 failed: DEADLINE_EXCEEDED: ... (customer ed)</p>
+<p>Place 5 failed: UNAVAILABLE: connection error: desc = "transport: Error while dialing: dial tcp ADDR: connect: connection refused" (customer fay)</p>

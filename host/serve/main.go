@@ -20,6 +20,15 @@
 //	--root=DIR         the starwasm checkout (default: the parent of this
 //	                   binary's directory)
 //	--now=TEXT         the time given to every request, instead of the clock's
+//	--descriptor_set=FILE  a binary FileDescriptorSet: the program's proto
+//	                   module's (as host/run.mjs's), and the services for gRPC
+//	--grpc=HOST:PORT   serve the methods the program answers over gRPC
+//	                   (serve/grpc.star; EXTENSIONS.md, "gRPC")
+//	--grpc_target=[SERVICE=]HOST:PORT  where to call SERVICE's methods
+//	                   (without SERVICE: any service's); repeatable
+//	--grpc_timeout=DURATION  how long a call, or a request's answer, may
+//	                   take (default 30s)
+//	--addr=none        serve no HTTP (gRPC only)
 //	--globalreassign, --recursion, --contagiousnone, --nocontagiousnone,
 //	--rollback         the compiler's
 package main
@@ -27,6 +36,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"google.golang.org/grpc"
 	"io"
 	"net"
 	"net/http"
@@ -169,6 +179,9 @@ func message(err error) string {
 func main() {
 	addr := "localhost:8080"
 	templates, root, now := "", "", ""
+	descriptorSet, grpcAddr := "", ""
+	targets := map[string]string{}
+	timeout := 30 * time.Second
 	run := []starlark.Value{}
 	args := os.Args[1:]
 	for ; len(args) > 0 && strings.HasPrefix(args[0], "--"); args = args[1:] {
@@ -182,6 +195,25 @@ func main() {
 			root = strings.TrimPrefix(a, "--root=")
 		case strings.HasPrefix(a, "--now="):
 			now = strings.TrimPrefix(a, "--now=")
+		case strings.HasPrefix(a, "--descriptor_set="):
+			descriptorSet = strings.TrimPrefix(a, "--descriptor_set=")
+			run = append(run, starlark.String(a))
+		case strings.HasPrefix(a, "--grpc="):
+			grpcAddr = strings.TrimPrefix(a, "--grpc=")
+		case strings.HasPrefix(a, "--grpc_target="):
+			t := strings.TrimPrefix(a, "--grpc_target=")
+			svc, addr, found := strings.Cut(t, "=")
+			if !found {
+				svc, addr = "", t
+			}
+			targets[svc] = addr
+		case strings.HasPrefix(a, "--grpc_timeout="):
+			d, err := time.ParseDuration(strings.TrimPrefix(a, "--grpc_timeout="))
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "starserve:", err)
+				os.Exit(2)
+			}
+			timeout = d
 		case strings.HasPrefix(a, "--journal="), a == "--globalreassign", a == "--recursion",
 			a == "--contagiousnone", a == "--nocontagiousnone", a == "--rollback":
 			run = append(run, starlark.String(a))
@@ -191,7 +223,7 @@ func main() {
 		}
 	}
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: starserve [--addr=HOST:PORT] [--templates=DIR] [--journal=FILE] [compiler options] <program.star>")
+		fmt.Fprintln(os.Stderr, "usage: starserve [--addr=HOST:PORT|none] [--templates=DIR] [--journal=FILE] [--descriptor_set=FILE [--grpc=HOST:PORT] [--grpc_target=[SERVICE=]HOST:PORT]...] [compiler options] <program.star>")
 		os.Exit(2)
 	}
 	program := args[0]
@@ -253,12 +285,89 @@ func main() {
 		die(err)
 	}
 
-	// Listen before starting the program: an address in use is found at once.
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		die(err)
+	// gRPC: the methods of the descriptor set's services that the program
+	// serves and calls (serve/grpc.star's plan)
+	var g *grpcHost
+	var extra []starlark.Value
+	var grpcPlan starlark.Value
+	if grpcAddr != "" || len(targets) > 0 {
+		if descriptorSet == "" {
+			die(fmt.Errorf("--grpc and --grpc_target need --descriptor_set=FILE, for the services"))
+		}
+		files, err := readPool(descriptorSet)
+		if err != nil {
+			die(err)
+		}
+		gmod, err := load(thread, "grpc.star")
+		if err != nil {
+			die(err)
+		}
+		g = &grpcHost{thread: thread, module: gmod, byName: map[string]*method{}, served: map[string]*method{}, waiting: map[string]chan answer{},
+			conns: map[string]*grpc.ClientConn{}, targets: targets, timeout: timeout}
+		var ms []starlark.Value
+		all := map[string]*method{}
+		for _, m := range methods(files) {
+			all[m.path] = m
+			d := starlark.NewDict(6)
+			d.SetKey(starlark.String("name"), starlark.String(m.name))
+			d.SetKey(starlark.String("path"), starlark.String(m.path))
+			d.SetKey(starlark.String("service"), starlark.String(m.service))
+			d.SetKey(starlark.String("streaming"), starlark.Bool(m.streaming))
+			ms = append(ms, d)
+		}
+		tdict := starlark.NewDict(len(targets))
+		for k, v := range targets {
+			tdict.SetKey(starlark.String(k), starlark.String(v))
+		}
+		grpcPlan, err = g.call("plan", starlark.String(program), starlark.NewList(ms), tdict)
+		if err != nil {
+			die(err)
+		}
+		pd := grpcPlan.(*starlark.Dict)
+		errs, _ := dictGet(pd, "errors")
+		if es := listOf(errs); len(es) > 0 {
+			for _, e := range es {
+				s, _ := starlark.AsString(e)
+				fmt.Fprintln(os.Stderr, "starserve: grpc:", s)
+			}
+			prog.stop()
+			os.Exit(1)
+		}
+		for _, role := range []string{"served", "called"} {
+			v, _ := dictGet(pd, role)
+			for _, m := range listOf(v) {
+				p, _ := dictGet(m.(*starlark.Dict), "path")
+				ps, _ := starlark.AsString(p)
+				g.byName[all[ps].name] = all[ps]
+				if role == "served" {
+					g.served[ps] = all[ps]
+				}
+			}
+		}
+		x, _ := dictGet(pd, "extra")
+		extra = listOf(x)
+		if grpcAddr != "" {
+			served, _ := dictGet(pd, "served")
+			if len(listOf(served)) == 0 {
+				die(fmt.Errorf("--grpc: the program serves no method of the descriptor set's services (it would define <Method>_response)"))
+			}
+		}
 	}
-	config := starlark.NewDict(4)
+
+	// Listen before starting the program: an address in use is found at once.
+	var listener, grpcListener net.Listener
+	if addr != "none" {
+		if listener, err = net.Listen("tcp", addr); err != nil {
+			die(err)
+		}
+	}
+	if grpcAddr != "" {
+		if grpcListener, err = net.Listen("tcp", grpcAddr); err != nil {
+			die(err)
+		}
+	}
+	config := starlark.NewDict(5)
+	config.SetKey(starlark.String("extra"), starlark.NewList(extra))
 	config.SetKey(starlark.String("id"), starlark.String(fmt.Sprintf("%x", time.Now().UnixNano())))
 	config.SetKey(starlark.String("program"), starlark.String(program))
 	config.SetKey(starlark.String("templates"), starlark.String(templates))
@@ -271,6 +380,15 @@ func main() {
 	}
 
 	var mu sync.Mutex // the program takes one update at a time
+	if g != nil {
+		g.server, g.mu = server, &mu
+		if _, err := g.call("setup", server, grpcPlan); err != nil {
+			die(err)
+		}
+		mu.Lock()
+		g.after() // (calls the first run makes)
+		mu.Unlock()
+	}
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := r.ParseForm(); err != nil {
@@ -300,6 +418,9 @@ func main() {
 
 		mu.Lock()
 		res, err := starlark.Call(thread, globals["handle"], starlark.Tuple{server, req}, nil)
+		if g != nil {
+			g.after() // (a post may make calls, and answer requests)
+		}
 		mu.Unlock()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, message(err))
@@ -330,6 +451,17 @@ func main() {
 		prog.stop()
 		os.Exit(0)
 	}()
+	if grpcListener != nil {
+		gs := grpc.NewServer(grpc.UnknownServiceHandler(g.handle), grpc.ForceServerCodec(rawCodec{}))
+		fmt.Fprintf(os.Stderr, "starserve: grpc://%s\n", grpcListener.Addr())
+		if listener == nil {
+			die(gs.Serve(grpcListener))
+		}
+		go func() { die(gs.Serve(grpcListener)) }()
+	}
+	if listener == nil {
+		select {} // (--addr=none and no --grpc: just the calls)
+	}
 	fmt.Fprintf(os.Stderr, "starserve: http://%s/\n", listener.Addr())
 	die(http.Serve(listener, http.HandlerFunc(handler)))
 }

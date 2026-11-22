@@ -53,7 +53,12 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
                           from templates (an extension: EXTENSIONS.md,
                           "Serving reactive programs")
     host/serve/main.go    runs it: bin/starserve prog.star, Go's net/http
+    serve/grpc.star       ... and over gRPC, served and called (EXTENSIONS.md,
+                          "gRPC"); host/serve/grpc.go is grpc-go and the
+                          messages' conversion
     examples/order/       its example: an order book, its pages and style.css
+    examples/grpc/        gRPC examples: shop.proto, a server, a server that
+                          calls another, a client with web pages
     examples/demo.star    milestone 1 demo (i64 factorial)
     tests/*_test.star     Starlark unit tests (encoder bytes vs. spec)
     tests/runtime/        differential test: expect.star (starlark-go) vs
@@ -69,6 +74,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
                           must print <name>.out (tests/extensions.sh)
     tests/serve.sh        test of bin/starserve: requests and the expected
                           responses (tests/serve/order.out)
+    tests/grpc.sh         test of its gRPC: examples/grpc/ and
+                          tests/grpc/caller.star, three servers
     tests/types/          tests of the type checker: programs with their
                           expected inferred types (.starit) or diagnostics
                           (.err) (tests/types.sh)
@@ -85,7 +92,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
 
 Setup: `cd host && go get go.starlark.net@latest && go mod tidy`, then
 `./test.sh`. (host/ needs google.golang.org/protobuf too, for the proto
-module: `go mod tidy` adds its go.sum lines.) Requires Go and Node ≥ 22 (WasmGC on by default).
+module, and google.golang.org/grpc, for bin/starserve's gRPC: `go mod tidy`
+adds their go.sum lines.) Requires Go and Node ≥ 22 (WasmGC on by default).
 
 ## Encoder conventions (lib/wasm.star)
 

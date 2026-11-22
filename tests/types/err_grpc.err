@@ -1,0 +1,16 @@
+tests/types/err_grpc.star:3:3: error: Place_response (as a shop.OrderReply, for shop.Shop/Place): expected int for total_qty, got str
+    3 | a Place_response:
+      |   ^
+tests/types/err_grpc.star:3:3: error: Place_response (as a shop.OrderReply, for shop.Shop/Place): expected a list for skus, got str
+    3 | a Place_response:
+      |   ^
+tests/types/err_grpc.star:6:35: error: struct has no field 'nope'; it has 'sku', 'qty'
+    6 |     status: Place_request.items[0].nope
+      |                                   ^
+tests/types/err_grpc.star:8:3: error: Quote_call (as a shop.PriceRequest, for shop.Prices/Quote): expected str for sku, got int
+    8 | a Quote_call:
+      |   ^
+tests/types/err_grpc.star:12:49: error: Quote_reply has no field 'weight': it has the reply's, and Quote_call's
+   12 |     cents: Quote_reply.price * 100 + Quote_reply.weight
+      |                                                 ^
+5 type errors in tests/types/err_grpc.star

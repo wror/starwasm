@@ -12,7 +12,7 @@ if [ ! -x bin/upstreamhost ] || [ host/upstream/main.go -nt bin/upstreamhost ]; 
   (cd host && go build -o ../bin/upstreamhost ./upstream)
 fi
 
-if [ ! -x bin/starserve ] || [ host/serve/main.go -nt bin/starserve ]; then
+if [ ! -x bin/starserve ] || [ host/serve/main.go -nt bin/starserve ] || [ host/serve/grpc.go -nt bin/starserve ]; then
   (cd host && go build -o ../bin/starserve ./serve)
 fi
 
@@ -85,6 +85,7 @@ tests/journal.sh || fail=1
 # The template language (template/) and the web server on it (serve/).
 template/test.sh || fail=1
 tests/serve.sh || fail=1
+tests/grpc.sh || fail=1
 # The type checker (typecheck/): expected inferred types and diagnostics,
 # with the checker interpreted and self-compiled.
 tests/types.sh || fail=1

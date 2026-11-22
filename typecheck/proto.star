@@ -117,7 +117,7 @@ def decode_pool(data):
     members: name -> ("msg" | "enum", full name) | ("ext", field), the
     nested types and extensions (a file's top-level ones)."""
     o = list(data.elem_ords())
-    pool = {"files": {}, "msgs": {}, "enums": {}, "exts": []}
+    pool = {"files": {}, "msgs": {}, "enums": {}, "exts": [], "methods": {}}
     for num, wt, v in _fields(data, o, 0, len(o)):
         if num == 1 and wt == 2:
             _file(pool, data, o, v)
@@ -171,7 +171,33 @@ def _file(pool, data, o, span):
             f = _field(data, o, v, None)
             pool["exts"].append(f)
             fd["members"].setdefault(f["name"], ("ext", f))
+        elif num == 6 and wt == 2:
+            _service(pool, data, o, v, fd["package"])
     pool["files"].setdefault(fd["name"], fd)
+
+def _service(pool, data, o, span, prefix):
+    """A service's methods go in pool["methods"]: name -> [{service, name,
+    input, output (full names), streaming}] (several services may have a
+    method of a name)."""
+    name = ""
+    raw = _fields(data, o, span[0], span[1])
+    for num, wt, v in raw:
+        if num == 1 and wt == 2:
+            name = _str(data, v)
+    for num, wt, v in raw:
+        if num != 2 or wt != 2:
+            continue
+        m = {"service": _join(prefix, name), "name": "", "input": "", "output": "", "streaming": False}
+        for n2, w2, v2 in _fields(data, o, v[0], v[1]):
+            if n2 == 1 and w2 == 2:
+                m["name"] = _str(data, v2)
+            elif n2 == 2 and w2 == 2:
+                m["input"] = _str(data, v2).removeprefix(".")
+            elif n2 == 3 and w2 == 2:
+                m["output"] = _str(data, v2).removeprefix(".")
+            elif (n2 == 5 or n2 == 6) and w2 == 0 and v2 != 0:
+                m["streaming"] = True
+        pool["methods"].setdefault(m["name"], []).append(m)
 
 def _message(pool, data, o, span, prefix):
     m = {"full": "", "name": "", "fields": [], "by_name": {}, "members": {}, "exts": [], "map_entry": False, "required": False}
@@ -400,3 +426,67 @@ PB = struct(
     kind = kind,
     hint = hint,
 )
+
+# ---------------------------------------------------------------- gRPC
+#
+# bin/starserve gives a reactive program the requests and replies of gRPC
+# methods as structs of the messages' fields (EXTENSIONS.md, "gRPC"): an
+# enum is its value's name, bytes a string, a map a list of struct(key,
+# value), a message a struct. infer.star types the relations of those
+# names (M_request, M_reply, M_failure) from it, and checks what the
+# program defines (M_response, M_call) against it.
+
+GRPC_ROLES = {"_request": ("input", "in"), "_reply": ("output", "in"), "_failure": (None, "in"),
+              "_response": ("output", "out"), "_call": ("input", "out")}
+
+def grpc_role(pool, name):
+    """(method, role suffix, message full name or None) if name is one of
+    the relations of a gRPC method (unary, of one service only), else
+    None."""
+    if pool == None:
+        return None
+    for suffix in GRPC_ROLES:
+        if name.endswith(suffix):
+            ms = pool["methods"].get(name[:-len(suffix)])
+            if ms == None or len(ms) != 1 or ms[0]["streaming"]:
+                return None
+            which = GRPC_ROLES[suffix][0]
+            return (ms[0], suffix, ms[0][which] if which else None)
+    return None
+
+def _grpc_scalar(pool, f, depth):
+    t = f["type"]
+    if t == 0 and f["type_name"] != "":
+        t = 11 if f["type_name"] in pool["msgs"] else 14
+    if t == 1 or t == 2:
+        return con("float")
+    if t in INT_TYPES:
+        return con("int")
+    if t == 8:
+        return con("bool")
+    if t == 9 or t == 12 or t == 14:
+        return con("str")
+    if t == 10 or t == 11:
+        return grpc_struct(pool, f["type_name"], depth + 1)
+    return T_ANY
+
+def grpc_field_type(pool, f, depth = 0):
+    """The type of field f's value in the struct of a message."""
+    m = pool["msgs"].get(f["type_name"])
+    if f["label"] == 3 and m != None and m["map_entry"]:
+        k = m["by_name"].get("key")
+        v = m["by_name"].get("value")
+        entry = rec(row([field(lit("key"), _grpc_scalar(pool, k, depth) if k else T_ANY),
+                         field(lit("value"), _grpc_scalar(pool, v, depth) if v else T_ANY)]))
+        return con("list", [entry])
+    if f["label"] == 3:
+        return con("list", [_grpc_scalar(pool, f, depth)])
+    return _grpc_scalar(pool, f, depth)
+
+def grpc_struct(pool, full, depth = 0):
+    """The struct type of message `full` as a program gets it (Any where a
+    message would hold itself, a few levels down)."""
+    m = pool["msgs"].get(full)
+    if m == None or depth > 6:
+        return T_ANY
+    return rec(row([field(lit(f["name"]), grpc_field_type(pool, f, depth)) for f in m["fields"]]))
