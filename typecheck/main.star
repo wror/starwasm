@@ -35,9 +35,9 @@
 
 load("builtins.star", "load_builtins")
 load("infer.star", "check_module", "new_scope")
-load("proto.star", "decode_pool", pb_members = "members")
+load("proto.star", "REPEATED", "TYPE", "decode_pool", pb_field_type = "field_type", pb_kind = "kind", pb_members = "members")
 load("unify.star", "method_type")
-load("types.star", "collect_generic", "con", "flatten", "new_namer", "resolve", "resolve_label", "show", "show_params", "show_tparams")
+load("types.star", "collect_generic", "con", "fn", "param", "flatten", "new_namer", "resolve", "resolve_label", "show", "show_params", "show_tparams")
 
 MAX_SHOWN = 100  # diagnostics printed for one program
 
@@ -159,8 +159,13 @@ def parameters(st, mod, name):
     (for completion of keyword arguments): "name\ttype" for each, in order
     (and "\tkw" if it is keyword-only). Of a
     builtin, only the keyword-only ones (the others are positional in
-    starlark-go)."""
+    starlark-go). Of a proto message's descriptor, its fields (keyword
+    parameters), with the types they hold."""
     t = _queried(st, mod, name)
+    if t != None and t["k"] == "con" and t["name"] == TYPE and pb_kind(st["pb"], resolve(t["args"][0])) == "msg":
+        nm = new_namer(True)
+        nm["all"] = True
+        return [f["name"] + "\t" + show(pb_field_type(st["pb"], f), nm) + "\tkw" for f in st["pb"]["msgs"][resolve(t["args"][0])["name"]]["fields"]]
     if t == None or t["k"] != "fn":
         return []
     role = (t.get("at") or {}).get("role") or ""
@@ -193,6 +198,8 @@ def attributes(st, mod, name):
                     out.append(l["name"] + "\t" + show(it["type"], nm))
         return out
     ms = pb_members(st["pb"], t)
+    if t["k"] == "con" and t["name"] == REPEATED:
+        ms = [("append", fn([param("x", t["args"][0])], con("None")))]  # (its only method)
     if ms != None:
         nm = new_namer(True)
         nm["all"] = True

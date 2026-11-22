@@ -1451,6 +1451,15 @@ of different types from one input to the next.
   checked.
 - Modules that the session `load()`s are checked with their `.start`
   files, if they have any; the session itself has none.
+- Protocol buffers: `node host/repl.mjs --descriptor_set=set.binpb` gives
+  the session the descriptor set, for the compiler (proto.file() opens
+  its files) and for the checker, which then types the proto module's
+  values from the schema ("Protocol buffers" above), in `.type`, `.types`
+  and `.check`; Tab completion offers a file's messages and enums, a
+  message's fields, an enum's values, `append` on a repeated field, and
+  a message's fields as keyword arguments of its descriptor's call
+  (`p3.Scalars(`). (Not in the browser REPL, which has no way to be given
+  a descriptor set.) Tests: tests/repl/proto.in, proto_complete.mjs.
 - Tab completion, in the browser REPL (the Tab key, or the Tab button on
   a touch screen): after a `.`, the fields of a struct or the methods of
   a builtin type, found from the *type* of the expression before the dot

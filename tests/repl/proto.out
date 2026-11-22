@@ -1,0 +1,23 @@
+"k"
+proto.RepeatedField[sw.p3.Node]
+sw.p3.Node.Inner.Kind
+sw.p3.Scalars
+str
+type checking of inputs is on
+<input 4>:1:2: error: sw.p3.Node has no .nmae field
+      | n.nmae
+      |  ^
+<input 2>:1:7: note: sw.p3.Node comes from here (a message made here)
+      | n = p3.Node(name = "root", kids = [{"name": "k"}])
+      |       ^
+<input 5>:1:20: error: invalid name "REDD" for enum sw.p3.Color (did you mean 'RED'?)
+      | p3.Scalars(color = "REDD")
+      |                    ^
+<input 7>:1:2: error: assignment to .i32 of sw.p3.Scalars: expected int | None, got str (str vs int)
+      | s.i32 = "three"
+      |  ^
+sw.p3.Scalars(i32=4)
+p3: proto.FileDescriptor["p3.proto"]
+n: sw.p3.Node
+_: sw.p3.Scalars
+s: sw.p3.Scalars
