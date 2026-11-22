@@ -7,6 +7,7 @@ def mixes(a, b, c, x, y, z, n, flags, mask, k, j):
         flags & mask == 0,         # C reads flags & (mask == 0)
         1 << n - 1,
         flags | mask ^ 1,
+        flags & n << 2,            # Go reads (flags & n) << 2
         k ?? 0 + 1 == 1,
         j ?? a or b,
         not a ?? b,

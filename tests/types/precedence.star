@@ -28,6 +28,10 @@ def checks(a, b, c, x, y, z, n, m, flags, mask, xs):
         (flags & mask) == 0,
         ~mask & flags,
         (n << 2) | 1,
+        flags | n << 2,            # flags | (n << 2)
+        flags ^ n >> 2,            # flags ^ (n >> 2)
+        flags ^ mask & 1,          # flags ^ (mask & 1)
+        flags & mask ^ 1,          # (flags & mask) ^ 1
         n ?? m ?? 0,               # ?? is below arithmetic
         n + 1 ?? 0,                # (n + 1) ?? 0
         n ?? m * 2,                # n ?? (m * 2)

@@ -7,46 +7,49 @@ tests/types/err_precedence.star:8:16: error: operator precedence: `<<` and `-` h
 tests/types/err_precedence.star:9:22: error: operator precedence: `|` and `^` have no precedence relative to each other: add parentheses, as in a | (b ^ c) (how it parses) or (a | b) ^ c
     9 |         flags | mask ^ 1,
       |                      ^
-tests/types/err_precedence.star:10:20: error: operator precedence: `??` and `==` have no precedence relative to each other: add parentheses, as in a ?? (b == c) (how it parses) or (a ?? b) == c
-   10 |         k ?? 0 + 1 == 1,
+tests/types/err_precedence.star:10:19: error: operator precedence: `&` and `<<` have no precedence relative to each other: add parentheses, as in a & (b << c) (how it parses) or (a & b) << c
+   10 |         flags & n << 2,            # Go reads (flags & n) << 2
+      |                   ^
+tests/types/err_precedence.star:11:20: error: operator precedence: `??` and `==` have no precedence relative to each other: add parentheses, as in a ?? (b == c) (how it parses) or (a ?? b) == c
+   11 |         k ?? 0 + 1 == 1,
       |                    ^
-tests/types/err_precedence.star:11:16: error: operator precedence: `??` and `or` have no precedence relative to each other: add parentheses, as in a ?? (b or c) (how it parses) or (a ?? b) or c
-   11 |         j ?? a or b,
+tests/types/err_precedence.star:12:16: error: operator precedence: `??` and `or` have no precedence relative to each other: add parentheses, as in a ?? (b or c) (how it parses) or (a ?? b) or c
+   12 |         j ?? a or b,
       |                ^
-tests/types/err_precedence.star:12:9: error: operator precedence: `not` and `??` have no precedence relative to each other: add parentheses, as in (not a) ?? b (how it parses) or not (a ?? b)
-   12 |         not a ?? b,
+tests/types/err_precedence.star:13:9: error: operator precedence: `not` and `??` have no precedence relative to each other: add parentheses, as in (not a) ?? b (how it parses) or not (a ?? b)
+   13 |         not a ?? b,
       |         ^
-tests/types/err_precedence.star:13:17: error: operator precedence: `and` and `+` have no precedence relative to each other: add parentheses, as in a and (b + c) (how it parses) or (a and b) + c
-   13 |         a and x + y,
+tests/types/err_precedence.star:14:17: error: operator precedence: `and` and `+` have no precedence relative to each other: add parentheses, as in a and (b + c) (how it parses) or (a and b) + c
+   14 |         a and x + y,
       |                 ^
-tests/types/err_precedence.star:14:15: error: operator precedence: `not` and `+` have no precedence relative to each other: add parentheses, as in not (a + b) (how it parses) or (not a) + b
-   14 |         not x + y,
+tests/types/err_precedence.star:15:15: error: operator precedence: `not` and `+` have no precedence relative to each other: add parentheses, as in not (a + b) (how it parses) or (not a) + b
+   15 |         not x + y,
       |               ^
-tests/types/err_precedence.star:15:15: error: operator precedence: `not` and `==` have no precedence relative to each other: add parentheses, as in not (a == b) (how it parses) or (not a) == b (or write a != b)
-   15 |         not x == y,
+tests/types/err_precedence.star:16:15: error: operator precedence: `not` and `==` have no precedence relative to each other: add parentheses, as in not (a == b) (how it parses) or (not a) == b (or write a != b)
+   16 |         not x == y,
       |               ^
-tests/types/err_precedence.star:16:15: error: operator precedence: `not` and `in` have no precedence relative to each other: add parentheses, as in not (a in b) (how it parses) or (not a) in b (or write a not in b)
-   16 |         not x in [1],
+tests/types/err_precedence.star:17:15: error: operator precedence: `not` and `in` have no precedence relative to each other: add parentheses, as in not (a in b) (how it parses) or (not a) in b (or write a not in b)
+   17 |         not x in [1],
       |               ^
-tests/types/err_precedence.star:17:11: error: operator precedence: `/` and `*` have no precedence relative to each other: add parentheses, as in (a / b) * c (how it parses) or a / (b * c)
-   17 |         x / y * z,
+tests/types/err_precedence.star:18:11: error: operator precedence: `/` and `*` have no precedence relative to each other: add parentheses, as in (a / b) * c (how it parses) or a / (b * c)
+   18 |         x / y * z,
       |           ^
-tests/types/err_precedence.star:18:11: error: operator precedence: `*` and `%` have no precedence relative to each other: add parentheses, as in (a * b) % c (how it parses) or a * (b % c)
-   18 |         x * y % z,
+tests/types/err_precedence.star:19:11: error: operator precedence: `*` and `%` have no precedence relative to each other: add parentheses, as in (a * b) % c (how it parses) or a * (b % c)
+   19 |         x * y % z,
       |           ^
-tests/types/err_precedence.star:19:11: error: operator precedence: `*` and `//` have no precedence relative to each other: add parentheses, as in (a * b) // c (how it parses) or a * (b // c)
-   19 |         x * y // z,
+tests/types/err_precedence.star:20:11: error: operator precedence: `*` and `//` have no precedence relative to each other: add parentheses, as in (a * b) // c (how it parses) or a * (b // c)
+   20 |         x * y // z,
       |           ^
-tests/types/err_precedence.star:20:11: error: operator precedence: `/` and `/` don't group: divisions don't chain: add parentheses, as in (a / b) / c (how it parses) or a / (b / c)
-   20 |         x / y / z,
+tests/types/err_precedence.star:21:11: error: operator precedence: `/` and `/` don't group: divisions don't chain: add parentheses, as in (a / b) / c (how it parses) or a / (b / c)
+   21 |         x / y / z,
       |           ^
-tests/types/err_precedence.star:21:11: error: operator precedence: `//` and `//` don't group: divisions don't chain: add parentheses, as in (a // b) // c (how it parses) or a // (b // c)
-   21 |         x // y // z,
+tests/types/err_precedence.star:22:11: error: operator precedence: `//` and `//` don't group: divisions don't chain: add parentheses, as in (a // b) // c (how it parses) or a // (b // c)
+   22 |         x // y // z,
       |           ^
-tests/types/err_precedence.star:22:11: error: operator precedence: `<<` and `>>` don't group: shifts don't chain: add parentheses, as in (a << b) >> c (how it parses) or a << (b >> c)
-   22 |         x << 1 >> 2,
+tests/types/err_precedence.star:23:11: error: operator precedence: `<<` and `>>` don't group: shifts don't chain: add parentheses, as in (a << b) >> c (how it parses) or a << (b >> c)
+   23 |         x << 1 >> 2,
       |           ^
-tests/types/err_precedence.star:23:11: error: operator precedence: `%` and `%` don't group: % doesn't chain: add parentheses, as in (a % b) % c (how it parses) or a % (b % c)
-   23 |         x % y % z,
+tests/types/err_precedence.star:24:11: error: operator precedence: `%` and `%` don't group: % doesn't chain: add parentheses, as in (a % b) % c (how it parses) or a % (b % c)
+   24 |         x % y % z,
       |           ^
-17 type errors in tests/types/err_precedence.star
+18 type errors in tests/types/err_precedence.star

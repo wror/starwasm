@@ -85,11 +85,14 @@ CHAINS = [
     # arithmetic, below which are comparisons; * / // % are not related
     # to each other (a * b % c, a / b * c need parentheses)
     [["compare"], ["add"], ["mul", "div", "mod"]],
-    # bitwise: & before |, as and before or. ^ is related to neither, and
-    # shifts are related to no other operator (a | b << 4, 1 << n - 1
-    # need parentheses), and none of them to comparisons: C and Python
+    # bitwise: & and shifts before | and ^, in C, Python, Go, Swift,
+    # Rust, ... (a | b << 4 is a | (b << 4)). But ^ and | are on one level
+    # in Go and Swift (a | b ^ c is (a | b) ^ c there, a | (b ^ c) in C),
+    # and so are & and shifts in Go (a & b << 4 is (a & b) << 4 there):
+    # those pairs are unrelated. None is related to arithmetic
+    # (1 << n - 1 needs parentheses) or to comparisons: C and Python
     # disagree on a & b == c.
-    [["bitor"], ["bitand"]],
+    [["bitor", "bitxor"], ["bitand", "shift"]],
     # ?? (EXTENSIONS.md): below arithmetic and bitwise operators, as in
     # every language that has it (C#, Swift, Kotlin's ?:, JavaScript), so
     # a + b ?? 0 is (a + b) ?? 0 and x ?? 0 + 1 is x ?? (0 + 1). Those

@@ -65,8 +65,8 @@ and `+` are not related, so `a and x + y` is an error.
 | comparisons  | `+ -`, `* / // %`                                      |
 | `+ -`        | `* / // %`                                             |
 | `* / // %`   | nothing but terms (and `*` chains with `*`)            |
-| `\|`         | `&`                                                    |
-| `^ & << >>`  | nothing but terms (and each of `^ &` with itself)      |
+| `\|` `^`     | `&`, `<< >>` (and each of `\|` `^` with itself)        |
+| `& << >>`    | nothing but terms (and `&` with itself)                |
 
 A **term** is anything that is not an operator expression. That covers a
 name, a literal, a call, indexing or slicing, an attribute, a list, dict or
@@ -82,9 +82,11 @@ Put the other way round, these are the mixes that need parentheses:
 - **Bitwise operators with comparisons**: `a & b == c`. C reads this as
   `a & (b == c)` and Python as `(a & b) == c`.
 - **Bitwise operators with arithmetic**: `1 << n - 1`, `a & b + 1`.
-- **Bitwise operators with each other**, except `&` inside `|`:
-  `a | b ^ c`, `a ^ b & c`, `a | b << 4`. `a | b & c` is fine, as is
-  `a & b | c`: `&` before `|`, like `and` before `or`.
+- **`|` with `^`**: `a | b ^ c`. C and Python read it as `a | (b ^ c)`,
+  Go and Swift as `(a | b) ^ c`.
+- **`&` with shifts**: `a & b << 4`. C and Python read it as
+  `a & (b << 4)`, Go as `(a & b) << 4`. (`&` and shifts inside `|` or
+  `^` are fine: `a | b & c`, `a ^ b << 4`.)
 - **`*`, `/`, `//` and `%` with each other**: `x / y * z`, `x * y // z`,
   `x * y % z`. Is `6 / 2 * 3` 9 or 1? People disagree. Chains of `/`,
   `//`, `%` and of shifts are errors too: `x / y / z`.
@@ -105,6 +107,8 @@ Put the other way round, these are the mixes that need parentheses:
     a and -b                   # a and (-b)
     ~mask & flags              # (~mask) & flags
     flags | mask & 1           # flags | (mask & 1)
+    flags ^ mask & 1           # flags ^ (mask & 1)
+    flags | n << 4             # flags | (n << 4)
     "%d items" % n + "!"       # ("%d items" % n) + "!"
     total + tax ?? 0           # (total + tax) ?? 0
     n ?? m ?? 0                # (n ?? m) ?? 0
