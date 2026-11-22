@@ -1,0 +1,30 @@
+# Types inferred from mutation.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in mutation.start instead.
+
+def build(n: int) -> tuple[list[int], dict[int, list[int]]]:
+    xs: list[int]
+    i: int
+    groups: dict[int, list[int]]
+    x: int
+def fill(out: list[int], n: int) -> list[int]:
+    i: int
+def add[T: Add[U, T], U](n: T, step: U) -> T
+def sorted_copy[X: Iterable[int]](xs: X) -> list[int]:
+    ys: list[int]
+log: list[str]
+n: int
+built: tuple[list[int], dict[int, list[int]]]
+filled: list[int]
+total: int
+copied: list[int]
+loaded: list[int]
+made: list[int]
+squares: list[int]
+nError: list[struct[id: int, n_id: Any, trigger: str, field: str, value: None]]
+builtError: list[struct[id: int, built_id: Any, trigger: str, field: str, value: None]]
+filledError: list[struct[id: int, filled_id: Any, trigger: str, field: str, value: None]]
+totalError: list[struct[id: int, total_id: Any, trigger: str, field: str, value: None]]
+copiedError: list[struct[id: int, copied_id: Any, trigger: str, field: str, value: None]]
+loadedError: list[struct[id: int, loaded_id: Any, trigger: str, field: str, value: None]]
+madeError: list[struct[id: int, made_id: Any, trigger: str, field: str, value: None]]
+squaresError: list[struct[id: int, squares_id: Any, trigger: str, field: str, value: None]]

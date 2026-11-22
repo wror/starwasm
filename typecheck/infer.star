@@ -31,6 +31,7 @@
 load("../compiler/parser.star", "parse_file")
 load("../compiler/resolve.star", "called_names", "dotted_names", "free_names")
 load("../compiler/spell.star", "nearest")
+load("mutation.star", "analyze_module")
 load("precedence.star", "check_stmts")
 load("proto.star", "grpc_role", "grpc_struct", "GRPC_ROLES", "FIELD", "FILE", "MAP", "MODULE", "TYPE", "file_type", "message_field", pb_field_type = "field_type", pb_hint = "hint", pb_kind = "kind")
 load(
@@ -183,6 +184,17 @@ def check_module(st, path, from_ctx = None):
     if st["pb"] != None:
         _grpc_outputs(st, fc, scope)
     default_pending(st, -1)
+    # what its functions mutate, and reactive definitions that mutate what
+    # they didn't make (mutation.star)
+    loaded = {}
+    for s in stmts:
+        if s["kind"] == "load":
+            for local, orig in s["names"]:
+                loaded[local] = (path_join(path, s["module"]), orig)
+    rec, errs = analyze_module(st, path, stmts, loaded, scope)
+    mod["mutation"] = rec
+    for file, at, msg, notes in errs:
+        report(st, {"file": file, "pos": at, "role": None}, msg, notes)
     mod["state"] = "done"
     return mod
 
