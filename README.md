@@ -25,7 +25,9 @@ A program's first run takes a while (it is compiled); the Wasm is cached
 in `__wasmcache__/` next to it.
 
 See [NOTES.md](NOTES.md) for the design and layout, and
-[EXTENSIONS.md](EXTENSIONS.md) for features beyond starlark-go.
+[EXTENSIONS.md](EXTENSIONS.md) for features beyond starlark-go, and
+[PRECEDENCE.md](PRECEDENCE.md) for the operator precedence the type
+checker requires.
 Among them: reactive variables (`total : price * qty`, recomputed as
 standard input assigns new values); contagious None, which makes a
 running reactive program keep going through errors: what fails becomes a

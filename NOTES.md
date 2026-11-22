@@ -45,7 +45,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
     compiler/main.star    driver: starhost compiler/main.star in.star out.wasm
     typecheck/            static type checking and inference, in Starlark (an
                           extension: EXTENSIONS.md, "Static types"); main.star
-                          is its command line
+                          is its command line; precedence.star, the
+                          operator precedence it requires (PRECEDENCE.md)
     host/typecheck.mjs    runs it: node host/typecheck.mjs prog.star
     template/             a template language in plain Starlark, independent
                           of everything else here (template/README.md)
@@ -80,6 +81,7 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
                           expected inferred types (.starit) or diagnostics
                           (.err) (tests/types.sh)
     EXTENSIONS.md         features beyond starlark-go, one section each
+    PRECEDENCE.md         operator precedence, as the type checker has it
     tests/compile_errors/ "# error: <text>" first line; compile must fail so;
                           when starlark-go rejects the file statically too,
                           the message must be exactly starlark-go's
