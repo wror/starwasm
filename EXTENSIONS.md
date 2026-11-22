@@ -1268,7 +1268,9 @@ types (but see None below) and no classes; types are structural.
   size(x): return len(x)` is `def size[X: Sized](x: X) -> int`. The
   bounds: `Iterable[E]`, `GetItem[K, V]`, `SetItem[K, V]`, `Container[E]`
   (`in`), `Sized`, `Sliceable[S]`, `Ordered` (`<`), `HasAttr["name", T]`
-  (a method that several builtin types have, such as `pop`), `(int,
+  (a method that several builtin types have, such as `pop`),
+  `SetAttr["name", T]` (a proto message whose field `name` may be
+  assigned a `T`), `(int,
   float)` (one of these types), and the operators `Add[B, R]` (`x + B`
   is an `R`; likewise `Sub Mul Div FloorDiv Mod Or And Xor LShift
   RShift`, and `RAdd[A, R]` etc. for the right operand), and, with
@@ -1285,8 +1287,8 @@ types (but see None below) and no classes; types are structural.
   `x` a struct with that field.
 - **`Any`** fits everything, and nothing is learned from it. The checker
   infers it only where it must: for values it can't type (`getattr` with
-  an unknown name, `proto`), for the arguments of an untyped `*args`
-  (which may differ in type, as `print`'s), for `a and b`/`a or b` of
+  an unknown name, `proto` without a descriptor set), for the arguments
+  of an untyped `*args` (which may differ in type, as `print`'s), for `a and b`/`a or b` of
   different types, and where a type would have to contain itself (there
   are no recursive types: a tree whose nodes are structs has `kids:
   list[Any]` at the point where it would recur). Annotate with `Any` (e.g.
@@ -1297,6 +1299,56 @@ types (but see None below) and no classes; types are structural.
   it).
 - `load()`ed modules are inferred too, each with its own `.start` file if
   it has one; a loaded def is as polymorphic as where it is defined.
+- **Protocol buffers**: given the descriptor set the program runs with
+  (`node host/typecheck.mjs --descriptor_set=set.binpb prog.star`, as for
+  `host/run.mjs`), the values of the `proto` module have types from the
+  schema (without one, `proto` is `Any`, as before):
+
+      p3 = proto.file("p3.proto")       # proto.FileDescriptor["p3.proto"]
+      n = p3.Node(name = "root", left = {"name": "l"})   # sw.p3.Node
+      n.left.name                       # str
+      n.kids                            # proto.RepeatedField[sw.p3.Node]
+      p3.Maps().s2i                     # proto.MapField[str, int]
+      p3.Color.RED, p3.Color("GREEN")   # sw.p3.Color
+      p3.Node                           # type[sw.p3.Node]: what makes one
+      p3.Node.name                      # proto.FieldDescriptor[sw.p3.Node, str]
+      proto.unmarshal(p3.Node, data)    # sw.p3.Node
+
+  Messages and enum values are known by their full names (types are
+  nominal, so a Node is no Scalars, and messages may hold themselves).
+  Reading a field gives what the field holds (never None: an unset field
+  reads as its default); a repeated field is indexable, iterable and has
+  `append`; a map field is indexable by its keys, `in`, iterable over
+  them, and `dict()` makes a dict of it. What may be *stored* in a field
+  is checked as the proto module converts it: in a call of a message's
+  descriptor (each field is a keyword parameter; or one message of that
+  type, or a dict), an assignment `m.f = v`, `.append`, `x[i] = v` and
+  `proto.set_field`: an int for a float, a string or bytes for bytes, an
+  enum's number, name or value for an enum (a name written out must be
+  one of its names: `invalid name "REDD" for enum sw.p3.Color (did you
+  mean 'RED'?)`), a message of the field's type or a dict for a message,
+  any iterable of such elements for a repeated field, a dict for a map
+  field, and None to clear a field. Fields, members (`p3.Scalar`), file
+  names (`proto.file("p4.proto")`) and a field descriptor of another
+  message (`proto.get_field(s, p3.Node.name)`) are reported with
+  spelling hints. A message is accepted where a struct with some of its
+  fields is wanted, so a def that reads fields (`def label(m): return
+  m.name`) takes messages; a def that assigns to a field of a parameter
+  (`m.by = v`) gives it the bound `SetAttr["by", U]` (only a message's
+  fields can be assigned), checked where the def is called. With
+  contagious None, what can fail on values of the right types is `T |
+  None`: a descriptor's call with an int (other than one written out),
+  a dict or an enum number it lacks, `proto.unmarshal` and
+  `unmarshal_text`, `proto.marshal` and `marshal_text` of a message with
+  required fields, `set_field`, `proto.file` of a name not written out;
+  an assignment to a field that can fail makes the def fail. (Not
+  checked: `.append` and `x[i] = v` out of range; mixing positional and
+  named arguments; a heterogeneous literal such as `[1, "GREEN"]` for a
+  repeated enum is an error, as any list's.) Code: typecheck/proto.star
+  (the descriptor set decoded, the members of each type), `setter` and
+  the `setattr` bound in typecheck/unify.star, `_sp_proto`,
+  `_pb_callable`, `_pb_assign` in typecheck/infer.star; tests:
+  tests/types/proto*.star, err_proto.star.
 
 ### The language of `.start` and `.starit` files
 
@@ -1315,6 +1367,10 @@ Comments, strings and indentation are Starlark's.
 
 - Types: `int float str bytes bool None Any range`, `list[T]`, `dict[K,
   V]`, `set[T]`, `tuple[A, B]`, `tuple[()]`, `tuple[T, ...]`, `T | None`,
+  the protocol buffer types (`pkg.Msg`, `pkg.Enum`, `type[pkg.Msg]`,
+  `proto.RepeatedField[T]`, `proto.MapField[K, V]`,
+  `proto.FieldDescriptor[M, T]`, `proto.FileDescriptor["f.proto"]`,
+  `proto.Module`: above; with the descriptor set),
   `struct[name: type, ..., **R]` (`struct[]`: no fields), function types
   `(A, B) -> R` with parameters as in a def or just types
   (parenthesized in a union: `((int) -> int) | None`), `Literal["name"]`
@@ -1395,6 +1451,19 @@ of different types from one input to the next.
   checked.
 - Modules that the session `load()`s are checked with their `.start`
   files, if they have any; the session itself has none.
+- Protocol buffers: `node host/repl.mjs --descriptor_set=set.binpb` gives
+  the session the descriptor set, for the compiler (proto.file() opens
+  its files) and for the checker, which then types the proto module's
+  values from the schema ("Protocol buffers" above), in `.type`, `.types`
+  and `.check`; Tab completion offers a file's messages and enums, a
+  message's fields, an enum's values, `append` on a repeated field, and
+  a message's fields as keyword arguments of its descriptor's call
+  (`p3.Scalars(`). In the browser REPL, the **Schema…** button loads a
+  descriptor set file (its .proto files are listed beside it; ✕ removes
+  it): it is saved in the browser apart from the session, so `.reset`
+  keeps it, and loading or removing one replays the session with it
+  (web/repl.js, web/repl_worker.js). Tests: tests/repl/proto.in,
+  proto_complete.mjs.
 - Tab completion, in the browser REPL (the Tab key, or the Tab button on
   a touch screen): after a `.`, the fields of a struct or the methods of
   a builtin type, found from the *type* of the expression before the dot
@@ -1459,11 +1528,13 @@ reads as empty, and the exit status).
   lexer), and its conversion to types; the tail check.
 - `builtins.star`: the types of the builtins and methods, in that
   language.
+- `proto.star`: the descriptor set (`--descriptor_set=FILE`) decoded, and
+  the types of the proto module's values from it.
 - `infer.star`: inference over the compiler's AST: scopes, defs on demand
   (cycles of defs by Tarjan's algorithm), narrowing, calls.
 - `main.star`: the command line, diagnostics, the `.starit` writer.
   `bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]...
-  prog.star` runs it interpreted (`--start=` names each `.start` file that
+  [--descriptor_set=FILE] prog.star` runs it interpreted (`--start=` names each `.start` file that
   exists, since Starlark can't ask).
 
 ### Not covered

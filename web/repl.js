@@ -6,6 +6,9 @@
 // replaying the journal. .reset clears it and the screen (not the ↑/↓
 // history), as does a change of dialect (the session only).
 // (Several tabs share it: the last input saved wins.)
+// A protobuf schema (a FileDescriptorSet, "Schema…") is saved apart from
+// the session: .reset keeps it; loading or removing one replays the
+// session with it.
 import { pastedInput } from "./host/repl_core.mjs";
 
 const $ = (id) => document.getElementById(id);
@@ -183,6 +186,69 @@ function setBusy() {
   $("stop").disabled = pending === 0 && !loading;
 }
 
+// ---- the protobuf schema: {name, files: [.proto names], data: base64}
+
+const toBase64 = (bytes) => {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+// The names of the .proto files in the FileDescriptorSet bytes (field 1,
+// each a FileDescriptorProto whose field 1 is its name); throws if they
+// aren't one.
+function protoFiles(bytes) {
+  const bad = () => { throw new Error("not a binary FileDescriptorSet"); };
+  const varint = (b, i) => {
+    let v = 0, mul = 1;
+    for (let k = 0; k < 10; k++) {
+      if (i >= b.length) bad();
+      const c = b[i++];
+      v += (c & 127) * mul;
+      mul *= 128;
+      if (c < 128) return [v, i];
+    }
+    bad();
+  };
+  const fields = (b) => {
+    const out = [];
+    for (let i = 0; i < b.length;) {
+      let tag, n;
+      [tag, i] = varint(b, i);
+      const wt = tag % 8;
+      if (wt === 0) [, i] = varint(b, i);
+      else if (wt === 1) i += 8;
+      else if (wt === 5) i += 4;
+      else if (wt === 2) {
+        [n, i] = varint(b, i);
+        if (i + n > b.length) bad();
+        out.push([Math.floor(tag / 8), b.subarray(i, i + n)]);
+        i += n;
+      } else bad();
+      if (i > b.length) bad();
+    }
+    return out;
+  };
+  const names = [];
+  for (const [num, file] of fields(bytes)) {
+    if (num !== 1) bad();
+    const name = fields(file).find(([n]) => n === 1);
+    if (!name) bad();
+    names.push(new TextDecoder().decode(name[1]));
+  }
+  if (!names.length) bad();
+  return names;
+}
+
+let schema = load("schema");
+if (!schema || typeof schema.data !== "string" || !Array.isArray(schema.files)) schema = null;
+function showSchema() {
+  $("schema-name").textContent = schema ? schema.files.join(", ") : "";
+  $("schema-name").title = schema ? `${schema.name}: proto.file("${schema.files[0]}"), ...` : "";
+  $("schema-clear").hidden = !schema;
+}
+
 function flags() {
   // (a toggle may stand for several options)
   return [...document.querySelectorAll("input[data-flag]")].filter((c) => c.checked).flatMap((c) => c.dataset.flag.split(" "));
@@ -257,7 +323,7 @@ function start(note) {
     loading = false;
     setBusy();
   };
-  worker.postMessage({ type: "init", flags: flags(), journal });
+  worker.postMessage({ type: "init", flags: flags(), journal, schema: schema ? fromBase64(schema.data) : null });
   setBusy();
 }
 
@@ -412,6 +478,31 @@ for (const c of document.querySelectorAll("input[data-flag]")) {
     start(`\n(dialect: ${flags().join(" ") || "default"}; the session starts over)\n`);
   });
 }
+$("schema").addEventListener("click", () => $("schema-file").click());
+$("schema-file").addEventListener("change", async () => {
+  const f = $("schema-file").files[0];
+  $("schema-file").value = "";
+  if (!f) return;
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let files;
+  try {
+    files = protoFiles(bytes);
+  } catch (e) {
+    write(`(${f.name}: ${e.message}; make one with protoc --include_imports --descriptor_set_out=set.binpb x.proto)\n`, "err");
+    return;
+  }
+  schema = { name: f.name, files, data: toBase64(bytes) };
+  save("schema", schema);
+  showSchema();
+  start(`\n(schema ${f.name}: ${files.join(", ")}; proto.file(\"${files[0]}\") opens one; the session is replayed with it)\n`);
+});
+$("schema-clear").addEventListener("click", () => {
+  schema = null;
+  save("schema", null);
+  showSchema();
+  start("\n(schema removed; the session is replayed without it)\n");
+});
+showSchema();
 for (const b of document.querySelectorAll("[data-example]")) {
   b.addEventListener("click", () => {
     // (no focus to the input: on a phone that would raise the keyboard

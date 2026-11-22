@@ -25,7 +25,7 @@ tests/types/err_start.start:6:23: error: row parameter 'R' never ends a struct t
 tests/types/err_start.start:7:12: error: row parameter 'R' never ends a struct type (as in struct[x: int, **R]): where it is used, fields follow it, and it may hide them
     7 | def tail[**R, X: Iterabel[int], L: str](r: struct[**R, id: int, L: str, x: int]) -> int
       |            ^
-tests/types/err_start.start:7:18: error: unknown bound 'Iterabel' (did you mean 'Iterable'?); the bounds are Container, GetItem, Iterable, Ordered, SetItem, Sized, Sliceable, HasAttr, the operators (Add, Sub, Mul, ...) and `(type, type, ...)`
+tests/types/err_start.start:7:18: error: unknown bound 'Iterabel' (did you mean 'Iterable'?); the bounds are Container, GetItem, Iterable, Ordered, SetItem, Sized, Sliceable, HasAttr, SetAttr, the operators (Add, Sub, Mul, ...) and `(type, type, ...)`
     7 | def tail[**R, X: Iterabel[int], L: str](r: struct[**R, id: int, L: str, x: int]) -> int
       |                  ^
 tests/types/err_start.start:7:33: error: field name parameter 'L' is neither the type of a parameter (name: L) nor the last field of a struct type: nothing says which field it is

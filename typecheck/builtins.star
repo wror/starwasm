@@ -11,7 +11,8 @@
 # declared always, though the compiler knows it only with the extension on.
 
 load("stubs.star", "declare_tparams", "new_scope", "parse_stubs", "to_params", "to_type")
-load("types.star", "GENERIC", "fn")
+load("proto.star", "MEMBERS", "MODULE")
+load("types.star", "GENERIC", "con", "fn")
 
 FUNCTIONS = """
 def len[X: Sized](x: X) -> int
@@ -153,6 +154,14 @@ def load_builtins(st):
             ms[d["name"]] = _scheme(st, d, "<builtins:" + tyname + ">")
             owners.setdefault(d["name"], []).append(tyname)
         methods[tyname] = ms
+    if st.get("pb") != None:
+        # with a descriptor set, the proto module's values are typed
+        # (proto.star); its members are methods of proto.Module, which
+        # owns no method names (so x.file is no proto member for an x of
+        # unknown type)
+        out["proto"] = ("var", con(MODULE))
+        file = "<builtins:proto>"
+        methods[MODULE] = {d["name"]: _scheme(st, d, file) for d in parse_stubs(MEMBERS, file)}
     st["methods"] = methods
     st["owners"] = owners
     return out

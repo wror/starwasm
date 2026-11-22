@@ -45,6 +45,7 @@ load(
     "show_label",
 )
 load("../compiler/spell.star", "nearest")
+load("proto.star", "MAP", "MODULE", "REPEATED", "TYPE", pb_kind = "kind", pb_member = "member", pb_rec = "as_struct", pb_field = "message_field", pb_field_type = "field_type", pb_hint = "hint")
 
 # ---------------------------------------------------------------- diagnostics
 
@@ -754,6 +755,9 @@ def flow(st, actual, expected, ctx):
         return None
     if a["k"] == "rec" and e["k"] == "rec":
         return unify_rows(st, a["row"], e["row"], ctx, True)
+    if e["k"] == "rec" and pb_kind(st.get("pb"), a) == "msg":
+        # a message is read like a struct of its fields
+        return unify_rows(st, pb_rec(st["pb"], a)["row"], e["row"], ctx, True)
     if _literal_widens(st, a, e, ctx):
         return None
     return unify(st, actual, expected, ctx)
@@ -838,6 +842,8 @@ def join(st, a, b, ctx):
 #     ordered   subj < subj
 #     among     subj is one of the types named in op
 #     hasattr   subj.<op> is an args[0]  (for the names of builtin methods)
+#     setattr   subj.<op> = an args[0]: subj is a proto message with that
+#               field (proto.star), the value what it may hold
 #     rows      the rows of the records args[0] and args[1] are equal: they
 #               could not be unified until subj (a row or label variable)
 #               is solved
@@ -998,6 +1004,8 @@ def dispatch(st, s, p, ctx):
                     break  # mixed element types: the loop variable is not checked
         elif name == "range":
             _check(st, p, ctx, con("int"), args[0], None, True)
+        elif name == REPEATED or name == MAP:
+            _check(st, p, ctx, s["args"][0], args[0], None, True)
         elif name == "str":
             _pred_error(st, p, ctx, "str is not iterable (use .elems() or .codepoints())")
         elif name == "bytes":
@@ -1019,9 +1027,12 @@ def dispatch(st, s, p, ctx):
                 for x in s["args"]:
                     if flow(st, x, args[1], pctx) != None:
                         break
-        elif name == "dict":
-            _check(st, p, ctx, args[0], s["args"][0], "dict key", True)
+        elif name == "dict" or name == MAP:
+            _check(st, p, ctx, args[0], s["args"][0], "dict key" if name == "dict" else "map key", True)
             _check(st, p, ctx, s["args"][1], args[1], None, True)
+        elif name == REPEATED:
+            _check(st, p, ctx, args[0], con("int"), "index of " + show(s), True)
+            _check(st, p, ctx, s["args"][0], args[1], None, True)
         elif name == "str":
             _check(st, p, ctx, args[0], con("int"), "index of " + show(s), True)
             _check(st, p, ctx, con("str"), args[1], None, True)
@@ -1039,10 +1050,16 @@ def dispatch(st, s, p, ctx):
         elif name == "dict":
             _check(st, p, ctx, args[0], s["args"][0], "dict key", True)
             _check(st, p, ctx, args[1], s["args"][1], "dict value", True)
+        elif name == REPEATED:
+            _check(st, p, ctx, args[0], con("int"), "index of " + show(s), True)
+            _check(st, p, ctx, args[1], setter(st, s["args"][0], _level_of(args[1]), pctx), "element of " + show(s), True)
+        elif name == MAP:
+            _check(st, p, ctx, args[0], setter(st, s["args"][0], _level_of(args[0]), pctx), "map key", True)
+            _check(st, p, ctx, args[1], setter(st, s["args"][1], _level_of(args[1]), pctx), "map value", True)
         else:
             _pred_error(st, p, ctx, show(s) + " does not support item assignment")
     elif k == "sized":
-        if name not in ["list", "dict", "set", "tuple", "vtuple", "str", "bytes", "range"]:
+        if name not in ["list", "dict", "set", "tuple", "vtuple", "str", "bytes", "range", REPEATED, MAP]:
             _pred_error(st, p, ctx, show(s) + " has no len()")
     elif k == "contains":
         if name == "list" or name == "set" or name == "vtuple" or name == "dict":
@@ -1052,6 +1069,10 @@ def dispatch(st, s, p, ctx):
             _check(st, p, ctx, args[0], con("str"), None, False)
         elif name == "range":
             _check(st, p, ctx, args[0], con("int"), None, False)
+        elif name == MAP:
+            _check(st, p, ctx, args[0], s["args"][0], "map key", True)
+        elif name == REPEATED:
+            _pred_error(st, p, ctx, "'in' does not work on " + show(s) + " (use list(...) first)")
         elif name != "tuple" and name != "bytes":
             _pred_error(st, p, ctx, "'in' needs a list, tuple, dict, set, string or range, not " + show(s))
     elif k == "slice":
@@ -1070,6 +1091,16 @@ def dispatch(st, s, p, ctx):
     elif k == "hasattr":
         t = attr_type(st, s, p["op"], pctx, _level_of(args[0]))
         _check(st, p, ctx, args[0], t, None, False)
+    elif k == "setattr":
+        f = pb_field(st["pb"], s, p["op"]) if pb_kind(st.get("pb"), s) == "msg" else None
+        if f != None:
+            _check(st, p, ctx, args[0], mk_opt(setter(st, pb_field_type(st["pb"], f), _level_of(args[0]), pctx)), "assignment to ." + p["op"] + " of " + name, True)
+        elif pb_kind(st.get("pb"), s) == "msg":
+            _pred_error(st, p, ctx, name + " has no ." + p["op"] + " field" + pb_hint(p["op"], [x["name"] for x in st["pb"]["msgs"][name]["fields"]]))
+        elif name == "rec":
+            _pred_error(st, p, ctx, "cannot assign to field '" + p["op"] + "' of " + show(s) + ": structs are immutable (make a new one: s + struct(" + p["op"] + " = ...))")
+        else:
+            _pred_error(st, p, ctx, "cannot assign to ." + p["op"] + " of " + show(s) + ": only a message's fields can be assigned")
 
 def _role(ctx, role):
     return {"file": ctx["file"], "pos": ctx["pos"], "role": role}
@@ -1434,6 +1465,10 @@ def attr_type(st, t, name, ctx, level):
                 return mk_opt(attr_type(st, s["args"][0], name, ctx, level))
             report(st, ctx, "the value may be None (it is " + show(s) + "): test it against None before using ." + name)
             return T_ANY
+        if st.get("pb") != None:
+            t2 = _pb_attr(st, s, name, ctx, level)
+            if t2 != None:
+                return t2
         ms = st["methods"].get(n)
         if ms != None and name in ms:
             return method_type(st, s, n, name, ctx, level)
@@ -1442,6 +1477,58 @@ def attr_type(st, t, name, ctx, level):
             return T_ANY
     report(st, ctx, show(s) + " has no field or method '" + name + "'", _origin_note(ctx, t, "comes from here", show(s)))
     return T_ANY
+
+def _pb_attr(st, s, name, ctx, level):
+    """x.name for an x of the proto type s (proto.star), or None if s is
+    no proto type."""
+    n = s["name"]
+    if n == MODULE:
+        return None  # (its members are methods: builtins.star)
+    if n == REPEATED:
+        if name == "append":
+            return fn([param("x", setter(st, s["args"][0], level, ctx))], con("None"), ctx)
+        report(st, ctx, show(s) + " has no method '" + name + "' (only append)")
+        return T_ANY
+    if n == MAP:
+        report(st, ctx, show(s) + " has no methods (use m[k], k in m, len(m), dict(m))")
+        return T_ANY
+    t, err = pb_member(st["pb"], s, name)
+    if err != None:
+        report(st, ctx, err, _origin_note(ctx, s, "comes from here", show(s)))
+        return T_ANY
+    if t == None and n.startswith("proto."):
+        return T_ANY  # (a file not known statically)
+    return t
+
+def _among(st, names, level, ctx):
+    v = new_var(st, "type", level)
+    attach(st, v, pred("among", v, [], ctx, names))
+    return v
+
+def setter(st, t, level, ctx):
+    """What may be stored where a value of the proto field type t is read
+    (an element of a repeated field, a map value): an int for a float, a
+    string for bytes, an int, name or value of an enum, a dict for a
+    message, any iterable for a repeated field, a dict for a map. (A whole
+    field may also be set to None, which clears it: mk_opt of this.)"""
+    r = resolve(t)
+    if r["k"] != "con":
+        return t
+    n = r["name"]
+    if n == "bytes":
+        return _among(st, ["str", "bytes"], level, ctx)
+    if n == REPEATED:
+        v = new_var(st, "type", level)
+        attach(st, v, pred("iter", v, [setter(st, r["args"][0], level, ctx)], ctx))
+        return v
+    if n == MAP:
+        return con("dict", [setter(st, r["args"][0], level, ctx), setter(st, r["args"][1], level, ctx)])
+    k = pb_kind(st.get("pb"), r)
+    if k == "enum":
+        return _among(st, ["int", "str", n], level, ctx)
+    if k == "msg":
+        return _among(st, [n, "dict"], level, ctx)
+    return t
 
 def row_get(st, s, name, ctx, level):
     """The type of field `name` of the record type s: the first field of

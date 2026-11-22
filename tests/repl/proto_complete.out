@@ -1,0 +1,9 @@
+"p3." @3: Color: type[sw.p3.Color] | Empty: type[sw.p3.Empty] | Maps: type[sw.p3.Maps] | Node: type[sw.p3.Node] | Repeats: type[sw.p3.Repeats] | Scalars: type[sw.p3.Scalars]
+"p3.Node." @8: Inner: type[sw.p3.Node.Inner] | inner: proto.FieldDescriptor[sw.p3.Node, sw.p3.Node.Inner] | kids: proto.FieldDescriptor[sw.p3.Node, proto.RepeatedField[sw.p3.Node]] | left: proto.FieldDescriptor[sw.p3.Node, sw.p3.Node] | legacy: proto.FieldDescriptor[sw.p3.Node, sw.p2.Legacy] | name: proto.FieldDescriptor[sw.p3.Node, str] | num: proto.FieldDescriptor[sw.p3.Node, int] | right: proto.FieldDescriptor[sw.p3.Node, sw.p3.Node] | sub: proto.FieldDescriptor[sw.p3.Node, sw.p3.Node.Inner] | text: proto.FieldDescriptor[sw.p3.Node, str]
+"n." @2: descriptor: type[sw.p3.Node] | inner: sw.p3.Node.Inner | kids: proto.RepeatedField[sw.p3.Node] | left: sw.p3.Node | legacy: sw.p2.Legacy | name: str | num: int | right: sw.p3.Node | sub: sw.p3.Node.Inner | text: str
+"n.inner.k" @8: kind: sw.p3.Node.Inner.Kind
+"p3.Color." @9: BLUE: sw.p3.Color | COLOR_UNSPECIFIED: sw.p3.Color | GREEN: sw.p3.Color | RED: sw.p3.Color
+"p3.Color.RED." @13: index: int | name: str | number: int | type: type[sw.p3.Color]
+"n.kids." @7: append: (x: sw.p3.Node) -> None
+"proto." @6: file: (name: str) -> proto.FileDescriptor | get_field: (msg: Any, field: Any) -> Any | has: (msg: Any, field: Any) -> bool | marshal: (msg: Any) -> bytes | marshal_text: (msg: Any) -> str | set_field: (msg: Any, field: Any, value: Any) -> None | unmarshal: (desc: Any, data: bytes) -> Any | unmarshal_text: (desc: Any, data: str) -> Any
+"p3.Scalars(i32 = 1, " @20: d = : float | f = : float | i64 = : int | u32 = : int | u64 = : int | s32 = : int | s64 = : int | fx32 = : int | fx64 = : int | sfx32 = : int | sfx64 = : int | b = : bool | s = : str | by = : bytes | color = : sw.p3.Color | opt_i32 = : int | opt_s = : str

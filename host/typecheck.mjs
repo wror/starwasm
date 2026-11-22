@@ -1,7 +1,7 @@
 // typecheck.mjs — check the types of Starlark programs (EXTENSIONS.md,
 // "Static types").
 //
-//   node host/typecheck.mjs [--print] <file.star>...
+//   node host/typecheck.mjs [--print] [--descriptor_set=FILE] <file.star>...
 //
 // For each program: infers its types, checking them against the
 // annotations in <file>.start if that file exists, and writes the
@@ -9,6 +9,9 @@
 // Type errors go to standard error, as "file:line:col: error: message"
 // with the source line; nothing is written then. Exit status: 0 no
 // errors, 1 type errors (or a syntax error), 2 usage, 3 internal error.
+// --descriptor_set=FILE: the binary FileDescriptorSet the programs are
+// run with (as for host/run.mjs): the proto module's values are then
+// typed from its schema.
 //
 // The checker itself is a Starlark program, typecheck/main.star: this
 // runs it compiled to Wasm (cached, as host/run.mjs does for any .star
@@ -37,13 +40,13 @@ function write(fd, data) {
 }
 
 const CHECKER = fileURLToPath(new URL("../typecheck/main.star", import.meta.url));
-const USAGE = "usage: node host/typecheck.mjs [--print] <file.star>...\n";
+const USAGE = "usage: node host/typecheck.mjs [--print] [--descriptor_set=FILE] <file.star>...\n";
 
 function main() {
   const args = process.argv.slice(2);
   const options = args.filter((a) => a.startsWith("--"));
   const files = args.filter((a) => !a.startsWith("--"));
-  if (files.length === 0 || options.some((a) => a !== "--print")) {
+  if (files.length === 0 || options.some((a) => a !== "--print" && !a.startsWith("--descriptor_set="))) {
     write(2, USAGE);
     return 2;
   }

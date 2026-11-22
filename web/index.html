@@ -75,6 +75,9 @@
     font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere;
   }
   #status { color: var(--muted); font-size: 13px; min-width: 6em; }
+  .schema { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; max-width: calc(100vw - 32px); min-width: 0; }
+  #schema-name { font: 13px ui-monospace, Menlo, Consolas, monospace; color: var(--fg); max-width: 22em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #schema-clear { padding: 0 6px; }
   footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
   /* on touch screens the on-screen keyboard leaves little room while typing:
      keep only the title and the Tab and Clear buttons then, so the session gets the space */
@@ -91,6 +94,11 @@
   <div class="opts">
     <label class="more" title="--globalreassign and --globalredefine: top-level names, functions too, may be bound again; while loops; if, for and while at top level"><input type="checkbox" data-flag="--globalreassign --globalredefine"> allow redefining globals</label>
     <label class="more" title="Operations on None give None, and provenance(x) says where a None comes from; always on in a session with reactive variables"><input type="checkbox" data-flag="--contagiousnone"> contagious None</label>
+    <span class="more schema">
+      <button id="schema" title="Load a protobuf schema for the proto module: a binary FileDescriptorSet, as written by protoc --include_imports --descriptor_set_out=set.binpb, or buf build -o set.binpb. proto.file(&quot;name.proto&quot;) then opens its files, and the type checker types messages from it.">Schema…</button>
+      <input type="file" id="schema-file" hidden>
+      <span id="schema-name"></span><button id="schema-clear" title="Remove the schema" aria-label="Remove the schema" hidden>✕</button>
+    </span>
     <button id="stop" class="more" title="Stop the running input (the rest of the session is kept)">Stop</button>
     <button id="tab" title="Complete the name, field or method being typed (the Tab key)">Tab ⇥</button>
     <button id="clear" title="Clear the screen (Ctrl-L); the session is kept">Clear</button>
@@ -114,6 +122,7 @@
   ↑/↓ history, Ctrl-L (or Clear) clears the screen, Tab completes names, and after a <code>.</code> the fields or methods of the value's type.
   Type errors in what you type are marked in red; point at one for the type checker's message.
   The session is saved in this browser and restored when you come back; <code>.reset</code> clears it and the screen.
+  <b>Schema…</b> loads a protobuf descriptor set (<code>protoc --include_imports --descriptor_set_out=set.binpb</code>) for <code>proto.file()</code>; it is kept until removed.
   <a href="https://github.com/wror/starwasm">Source</a><!--sha-->
 </footer>
 <div id="tip" role="tooltip"></div>

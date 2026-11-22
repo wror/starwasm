@@ -1,0 +1,57 @@
+# Types inferred from proto.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in proto.start instead.
+
+p3: proto.FileDescriptor["p3.proto"]
+p2: proto.FileDescriptor["p2.proto"]
+C: type[sw.p3.Color]
+red: sw.p3.Color
+green: sw.p3.Color
+blue: sw.p3.Color
+same: sw.p3.Color
+kind: sw.p3.Node.Inner.Kind
+size: sw.p2.Size
+number: int
+label: str
+enum_of: type[sw.p3.Color]
+s: sw.p3.Scalars
+copy: sw.p3.Scalars
+from_dict: sw.p3.Scalars
+n: sw.p3.Node
+name: str
+depth: str
+inner_x: int
+inner_kind: sw.p3.Node.Inner.Kind
+oneof_num: int
+legacy: sw.p2.Size
+desc: type[sw.p3.Node]
+ratio: float
+r: sw.p3.Repeats
+nums: proto.RepeatedField[int]
+first: int
+total: int
+doubled: list[int]
+joined: str
+ordered: list[int]
+texts: list[str]
+mp: sw.p3.Maps
+count: int
+keys: list[str]
+has_a: bool
+as_dict: dict[int, str]
+five: str
+present: bool
+field: proto.FieldDescriptor[sw.p3.Scalars, int]
+value: int
+ext: proto.RepeatedField[str]
+wire: bytes
+back: sw.p3.Scalars
+text: str
+again: sw.p3.Node
+def label_of[X: Sized, **R](m: struct[name: str, kids: X, **R]) -> str
+def set_bytes[T: SetAttr["by", U], U](m: T, v: U) -> T
+def parse[T](desc: type[T], data: bytes) -> T
+def names[T: Iterable[struct[name: U, **R]], U, **R](nodes: T) -> list[U]
+labelled: str
+stored: sw.p3.Scalars
+parsed: sw.p3.Node
+kid_names: list[str]

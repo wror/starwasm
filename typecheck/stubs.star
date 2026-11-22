@@ -65,6 +65,7 @@ load(
     "row",
 )
 load("unify.star", "report")
+load("proto.star", pb = "PB")
 
 # ---------------------------------------------------------------- parsing
 
@@ -208,12 +209,12 @@ def _parse_tparams(p):
                 for _ in range(len(p["toks"])):
                     if _tok(p) == "(":
                         bt = _advance(p)
-                        names = [_want(p, "name")["val"]]
+                        names = [_dotted(p)]
                         for _ in range(len(p["toks"])):
                             if _tok(p) != ",":
                                 break
                             _advance(p)
-                            names.append(_want(p, "name")["val"])
+                            names.append(_dotted(p))
                         _want(p, ")")
                         tp["bounds"].append(("among", names, _pos(bt)))
                     else:
@@ -238,6 +239,16 @@ def _parse_tparams(p):
         out.append(tp)
     _want(p, "]")
     return out
+
+def _dotted(p):
+    """A name, or a dotted one (pkg.Enum)."""
+    name = _want(p, "name")["val"]
+    for _ in range(len(p["toks"])):
+        if _tok(p) != "." or _peek(p, 1)["kind"] != "name":
+            break
+        _advance(p)
+        name += "." + _advance(p)["val"]
+    return name
 
 def _parse_params(p, in_type):
     """Parameters up to the ")". in_type: of a function type, where a
@@ -349,6 +360,12 @@ def _parse_prim(p):
         _error(p, t, "got " + token_name(k) + ", want a type")
     _advance(p)
     name = t["val"]
+    for _ in range(len(p["toks"])):
+        # a dotted name: a protocol buffer type (pkg.Msg, proto.MapField)
+        if _tok(p) != "." or _peek(p, 1)["kind"] != "name":
+            break
+        _advance(p)
+        name += "." + _advance(p)["val"]
     if name == "struct" and _tok(p) == "[":
         _advance(p)
         fields = []
@@ -388,6 +405,10 @@ def _parse_prim(p):
                 _want(p, ",")
                 if _tok(p) == "]":
                     break
+            if _tok(p) == "string":
+                st = _advance(p)  # proto.FileDescriptor["f.proto"]
+                args.append({"t": "literal", "val": st["val"], "pos": _pos(st)})
+                continue
             args.append(_parse_type(p))
         _want(p, "]")
     return {"t": "name", "name": name, "args": args, "pos": _pos(t)}
@@ -396,7 +417,8 @@ def _parse_prim(p):
 
 SIMPLE = {"int": True, "float": True, "str": True, "bytes": True, "bool": True, "None": True, "Any": True, "range": True}
 ARITY = {"list": 1, "set": 1, "dict": 2}
-KNOWN = ["int", "float", "str", "bytes", "bool", "None", "Any", "range", "list", "set", "dict", "tuple", "struct", "Literal", "Optional", "Callable"]
+KNOWN = ["int", "float", "str", "bytes", "bool", "None", "Any", "range", "list", "set", "dict", "tuple", "struct", "Literal", "Optional", "Callable",
+         "type", "proto.Module", "proto.FileDescriptor", "proto.FieldDescriptor", "proto.RepeatedField", "proto.MapField"]
 # PEP 484's capitalized names for the builtin generic types
 SYNONYMS = {"List": "list", "Dict": "dict", "Set": "set", "Tuple": "tuple"}
 MISNOMERS = {
@@ -452,8 +474,9 @@ def declare_tparams(cv, tparams, level):
         v = out[i]
         for b in tp["bounds"]:
             if b[0] == "among":
+                pool = cv["st"].get("pb") if cv["st"] != None else None
                 for n in b[1]:
-                    if n not in SIMPLE and n not in ARITY and n != "tuple":
+                    if n not in SIMPLE and n not in ARITY and n != "tuple" and not (pool != None and (n in pool["msgs"] or n in pool["enums"])):
                         _err(cv, b[2], "unknown type '" + n + "' in the bound of " + tp["name"])
                 v["preds"].append({"kind": "among", "subj": v, "args": [], "op": b[1], "ctx": _at(cv, b[2])})
                 continue
@@ -465,11 +488,11 @@ def declare_tparams(cv, tparams, level):
                     _err(cv, pos, "Contagious takes no type arguments")
                 v["preds"].append({"kind": "contagious", "subj": v, "args": [], "op": None, "ctx": ctx})
                 continue
-            if name == "HasAttr":
+            if name == "HasAttr" or name == "SetAttr":
                 if len(args) != 2 or type(args[0]) != "string" or type(args[1]) == "string":
-                    _err(cv, pos, "HasAttr takes a field name and a type: HasAttr[\"name\", T]")
+                    _err(cv, pos, name + " takes a field name and a type: " + name + "[\"name\", T]")
                     continue
-                v["preds"].append({"kind": "hasattr", "subj": v, "args": [to_type(cv, args[1])], "op": args[0], "ctx": ctx})
+                v["preds"].append({"kind": name.lower(), "subj": v, "args": [to_type(cv, args[1])], "op": args[0], "ctx": ctx})
                 continue
             if len([a for a in args if type(a) == "string"]) > 0:
                 _err(cv, pos, "unexpected string in the bound " + name)
@@ -491,10 +514,10 @@ def declare_tparams(cv, tparams, level):
                 else:
                     v["preds"].append({"kind": "rbinop", "op": BINOP_BY_NAME[rname], "l": a[0], "r": v, "res": a[1], "subj": v, "args": a, "ctx": ctx})
             else:
-                cands = list(PROTOS.keys()) + list(BINOP_BY_NAME.keys()) + ["R" + n for n in BINOP_BY_NAME.keys()] + ["HasAttr"]
+                cands = list(PROTOS.keys()) + list(BINOP_BY_NAME.keys()) + ["R" + n for n in BINOP_BY_NAME.keys()] + ["HasAttr", "SetAttr"]
                 n = nearest(name, cands)
                 _err(cv, pos, "unknown bound '" + name + "'" + (" (did you mean '" + n + "'?)" if n else "") +
-                              "; the bounds are " + ", ".join(sorted(PROTOS.keys())) + ", HasAttr, the operators (Add, Sub, Mul, ...) and `(type, type, ...)`")
+                              "; the bounds are " + ", ".join(sorted(PROTOS.keys())) + ", HasAttr, SetAttr, the operators (Add, Sub, Mul, ...) and `(type, type, ...)`")
     return out
 
 def to_type(cv, a):
@@ -594,6 +617,9 @@ def to_type(cv, a):
         return con("tuple", [to_type(cv, x) for x in args], _at(cv, pos))
     if name == "struct":
         return _bare_struct(cv, pos)
+    pt = _proto_type(cv, name, args, pos)
+    if pt != None:
+        return pt
     if name == "Optional":
         if args == None or len(args) != 1:
             _err(cv, pos, "Optional takes 1 type argument: Optional[T], which is T | None")
@@ -616,6 +642,50 @@ def to_type(cv, a):
         msg += " (a type parameter must be declared in brackets after the def's name: def f[" + name + "](...))"
     _err(cv, pos, msg)
     return T_ANY
+
+PROTO_ARITY = {pb.REPEATED: 1, pb.MAP: 2, pb.FIELD: 2}
+
+def _proto_type(cv, name, args, pos):
+    """The protocol buffer type `name[args]` (proto.star), or None if it
+    names none."""
+    pool = cv["st"].get("pb") if cv["st"] != None else None
+    at = _at(cv, pos)
+    if name == pb.MODULE or name == pb.FILE:
+        if args == None:
+            return con(name, [], at)
+        if name == pb.FILE and len(args) == 1 and args[0]["t"] == "literal":
+            f = args[0]["val"]
+            if pool != None and f not in pool["files"]:
+                _err(cv, pos, "no file '" + f + "' in the descriptor set" + pb.hint(f, pool["files"].keys()))
+                return T_ANY
+            return pb.file_type(f)
+        _err(cv, pos, name + " takes " + ("no type arguments" if name == pb.MODULE else "a file name: " + name + "[\"f.proto\"]"))
+        return T_ANY
+    if name in PROTO_ARITY:
+        n = PROTO_ARITY[name]
+        if args == None or len(args) != n:
+            _err(cv, pos, name + " takes " + str(n) + " type argument" + ("" if n == 1 else "s"))
+            return T_ANY
+        return con(name, [to_type(cv, x) for x in args], at)
+    if name == pb.TYPE:
+        if args == None or len(args) != 1:
+            _err(cv, pos, "type takes 1 type argument: type[pkg.Msg], a message or enum descriptor")
+            return T_ANY
+        x = to_type(cv, args[0])
+        r = resolve(x)
+        if r["k"] != "var" and not (r["k"] == "con" and r["name"] == "Any") and pb.kind(pool, r) == None:
+            _err(cv, pos, "type[...] is the type of a message or enum descriptor: type[pkg.Msg]")
+            return T_ANY
+        return con(pb.TYPE, [x], at)
+    if pool != None and (name in pool["msgs"] or name in pool["enums"]):
+        if args != None:
+            _err(cv, pos, name + " takes no type arguments")
+        return con(name, [], at)
+    if pool != None and "." in name:
+        cands = list(pool["msgs"].keys()) + list(pool["enums"].keys())
+        _err(cv, pos, "no message or enum '" + name + "' in the descriptor set" + pb.hint(name, cands))
+        return T_ANY
+    return None
 
 def _bare_struct(cv, pos):
     _err(cv, pos, "struct needs its fields: struct[name: type, ...] (struct[] has none; struct[**R] has any, in a def with type parameter **R)")

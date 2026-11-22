@@ -290,7 +290,8 @@ has warmed up the compiler.
   top-level name in a later input is an error, as within a file, and so
   are top-level for/if, while and recursion; `_` is exempt (compiler
   --repl). `node host/repl.mjs --globalreassign --recursion` passes the
-  flags on.
+  flags on, and `--descriptor_set=FILE` the proto module's descriptor set
+  (to the compiler and the type checker).
 - A failing input (compile or runtime error) is dropped, so state stays as
   before it; errors and tracebacks are mapped to `<input N>:line:col`.
 - Blocks (first line ends with ":") end with an empty line; open brackets,

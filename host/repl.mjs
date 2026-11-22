@@ -1,6 +1,7 @@
 // repl.mjs — an interactive Starlark session on top of the compiler.
 //
-//   node host/repl.mjs [--globalreassign] [--globalredefine] [--recursion] [--contagiousnone | --nocontagiousnone] [compiler.wasm]
+//   node host/repl.mjs [--globalreassign] [--globalredefine] [--recursion] [--contagiousnone | --nocontagiousnone]
+//                       [--descriptor_set=FILE] [compiler.wasm]
 //                       (default: compiler/main.star, compiled when needed
 //                        by host/wasmcache.mjs, as host/run.mjs does)
 //
@@ -10,7 +11,10 @@
 // compiler's options of the same name (--globalredefine: --globalreassign,
 // and a function may be defined again too) (--contagiousnone and
 // --nocontagiousnone: the "contagious None" extension, on by default once
-// the session has reactive variables; EXTENSIONS.md).
+// the session has reactive variables; EXTENSIONS.md). --descriptor_set=FILE:
+// the binary FileDescriptorSet whose .proto files proto.file() opens, as
+// for host/run.mjs; the type checker then types the proto module's values
+// from it too.
 //
 // How it works: "replay". The session is the list of inputs accepted so far.
 // Each new input is appended, the whole session is recompiled (by the
@@ -69,7 +73,12 @@ import { pastedInput, Session } from "./repl_core.mjs";
 
 const DIALECT_FLAGS = new Set(["--globalreassign", "--globalredefine", "--recursion", "--contagiousnone", "--nocontagiousnone", "--rollback"]);
 const dialectFlags = process.argv.slice(2).filter((a) => DIALECT_FLAGS.has(a));
-const otherArgs = process.argv.slice(2).filter((a) => !DIALECT_FLAGS.has(a));
+const descriptorSet = process.argv.slice(2).filter((a) => a.startsWith("--descriptor_set=")).map((a) => a.slice("--descriptor_set=".length)).pop();
+const otherArgs = process.argv.slice(2).filter((a) => !DIALECT_FLAGS.has(a) && !a.startsWith("--descriptor_set="));
+if (descriptorSet !== undefined && !existsSync(descriptorSet)) {
+  console.error(`repl: ${descriptorSet} not found`);
+  process.exit(2);
+}
 const compilerPath = otherArgs[0] ?? "compiler/main.star";
 if (otherArgs[0] !== undefined && !existsSync(compilerPath)) {
   console.error(`repl: ${compilerPath} not found`);
@@ -142,6 +151,7 @@ function startProgram(bytes, queue) {
 const session = new Session({
   compiler,
   dialectFlags,
+  descriptorSet,
   sessionPath,
   wasmPath: join(dir, "session.wasm"),
   readFile: (p) => readFileSync(p),

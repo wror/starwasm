@@ -185,6 +185,16 @@ if node tests/repl/complete.mjs out/stage2.wasm > out/repl_complete.out 2>&1 &&
 else
   echo "repl completion: MISMATCH"; fail=1
 fi
+# Protocol buffers in the REPL (--descriptor_set): run, and typed from the
+# schema by .type, .types, .check and Tab completion.
+if node host/repl.mjs out/stage2.wasm --descriptor_set=tests/proto/test.binpb < tests/repl/proto.in > out/repl_proto.out 2>&1 &&
+   diff -u tests/repl/proto.out out/repl_proto.out &&
+   node tests/repl/proto_complete.mjs out/stage2.wasm > out/repl_proto_complete.out 2>&1 &&
+   diff -u tests/repl/proto_complete.out out/repl_proto_complete.out; then
+  echo "repl proto: ok"
+else
+  echo "repl proto: MISMATCH"; fail=1
+fi
 # The indentation that "..." lines start with (Session.indent).
 if node tests/repl/indent.mjs > /dev/null; then
   echo "repl indent: ok"

@@ -494,6 +494,9 @@ function callAt(s, at) {
  * A REPL session.
  *   compiler      the compiler (a WebAssembly.Module)
  *   dialectFlags  compiler options (--globalreassign, --globalredefine, --recursion, --contagiousnone, --nocontagiousnone)
+ *   descriptorSet (optional): the path of a binary FileDescriptorSet (read
+ *                 with readFile): the .proto files of the proto module,
+ *                 for the compiler and the type checker
  *   sessionPath   the file the session is compiled from (load() paths are
  *                 relative to it); wasmPath: where the compiler writes
  *   readFile(path) -> Uint8Array, writeFile(path, bytes): file access, for
@@ -523,6 +526,10 @@ export class Session {
     this.checkerModule = null;
   }
 
+  protoFlags() {
+    return this.descriptorSet ? [`--descriptor_set=${this.descriptorSet}`] : [];
+  }
+
   // Run the type checker on entries (accepted inputs, plus `extra`: more
   // text, e.g. an expression to type). args: more options for it. Returns
   // {ok, stdout, error}: error is the diagnostics (or why it can't run),
@@ -544,7 +551,7 @@ export class Session {
     const status = runModule(this.checkerModule, {
       // (the dialect's None: the checker types for contagious None as the
       // compiler compiles, on by default in a session with reactive variables)
-      progArgs: ["--repl", "--print", "--start=*", ...this.dialectFlags.filter((f) => /^--(no)?contagiousnone$/.test(f)), ...args, path],
+      progArgs: ["--repl", "--print", "--start=*", ...this.dialectFlags.filter((f) => /^--(no)?contagiousnone$/.test(f)), ...this.protoFlags(), ...args, path],
       stdout: (b) => out.push(b.slice()),
       stderr: (t) => (err += t),
       readFile: (p) => {
@@ -724,7 +731,7 @@ export class Session {
     this.writeFile(this.sessionPath, encoder.encode(code));
     let cerr = "";
     const status = runModule(this.compiler, {
-      progArgs: ["--repl", ...this.dialectFlags, this.sessionPath, this.wasmPath], // --repl: `_` may be rebound
+      progArgs: ["--repl", ...this.dialectFlags, ...this.protoFlags(), this.sessionPath, this.wasmPath], // --repl: `_` may be rebound
       stderr: (t) => (cerr += t),
       readFile: this.readFile,
       writeFile: this.writeFile,

@@ -31,6 +31,7 @@
 load("../compiler/parser.star", "parse_file")
 load("../compiler/resolve.star", "called_names", "dotted_names", "free_names")
 load("../compiler/spell.star", "nearest")
+load("proto.star", "FIELD", "FILE", "MAP", "MODULE", "TYPE", "file_type", "message_field", pb_field_type = "field_type", pb_hint = "hint", pb_kind = "kind")
 load(
     "stubs.star",
     "child_scope",
@@ -80,6 +81,7 @@ load(
     "report",
     "unify",
     "unify_report",
+    "setter",
     "watch",
     "contagious_vars",
     WIDENABLE = "WIDENABLE",
@@ -978,7 +980,7 @@ def _infer_assign(st, fc, s):
     lhs = s["lhs"]
     if op == "=":
         t = infer_expr(st, fc, s["rhs"])
-        assign_target(st, fc, lhs, t, "assignment")
+        assign_target(st, fc, lhs, t, "assignment", s["rhs"])
         return
     # augmented: x op= y is x = x op y
     lt = infer_expr(st, fc, lhs)
@@ -1023,8 +1025,9 @@ def _widened(st, fc, pos):
     (assign_target)?"""
     return st["contagious"] and st["widen"].get(_widen_key(fc, pos), False)
 
-def assign_target(st, fc, target, t, what):
-    """Bind assignment target `target` to a value of type t."""
+def assign_target(st, fc, target, t, what, value = None):
+    """Bind assignment target `target` to a value of type t (value: the
+    expression, where it is a plain assignment's)."""
     k = target["kind"]
     pos = target["pos"]
     if st["contagious"] and _strip_opt(t) != None:
@@ -1072,6 +1075,19 @@ def assign_target(st, fc, target, t, what):
         return
     if k == "dot":
         xt = head(st, infer_expr(st, fc, target["x"]))
+        if st["pb"] != None and pb_kind(st["pb"], xt) == "msg":
+            _pb_assign(st, fc, xt, target, t, value)
+            return
+        if st["pb"] != None and xt["k"] == "var":
+            # a message, to be told by what x turns out to be (SetAttr)
+            ctx = _ctx(fc, pos, "assignment to ." + target["name"])
+            if st["contagious"]:
+                _fails(st, fc)
+            add_pred(st, pred("setattr", xt, [t], ctx, target["name"]), ctx)
+            return
+        if st["pb"] != None and xt["k"] == "con" and (xt["name"].startswith("proto.") or xt["name"] == TYPE or pb_kind(st["pb"], xt) != None):
+            report(st, _ctx(fc, pos), "cannot assign to ." + target["name"] + " of " + show(xt) + ": only a message's fields can be assigned")
+            return
         if not is_con(xt, "Any"):
             report(st, _ctx(fc, pos), "cannot assign to field '" + target["name"] + "' of " + show(xt) + ": structs are immutable (make a new one: s + struct(" + target["name"] + " = ...))")
 
@@ -1605,6 +1621,10 @@ def infer_call(st, fc, e):
     if f["kind"] == "dot":
         rt = infer_expr(st, fc, f["x"])
         name = f["name"]
+        if st["pb"] != None and is_con(resolve(rt), MODULE):
+            t = _sp_proto(st, fc, e, name)
+            if t != None:
+                return t
         npos = len([a for a in e["args"] if a["name"] == None and a["star"] == ""])
         if name in ["get", "pop"] and npos == 2 and len(e["args"]) == 2:
             h = head(st, rt)
@@ -1620,7 +1640,7 @@ def infer_call(st, fc, e):
         ft = attr_type(st, rt, name, _ctx(fc, f["pos"], "." + name + " is used here"), fc["scope"]["level"])
     else:
         ft = infer_expr(st, fc, f)
-    args = [{"name": a["name"], "star": a["star"], "type": infer_expr(st, fc, a["value"]), "pos": a["value"]["pos"]} for a in e["args"]]
+    args = [{"name": a["name"], "star": a["star"], "type": infer_expr(st, fc, a["value"]), "pos": a["value"]["pos"], "x": a["value"]} for a in e["args"]]
     maybe = False
     if st["contagious"]:
         # an argument that may be None may make the result None, unless the
@@ -1667,6 +1687,8 @@ def infer_call(st, fc, e):
     # a def's type parameters marked Contagious (unify.star): if what one
     # stands for here may have a None in it, the call may be None
     marked = contagious_vars(ft) if st["contagious"] else []
+    # (before the arguments meet the parameters: what literals they are)
+    pb_fails = st["contagious"] and _pb_fallible_call(st, head(st, ft), args)
     t = apply(st, fc, ft, args, pos, _callee_name(f))
     for v in marked:
         r = resolve(v)
@@ -1677,7 +1699,7 @@ def infer_call(st, fc, e):
             unknown += unk
     if not maybe:
         t = _lift_later(st, fc, unknown, t, pos)
-    if maybe or (st["contagious"] and _fallible_call(st, e, args)):
+    if maybe or (st["contagious"] and (_fallible_call(st, e, args) or pb_fails)):
         t = mk_opt(t)
     return t
 
@@ -1749,6 +1771,8 @@ def apply(st, fc, ft, args, pos, fname):
     type, pos}), checking them against its parameters."""
     h = head(st, ft)
     ctx = _ctx(fc, pos, "call of " + fname)
+    if is_con(h, TYPE) and st["pb"] != None:
+        h = _pb_callable(st, fc, h, args, ctx)
     if h["k"] == "con" and h["name"] == "Any":
         return T_ANY
     if h["k"] == "var":
@@ -1994,7 +2018,7 @@ def _sp_dict(st, fc, e):
         t = infer_expr(st, fc, a)
         h = head(st, t)
         ctx = _ctx(fc, a["pos"], "argument of dict()")
-        if is_con(h, "dict"):
+        if is_con(h, "dict") or is_con(h, MAP):
             kt, vt = h["args"]
         else:
             if st["contagious"] and h["k"] == "con" and h["name"] in ["list", "vtuple", "set"] and _strip_opt(h["args"][0]) != None:
@@ -2020,3 +2044,273 @@ SPECIAL = {
     "zip": _sp_zip,
     "dict": _sp_dict,
 }
+
+# ---------------------------------------------------------------- protocol buffers
+#
+# With a descriptor set (main.star's --descriptor_set), the proto module's
+# values have types from its schema (proto.star): calls of proto.<member>,
+# of message and enum descriptors, and assignments to a message's fields
+# are checked here.
+
+def _pb_message(st, t, ctx, fname):
+    """The message type of t, a proto.<member>'s message argument; None if
+    it isn't known (an error if it is known not to be a message)."""
+    h = head(st, t)
+    if pb_kind(st["pb"], h) == "msg":
+        return h
+    if h["k"] != "var" and not is_con(h, "Any"):
+        report(st, ctx, "argument 'msg' of " + fname + ": expected a proto message, got " + show(h))
+    return None
+
+PB_ARITY = {"file": 1, "has": 2, "get_field": 2, "set_field": 3, "marshal": 1, "marshal_text": 1, "unmarshal": 2, "unmarshal_text": 2}
+
+def _sp_proto(st, fc, e, name):
+    """The type of the call e of proto.<name>, or None to have it checked
+    against the member's signature (MEMBERS in proto.star)."""
+    pool = st["pb"]
+    args = e["args"]
+    if PB_ARITY.get(name) != len(args) or len([a for a in args if a["name"] != None or a["star"] != ""]) > 0:
+        return None
+    fname = "proto." + name + "()"
+    level = fc["scope"]["level"]
+    ts = []
+    maybe = False
+    for a in args:
+        t = infer_expr(st, fc, a["value"])
+        s = _strip_opt(t) if st["contagious"] else None
+        if s != None:
+            # (contagious None: a None argument makes the call None)
+            t = s
+            maybe = True
+        ts.append(t)
+    ctxs = [_ctx(fc, a["value"]["pos"], "argument " + str(i + 1) + " of " + fname) for i, a in enumerate(args)]
+    at = _ctx(fc, e["pos"], "result of " + fname)
+    fallible = True
+    if name == "file":
+        v = args[0]["value"]
+        if v["kind"] == "string":
+            fallible = False
+            if v["val"] not in pool["files"]:
+                report(st, ctxs[0], "no file '" + v["val"] + "' in the descriptor set" + pb_hint(v["val"], pool["files"].keys()))
+                t = T_ANY
+            else:
+                t = file_type(v["val"])
+        else:
+            flow_report(st, ts[0], con("str"), ctxs[0])
+            t = con(FILE, [], at)
+    elif name == "has":
+        fallible = False
+        m = _pb_message(st, ts[0], ctxs[0], fname)
+        v = args[1]["value"]
+        if v["kind"] == "string":
+            if m != None and message_field(pool, m, v["val"]) == None:
+                fields = [f["name"] for f in pool["msgs"][m["name"]]["fields"]]
+                report(st, ctxs[1], m["name"] + " has no ." + v["val"] + " field" + pb_hint(v["val"], fields))
+        else:
+            h = head(st, ts[1])
+            if is_con(h, FIELD):
+                if m != None:
+                    unify_report(st, h["args"][0], m, _ctx(fc, v["pos"], "field of " + fname + " (the message's own)"))
+            elif not is_con(h, "str") and h["k"] != "var" and not is_con(h, "Any"):
+                report(st, ctxs[1], "argument 'field' of " + fname + ": expected a field name or a proto.FieldDescriptor, got " + show(h))
+        t = con("bool", [], at)
+    elif name == "get_field" or name == "set_field":
+        fallible = name == "set_field"
+        m = _pb_message(st, ts[0], ctxs[0], fname)
+        if args[1]["value"]["kind"] == "string":
+            report(st, ctxs[1], "argument 'field' of " + fname + ": expected a proto.FieldDescriptor (pkg.Msg.field), not a field name")
+            res = T_ANY
+        else:
+            res = _fresh(st, fc)
+            want = con(FIELD, [m if m != None else _fresh(st, fc), res], ctxs[1])
+            if not flow_report(st, ts[1], want, _ctx(fc, args[1]["value"]["pos"], "argument 'field' of " + fname)):
+                res = T_ANY
+        if name == "get_field":
+            t = res
+        else:
+            vctx = _ctx(fc, args[2]["value"]["pos"], "argument 'value' of " + fname)
+            flow_report(st, ts[2], mk_opt(setter(st, res, level, vctx)), vctx)
+            t = con("None", [], at)
+    elif name == "marshal" or name == "marshal_text":
+        m = _pb_message(st, ts[0], ctxs[0], fname)
+        # (it fails on a message without its required fields)
+        fallible = m == None or pool["msgs"][m["name"]]["required"]
+        t = con("bytes" if name == "marshal" else "str", [], at)
+    else:  # unmarshal, unmarshal_text
+        h = head(st, ts[0])
+        t = _fresh(st, fc)
+        if h["k"] == "var" and not h["rigid"]:
+            unify_report(st, h, con(TYPE, [t], ctxs[0]), ctxs[0])
+        elif is_con(h, TYPE) and (pb_kind(pool, resolve(h["args"][0])) == "msg" or resolve(h["args"][0])["k"] == "var"):
+            t = resolve(h["args"][0])  # (a type parameter: def parse[T](desc: type[T], ...) -> T)
+        elif not is_con(h, "Any"):
+            report(st, ctxs[0], "argument 'desc' of " + fname + ": expected a message descriptor (pkg.Msg), got " + show(h))
+            t = T_ANY
+        flow_report(st, ts[1], con("bytes" if name == "unmarshal" else "str"), _ctx(fc, args[1]["value"]["pos"], "argument 'data' of " + fname))
+    if maybe or (st["contagious"] and fallible):
+        return mk_opt(t)
+    return t
+
+# the range of each integer field type (FieldDescriptorProto.Type)
+PB_RANGES = {
+    5: ("int32", -2147483648, 2147483647),
+    15: ("sfixed32", -2147483648, 2147483647),
+    17: ("sint32", -2147483648, 2147483647),
+    13: ("uint32", 0, 4294967295),
+    7: ("fixed32", 0, 4294967295),
+    3: ("int64", -9223372036854775808, 9223372036854775807),
+    16: ("sfixed64", -9223372036854775808, 9223372036854775807),
+    18: ("sint64", -9223372036854775808, 9223372036854775807),
+    4: ("uint64", 0, 18446744073709551615),
+    6: ("fixed64", 0, 18446744073709551615),
+}
+
+def _pb_check_value(st, fc, f, x, whole = True):
+    """What literals in x, the expression stored in field f (an element of
+    it if not whole), say that fails: an int out of the field's range, an
+    enum's number or name it lacks, a dict for a message with a key that
+    is no field of it, or such an element of a list for a repeated field."""
+    pool = st["pb"]
+    if x == None:
+        return
+    pos = x["pos"]
+    sub = pool["msgs"].get(f["type_name"])
+    if whole and f["label"] == 3:
+        if sub != None and sub["map_entry"]:
+            kf = sub["by_name"].get("key")
+            vf = sub["by_name"].get("value")
+            if x["kind"] == "dict" and kf != None and vf != None:
+                for key, val in x["entries"]:
+                    _pb_check_value(st, fc, kf, key)
+                    _pb_check_value(st, fc, vf, val)
+        elif x["kind"] == "list" or x["kind"] == "tuple":
+            for el in x["elems"]:
+                _pb_check_value(st, fc, f, el, False)
+        return
+    v = _literal(x)
+    en = pool["enums"].get(f["type_name"])
+    if en != None and v != None:
+        if type(v) == "string" and v not in en["by_name"]:
+            report(st, _ctx(fc, pos), "invalid name " + repr(v) + " for enum " + en["full"] + pb_hint(v, en["values"]))
+        elif type(v) == "int" and v not in en["numbers"]:
+            report(st, _ctx(fc, pos), "invalid number " + str(v) + " for enum " + en["full"])
+    elif f["type"] in PB_RANGES and type(v) == "int":
+        tname, lo, hi = PB_RANGES[f["type"]]
+        if v < lo or v > hi:
+            report(st, _ctx(fc, pos), str(v) + " is out of range for field ." + f["name"] + " (" + tname + ")")
+    elif sub != None and not sub["map_entry"] and x["kind"] == "dict":
+        _pb_check_dict(st, fc, sub, x)
+
+def _pb_check_dict(st, fc, m, x):
+    """A dict written out for a message of type m: its keys name fields."""
+    for key, val in x["entries"]:
+        if key["kind"] != "string":
+            report(st, _ctx(fc, key["pos"]), "a key of a dict for " + m["full"] + " is a field name, a string")
+            continue
+        f = m["by_name"].get(key["val"])
+        if f == None:
+            report(st, _ctx(fc, key["pos"]), m["full"] + " has no ." + key["val"] + " field" + pb_hint(key["val"], [y["name"] for y in m["fields"]]))
+        else:
+            _pb_check_value(st, fc, f, val)
+
+def _literal(x):
+    """The int or string written out that expression x is, or None."""
+    if x == None:
+        return None
+    if x["kind"] == "unop" and x["op"] == "-" and x["x"]["kind"] == "int":
+        return -x["x"]["val"]
+    if x["kind"] == "int" or x["kind"] == "string":
+        return x["val"]
+    return None
+
+def _pb_safe(st, g, t, x):
+    """With contagious None: can't storing x, a value of type t, where one
+    of type g is read fail (as an int out of the field's range, an enum's
+    number it doesn't have, a dict for a message, may)? An int written out
+    is taken to be in range, a string written out to be right (an enum's
+    names are checked: _pb_check_value)."""
+    r = resolve(g)
+    a = resolve(t)
+    k = pb_kind(st["pb"], r)
+    v = _literal(x)
+    if is_con(a, "None") or (x != None and x["kind"] == "name" and x["id"] == "None"):
+        return True
+    if v != None:
+        if k == "enum" and type(v) == "int":
+            return v in st["pb"]["enums"][r["name"]]["numbers"]
+        return True
+    if a["k"] != "con" or r["k"] != "con":
+        return False
+    if a["name"] == r["name"]:
+        return a["name"] != "int" and not a["args"]
+    return (is_con(r, "float") and is_con(a, "int")) or (is_con(r, "bytes") and is_con(a, "str"))
+
+def _pb_callable(st, fc, h, args, ctx):
+    """The function type of calling a value of type h, type[...]: a
+    message's descriptor makes a message (from a message of its type or
+    a dict, or by field), an enum's makes an enum value (from its number,
+    name or value)."""
+    pool = st["pb"]
+    t = resolve(h["args"][0])
+    k = pb_kind(pool, t)
+    level = fc["scope"]["level"]
+    if k == "msg":
+        ret = con(t["name"], [], _ctx(fc, ctx["pos"], "a message made here"))
+        params = [param(None, setter(st, t, level, ctx), True)]
+        for f in pool["msgs"][t["name"]]["fields"]:
+            params.append(param(f["name"], mk_opt(setter(st, pb_field_type(pool, f), level, ctx)), True, "", True))
+        m = pool["msgs"][t["name"]]
+        named = [a for a in args if a["name"] != None]
+        for a in args:
+            f = message_field(pool, t, a["name"]) if a["name"] != None else None
+            if f != None:
+                _pb_check_value(st, fc, f, a.get("x"))
+            elif a["name"] == None and a["star"] == "" and a.get("x") != None and a["x"]["kind"] == "dict":
+                _pb_check_dict(st, fc, m, a["x"])
+            if a["name"] == None and a["star"] == "" and named:
+                report(st, _ctx(fc, a["pos"]), m["name"] + "() takes a message or dict, or fields by name, not both")
+        return fn(params, ret, h.get("at"))
+    if k == "enum":
+        if args and args[0]["name"] == None and args[0]["star"] == "":
+            _pb_check_value(st, fc, {"name": "", "label": 1, "type": 14, "type_name": t["name"]}, args[0].get("x"))
+        return fn([param(None, setter(st, t, level, ctx))], con(t["name"], [], _ctx(fc, ctx["pos"], "an enum value made here")), h.get("at"))
+    return T_ANY
+
+def _pb_fallible_call(st, ft, args):
+    """With contagious None: can this call of a message or enum
+    descriptor (ft: what is called) fail on arguments of the right types?"""
+    pool = st["pb"]
+    if pool == None or not is_con(ft, TYPE):
+        return False
+    t = resolve(ft["args"][0])
+    k = pb_kind(pool, t)
+    for a in args:
+        if a["star"] != "":
+            return True
+        if k == "enum":
+            return not _pb_safe(st, t, a["type"], a["x"])
+        if a["name"] == None:
+            if not is_con(resolve(a["type"]), t["name"]):
+                return True  # (from a dict)
+            continue
+        f = message_field(pool, t, a["name"])
+        if f == None or not _pb_safe(st, pb_field_type(pool, f), a["type"], a["x"]):
+            return True
+    return False
+
+def _pb_assign(st, fc, m, target, t, value):
+    """msg.name = a value of type t, for a message of type m."""
+    pool = st["pb"]
+    name = target["name"]
+    pos = target["pos"]
+    f = message_field(pool, m, name)
+    if f == None:
+        fields = [x["name"] for x in pool["msgs"][m["name"]]["fields"]]
+        report(st, _ctx(fc, pos), m["name"] + " has no ." + name + " field" + pb_hint(name, fields))
+        return
+    g = pb_field_type(pool, f)
+    ctx = _ctx(fc, pos, "assignment to ." + name + " of " + m["name"])
+    _pb_check_value(st, fc, f, value)
+    if st["contagious"] and not _pb_safe(st, g, t, value):
+        _fails(st, fc)
+    flow_report(st, t, mk_opt(setter(st, g, fc["scope"]["level"], ctx)), ctx)

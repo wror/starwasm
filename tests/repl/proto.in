@@ -1,0 +1,15 @@
+p3 = proto.file("p3.proto")
+n = p3.Node(name = "root", kids = [{"name": "k"}])
+n.kids[0].name
+.type n.kids
+.type p3.Node.Inner.Kind.LEAF
+.type proto.unmarshal(p3.Scalars, proto.marshal(p3.Scalars()))
+.type n.kids[0].left.name
+.check on
+n.nmae
+p3.Scalars(color = "REDD")
+s = p3.Scalars(i32 = 3)
+s.i32 = "three"
+s.i32 = 4
+s
+.types
