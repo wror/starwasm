@@ -2,8 +2,11 @@
 // module worker so that a long computation doesn't freeze the page (and
 // can be stopped by terminating the worker).
 //
-// Messages from the page: {type: "init", flags: [...], journal}, journal
-// being a saved session (host/repl_core.mjs's Session.journal()) or null,
+// Messages from the page: {type: "init", flags: [...], journal, schema},
+// journal being a saved session (host/repl_core.mjs's Session.journal()) or
+// null, schema the bytes of a FileDescriptorSet the page was given (the
+// .proto files proto.file() opens; for the compiler and the type checker,
+// as --descriptor_set) or null,
 // then {type: "line", line} for each line typed, and {type: "complete", id,
 // text, cursor} for Tab, answered with {type: "completions", id, from, to,
 // items: [{name, detail}]} (Session.complete). To the page:
@@ -31,7 +34,9 @@ import { helpText, Session } from "./host/repl_core.mjs";
 
 let session = null;
 const files = new Map();
-const SESSION_FILES = new Set(["session.star", "session.wasm"]);
+// (the schema is the page's, saved apart from the session's files)
+const SCHEMA = "descriptor_set.binpb";
+const SESSION_FILES = new Set(["session.star", "session.wasm", SCHEMA]);
 
 function toBase64(bytes) {
   let s = "";
@@ -42,7 +47,8 @@ const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 let busy = Promise.resolve();
 const post = (m) => postMessage(m);
 
-async function init(flags, journal) {
+async function init(flags, journal, schema) {
+  if (schema) files.set(SCHEMA, schema);
   let compiler;
   try {
     const res = await fetch("compiler.wasm");
@@ -59,6 +65,7 @@ async function init(flags, journal) {
   session = new Session({
     compiler,
     dialectFlags: flags,
+    descriptorSet: schema ? SCHEMA : undefined,
     help: helpText({ web: true }),
     sessionPath: "session.star",
     wasmPath: "session.wasm",
@@ -96,7 +103,7 @@ async function init(flags, journal) {
 }
 
 onmessage = ({ data: m }) => {
-  if (m.type === "init") busy = busy.then(() => init(m.flags, m.journal));
+  if (m.type === "init") busy = busy.then(() => init(m.flags, m.journal, m.schema ?? null));
   else if (m.type === "complete") {
     // (after the lines being run: it completes in the session they make)
     busy = busy.then(async () => {

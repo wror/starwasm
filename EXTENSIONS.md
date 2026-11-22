@@ -1458,8 +1458,12 @@ of different types from one input to the next.
   and `.check`; Tab completion offers a file's messages and enums, a
   message's fields, an enum's values, `append` on a repeated field, and
   a message's fields as keyword arguments of its descriptor's call
-  (`p3.Scalars(`). (Not in the browser REPL, which has no way to be given
-  a descriptor set.) Tests: tests/repl/proto.in, proto_complete.mjs.
+  (`p3.Scalars(`). In the browser REPL, the **Schema…** button loads a
+  descriptor set file (its .proto files are listed beside it; ✕ removes
+  it): it is saved in the browser apart from the session, so `.reset`
+  keeps it, and loading or removing one replays the session with it
+  (web/repl.js, web/repl_worker.js). Tests: tests/repl/proto.in,
+  proto_complete.mjs.
 - Tab completion, in the browser REPL (the Tab key, or the Tab button on
   a touch screen): after a `.`, the fields of a struct or the methods of
   a builtin type, found from the *type* of the expression before the dot
