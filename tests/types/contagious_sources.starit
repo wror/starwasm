@@ -1,0 +1,13 @@
+# Types inferred from contagious_sources.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_sources.start instead.
+
+def pair[T: Add[U, V], U, V](a: T, b: U) -> V
+def named(n: int) -> int | None
+rows: list[list[int]]
+cols: list[tuple[int, ...]]
+low: int | None
+copied: dict[str, int]
+opened: Any | None
+ordered: list[struct[k: int]]
+tick: int
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

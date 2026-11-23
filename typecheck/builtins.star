@@ -28,7 +28,7 @@ def fail(*args: Any, sep: str = ...) -> None
 def list[X: Iterable[T], T](x: X = ...) -> list[T]
 def tuple[X: Iterable[T], T](x: X = ...) -> tuple[T, ...]
 def set[X: Iterable[T], T](x: X = ...) -> set[T]
-def sorted[X: Iterable[T], T](x: X, *, key: (T) -> Any = ..., reverse: bool = ...) -> list[T]
+def sorted[X: Iterable[T], T, K](x: X, *, key: (T) -> K = ..., reverse: bool = ...) -> list[T]
 def reversed[X: Iterable[T], T](x: X) -> list[T]
 def enumerate[X: Iterable[T], T](x: X, start: int = ...) -> list[tuple[int, T]]
 def any[X: Iterable[T], T](x: X) -> bool

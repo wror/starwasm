@@ -26,7 +26,7 @@ def iterated[T: Iterable[U] & SetItem[U, int] & Contagious, U](d: T) -> T | None
     k: U
 def pair[T: Add[U, V], U, V](a: T, b: U) -> V
 def spread[T: Iterable[U], U: Add[U, V], V](xs: T) -> V | None
-def named[T, U](kw: T) -> U | None
+def named[T: Add[T, U], U](kw: dict[str, T]) -> U | None
 firsts: (ps: list[list[int]] = ...) -> list[int] | None
 tick: int
-tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

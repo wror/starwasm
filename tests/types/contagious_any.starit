@@ -13,4 +13,4 @@ def loop(name: str) -> int | None:
 def told(name: str) -> Any | None
 stored: list[int | None]
 tick: int
-tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

@@ -606,14 +606,17 @@ def to_type(cv, a):
     if name in ARITY:
         n = ARITY[name]
         if args == None:
-            return con(name, [T_ANY] * n, _at(cv, pos))
+            # (list: list[Any], with contagious None an Any that isn't None)
+            some = cv["st"] != None and cv["st"].get("contagious", False)
+            return con(name, [ANY_SOME if some else T_ANY] * n, _at(cv, pos))
         if len(args) != n:
             _err(cv, pos, name + " takes " + str(n) + " type argument" + ("" if n == 1 else "s") + ": " + ("dict[K, V]" if n == 2 else name + "[T]"))
             return T_ANY
         return con(name, [to_type(cv, x) for x in args], _at(cv, pos))
     if name == "tuple":
         if args == None:
-            return con("vtuple", [T_ANY], _at(cv, pos))
+            some = cv["st"] != None and cv["st"].get("contagious", False)
+            return con("vtuple", [ANY_SOME if some else T_ANY], _at(cv, pos))
         if len(args) == 1 and args[0]["t"] == "unit":
             return con("tuple", [], _at(cv, pos))
         if len(args) == 2 and args[1]["t"] == "ellipsis":

@@ -18,4 +18,4 @@ def set_count[T: SetAttr["i32", U], U](m: T, n: U) -> T | None
 def set_name[T: SetAttr["s", U], U](m: T, s: U) -> T | None
 counted: sw.p3.Scalars | None
 named: sw.p3.Scalars | None
-qtyError: list[struct[id: int, qty_id: Any | None, trigger: str, field: str, value: None]]
+qtyError: list[struct[id: int, qty_id: int | None, trigger: str, field: str, value: None]]

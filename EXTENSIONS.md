@@ -1394,7 +1394,8 @@ types (but see None below) and no classes; types are structural.
   `x` a struct with that field.
 - **`Any`** fits everything, and nothing is learned from it. The checker
   infers it only where it must: for values it can't type (`getattr` with
-  an unknown name, `proto` without a descriptor set), for the arguments
+  an unknown name, `proto` without a descriptor set, the `time` module;
+  with contagious None, `struct(**d)`, whose fields aren't known), for the arguments
   of an untyped `*args` (which may differ in type, as `print`'s), for `a and b`/`a or b` of
   different types, and where a type would have to contain itself (there
   are no recursive types: a tree whose nodes are structs has `kids:
@@ -1667,8 +1668,12 @@ reads as empty, and the exit status).
 - An accumulator that starts as an int literal and is added floats that
   only a caller supplies (`total = 0` in a def summing its argument) is an
   int: start it at `0.0`.
-- `struct(**d)` has an unknown row; a struct passed as `**kwargs` and the
-  count of `*args` are not checked.
+- `struct(**d)` has an unknown row (with contagious None, it is `Any |
+  None`); a struct passed as `**kwargs` and the count of `*args` are not
+  checked. (The values of `**kw` go to every parameter not given otherwise,
+  as `*args`' elements go to every positional one; `zip(*rows)` is a
+  `list[tuple[T, ...]]`, `min(*xs)` and `max(*xs)` are of xs's elements,
+  and `dict(**kw)` is a `dict[str, V]`.)
 - A field that follows a row variable is taken to be visible: `struct[**R,
   id: int]` doesn't unify with `struct[id: str]`, though `R = (id: str)`
   would shadow the `id: int`.

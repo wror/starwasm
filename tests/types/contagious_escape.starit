@@ -23,4 +23,4 @@ inc: (x: int) -> int
 keep: (x: int | None) -> list[int | None]
 def lambdas[T](d: dict[T, int], k: T) -> tuple[int | None, list[int | None]]
 tick: int
-tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

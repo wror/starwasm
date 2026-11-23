@@ -125,7 +125,7 @@ an order:
 	size: request.size.w
 
 request:
-	qty: 100
+	qty: [100]
 	size:
 		w: 3  # a nested block
 

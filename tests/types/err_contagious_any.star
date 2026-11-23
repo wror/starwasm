@@ -14,3 +14,5 @@ items = {"a": 1}
 items = {"b": items.get("a")}
 
 tick : 1
+names = ["a"]
+names = [d.get(1) for d in [{1: "b"}]]

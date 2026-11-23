@@ -10,4 +10,4 @@ def unioned[T](e: dict[T, int], k: T) -> set[int]:
     s: set[int]
 def made[T](e: dict[T, int], k: T) -> bytes | None
 tick: int
-tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

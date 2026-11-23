@@ -399,6 +399,37 @@ there (proto.star:490).
 
 ## 5. Every source of `Any` (and of results that act like it)
 
+**Status: fixed.** Since 1.2, every inferred `Any` counts as possibly None
+(`Any | None`), and an `Any` in a `.start` file as not None. Beyond that,
+the checker now gives real types where it can, and the results that were
+free type parameters are typed (typecheck/infer.star: `apply`, `_sp_zip`,
+`_sp_minmax`, `_sp_dict`, `_sp_struct`; builtins.star: `sorted`;
+stubs.star: bare `list`/`dict`/`tuple`; test:
+tests/types/contagious_sources, err_contagious_any):
+
+- `sorted(xs, key = f)`: the key returns its own type parameter, not
+  `Any`, so `lambda x: x.k` no longer makes the field `k` `Any`.
+- `zip(*rows)` is a `list[tuple[T, ...]]` of the rows' elements,
+  `min(*xs)`/`max(*xs)` are of xs's elements (`T | None`: xs may hold
+  fewer than two), and `dict(**kw)` is a `dict[str, V]`.
+- `struct(**d)` is `Any | None` (its fields aren't known, so any field read
+  may be missing). Before, it was a struct with an open row whose fields
+  took any type.
+- `<x>_id` of a relation of errors is `int | None`.
+- A field of an implicit relation read only before `??` that nothing else
+  types is `Any | None` (it printed as `None`).
+- A bare `list`, `dict`, `tuple` in a `.start` file is `list[Any]` etc.,
+  where `Any` isn't None, as a written `Any` is.
+- 5.3: a call with `**kw` gives kw's values to every parameter not given
+  otherwise, as `*args` does, so `pair(**{"a": 1, "b": n})` is `int |
+  None` and not a free `T`; `zip(*rows)[0][0]` is `int | None`.
+
+What remains `Any` is what can't be typed: `x or y` of different types,
+`getattr` with a name not written out, recursive types, `proto` without a
+descriptor set, the `time` module, deeply nested gRPC messages, the rest
+of an implicit relation's fields (`**Any`), and what follows a reported
+error. Each is `Any | None`, so the checker treats it as possibly None.
+
 Before the fix of 1.2, each of these was a place where a None could
 enter without the checker noticing. Now each counts as possibly None
 (printed `Any | None`), within the limits listed at the top of section 1.

@@ -193,6 +193,11 @@ def check_module(st, path, from_ctx = None):
     if st["pb"] != None:
         _grpc_outputs(st, fc, scope)
     default_pending(st, -1)
+    for v in st.get("optional_fields", []):
+        # (a field of an implicit relation read only before ??, of a type
+        # nothing told: anything, or None; not "None" alone)
+        if resolve(v)["k"] == "var":
+            unify(st, v, ANY_SOME, _ctx(fc, (0, 0)))
     # what its functions mutate, and reactive definitions that mutate what
     # they didn't make (mutation.star)
     loaded = {}
@@ -347,7 +352,7 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
                 field(lit("id"), con("int", [], at), at),
                 # (the id of x's value not applied: None for a lone variable,
                 # which has none)
-                field(lit(info["reactive"]["errors_of"] + "_id"), T_ANY, at),
+                field(lit(info["reactive"]["errors_of"] + "_id"), mk_opt(con("int", [], at)), at),
                 field(lit("trigger"), con("str", [], at), at),
                 field(lit("field"), con("str", [], at), at),
                 field(lit("value"), con("None", [], at), at),
@@ -362,7 +367,9 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
                 # read other than before a ?? (compiler/ext/reactive.star,
                 # _needed): the others are T | None
                 at = _ctx(fc, pos, "a field that a member may lack (read only before ??)")
-                t = rec(row([field(lit(f), mk_opt(_fresh(st, fc)), at) for f in optional] + [new_var(st, "row", fc["scope"]["level"])]), at)
+                vs = [_fresh(st, fc) for f in optional]
+                st.setdefault("optional_fields", []).extend(vs)
+                t = rec(row([field(lit(f), mk_opt(vs[i]), at) for i, f in enumerate(optional)] + [new_var(st, "row", fc["scope"]["level"])]), at)
             _declare(scope, name, {"kind": "relation", "type": t, "pos": pos})
             continue
         if len(info["defs"]) == 1 and not info["assigned"] and info["reactive"] == None:
@@ -2119,6 +2126,7 @@ def apply(st, fc, ft, args, pos, fname):
     elif o != None and o.get("role") == "declared here":
         defined = [note_at(o, fname + " is declared here")]
     too_many = False
+    kwstar_args = []
     for a in args:
         if a["star"] == "*":
             any_star = True
@@ -2132,6 +2140,7 @@ def apply(st, fc, ft, args, pos, fname):
             continue
         if a["star"] == "**":
             any_kw = True
+            kwstar_args.append(a)
             continue
         if a["name"] == None:
             if i < len(positional):
@@ -2166,6 +2175,18 @@ def apply(st, fc, ft, args, pos, fname):
         else:
             hn = nearest(a["name"], named.keys())
             report(st, _ctx(fc, a["pos"]), fname + " has no parameter '" + a["name"] + "'" + (" (did you mean '" + hn + "'?)" if hn else ""), defined)
+    for a in kwstar_args:
+        # **kw: its values may go to any parameter not given otherwise (as
+        # *args' elements do: which ones isn't checked)
+        vt = _fresh(st, fc)
+        actx = _ctx(fc, a["pos"], "argument **kwargs of " + fname)
+        if unify(st, a["type"], con("dict", [con("str"), vt]), actx) == None:
+            filled = {p["name"]: True for p in positional[:i] if p["name"] != None}
+            for p in params:
+                if p["star"] == "" and p["name"] != None and not used.get(p["name"], False) and not filled.get(p["name"], False):
+                    flow(st, vt, p["type"], actx)
+            if kwstar:
+                flow(st, vt, kwstar[0]["type"], actx)
     missing = []
     for j, p in enumerate(positional):
         if p["opt"] or any_star:
@@ -2193,6 +2214,10 @@ def _sp_struct(st, fc, e):
     for a in e["args"]:
         t = infer_expr(st, fc, a["value"])
         if a["star"] == "**":
+            if st["contagious"]:
+                # fields that are only known at run time: any field read
+                # may be missing (and give None)
+                return T_ANY
             # fields that are only known at run time: an open struct
             items.append(new_var(st, "row", fc["scope"]["level"]))
         elif a["star"] == "*" or a["name"] == None:
@@ -2254,6 +2279,12 @@ def _fields(h):
 
 def _sp_minmax(st, fc, e):
     name = e["fn"]["id"]
+    stars = [a for a in e["args"] if a["star"] == "*"]
+    if len(stars) == 1 and len([a for a in e["args"] if a["name"] != "key"]) == 1:
+        # min(*xs): of xs's elements, as min(xs) is of xs (which may be
+        # empty, or hold a single value: an error, so None)
+        e = dict(e)
+        e["args"] = [dict(a, star = "") if a["star"] == "*" else a for a in e["args"]]
     pos_args = [a for a in e["args"] if a["name"] == None and a["star"] == ""]
     if len(pos_args) != len([a for a in e["args"] if a["name"] != "key"]) or not pos_args:
         return None
@@ -2296,6 +2327,16 @@ def _sp_minmax(st, fc, e):
     return _lift_later(st, fc, unknown, t, e["pos"])
 
 def _sp_zip(st, fc, e):
+    if len(e["args"]) == 1 and e["args"][0]["star"] == "*":
+        # zip(*rows): tuples of the rows' elements, as many as there are rows
+        a = e["args"][0]
+        it = infer_expr(st, fc, a["value"])
+        row_t = _fresh(st, fc)
+        t = _fresh(st, fc)
+        ctx = _ctx(fc, a["value"]["pos"], "argument of zip()")
+        add_pred(st, pred("iter", it, [row_t], ctx), ctx)
+        add_pred(st, pred("iter", row_t, [t], ctx), ctx)
+        return con("list", [con("vtuple", [t])], _ctx(fc, e["pos"], "result of zip()"))
     if len([a for a in e["args"] if a["name"] != None or a["star"] != ""]) > 0:
         return None
     elems = []
@@ -2308,6 +2349,13 @@ def _sp_zip(st, fc, e):
     return con("list", [con("tuple", elems)], _ctx(fc, e["pos"], "result of zip()"))
 
 def _sp_dict(st, fc, e):
+    if len(e["args"]) == 1 and e["args"][0]["star"] == "**":
+        # dict(**kw): a copy of kw
+        a = e["args"][0]
+        vt = _fresh(st, fc)
+        ctx = _ctx(fc, a["value"]["pos"], "argument **kwargs of dict()")
+        unify_report(st, infer_expr(st, fc, a["value"]), con("dict", [con("str"), vt]), ctx)
+        return con("dict", [con("str"), vt], _ctx(fc, e["pos"], "result of dict()"))
     if len([a for a in e["args"] if a["star"] != ""]) > 0:
         return None
     pos_args = [a for a in e["args"] if a["name"] == None]

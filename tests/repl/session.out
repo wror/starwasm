@@ -140,7 +140,7 @@ order = struct(id = 1, qty = 100)
 order = struct(id = 2, qty = 5)
 [struct(id = 1, qty = 100), struct(id = 2, qty = 5)]
 session cleared
-order = struct(id = 1, qty = 100, size = 3)
+order = struct(id = 1, qty = [100], size = 3)
 order = struct(id = 1, qty = [1, 2], size = 4)
 [struct(id = 1, qty = [1, 2], size = 4)]
 [struct(id = 1, qty = [1, 2], size = struct(w = 4))]

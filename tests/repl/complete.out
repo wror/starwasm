@@ -35,7 +35,7 @@
 "x = [greet(n" @11: name = : str | not
 "greet(\"a\" + n" @12: not
 "greet(len(boxes), " @18: punctuation = : str | loud = : bool
-"sorted(boxes, " @14: key = : (T) -> Any | reverse = : bool
+"sorted(boxes, " @14: key = : (T) -> K | reverse = : bool
 "sorted(boxes, key = lambda b: b.width, r" @39: reverse = : bool | range | repr | return | reversed
 "(lambda first, second: first)(" @30: first = : T | second = : U
 "box.name.split(" @15: 

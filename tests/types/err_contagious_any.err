@@ -13,4 +13,10 @@ tests/types/err_contagious_any.star:14:1: error: assignment to 'items': expected
 tests/types/err_contagious_any.start:3:8: note: dict[str, Any] is expected because of this (declared here)
     3 | items: dict[str, Any]
       |        ^
-2 type errors in tests/types/err_contagious_any.star
+tests/types/err_contagious_any.star:18:1: error: assignment to 'names': expected list[Any], got list[str | None]: an element may be None
+   18 | names = [d.get(1) for d in [{1: "b"}]]
+      | ^
+tests/types/err_contagious_any.start:4:8: note: list[Any] is expected because of this (declared here)
+    4 | names: list
+      |        ^
+3 type errors in tests/types/err_contagious_any.star

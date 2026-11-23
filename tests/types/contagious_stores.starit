@@ -33,4 +33,4 @@ def filled[T, X: Iterable[T]](d: dict[T, int], ks: X) -> int | None:
 def cleared() -> list[int | None]:
     xs: list[int | None]
 tick: int
-tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

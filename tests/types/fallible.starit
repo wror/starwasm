@@ -15,4 +15,4 @@ def names[T: Iterable[dict[str, U]] & Contagious, U](rows: T) -> list[U | None]:
     out: list[U | None]
     r: dict[str, U]
 tick: int
-tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]
