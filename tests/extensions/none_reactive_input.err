@@ -1,0 +1,7 @@
+<stdin>:3: q: it is a string, not an int
+<stdin>:4: q: it is a float, not an int
+<stdin>:7: req: it has no field qty, which the program reads
+Traceback (most recent call last):
+  tests/extensions/none_reactive_input.star:28:14: in <toplevel>
+Error: struct has no .note attribute
+<stdin>:9: req: it is a string (qty), not an int

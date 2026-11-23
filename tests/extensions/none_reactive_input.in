@@ -1,0 +1,10 @@
+qs : [1, None]
+qs : [3]
+q : "x"
+q : 4.5
+q : 5
+req : struct(id = 1, qty = None)
+req : struct(id = 1, note = "n")
+req : struct(id = 1, qty = 2)
+req : struct(id = 2, qty = "a")
+req : struct(id = 3, qty = 7, note = "x")

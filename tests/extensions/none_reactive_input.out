@@ -1,0 +1,20 @@
+qs [1, 2]
+qs errors []
+q 3
+q errors []
+orders []
+req errors []
+qs errors [("[1]", [])]
+qs [3]
+q errors [("", ["it is a string, not an int"])]
+q errors [("", ["it is a string, not an int"]), ("", ["it is a float, not an int"])]
+q 5
+req errors [("qty", [])]
+req errors [("qty", []), ("", ["it has no field qty, which the program reads"])]
+double got 2
+seen 4
+orders [struct(id = 1, note = "-", qty = 2)]
+req errors [("qty", []), ("", ["it has no field qty, which the program reads"]), ("", ["it is a string (qty), not an int"])]
+double got 7
+seen 14
+orders [struct(id = 1, note = "-", qty = 2), struct(id = 3, note = "x", qty = 7)]

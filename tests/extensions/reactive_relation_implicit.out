@@ -13,6 +13,7 @@ orders [struct(id = 2, product = "bar", size = 10), struct(id = 1, product = "fo
 requests [struct(id = 2, name = "bar", qty = 30), struct(id = 1, name = "foo", qty = 4)]
 last struct(id = 1, name = "foo")
 shelves [struct(count = 3, id = 1, name = "foo")]
+request errors [struct(field = "", id = 1, request_id = None, trigger = "request", value = None)]
 orders [struct(id = 2, product = "bar", size = 10), struct(id = 1, product = "foo", size = 4), struct(id = 3, product = "noid", size = 3)]
 requests [struct(id = 2, name = "bar", qty = 30), struct(id = 1, name = "foo", qty = 4), struct(id = 3, name = "noid", qty = 3)]
 last struct(id = 3, name = "noid")

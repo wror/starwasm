@@ -1,3 +1,3 @@
 <stdin>:6:16: want ; or the end of the line after a value (a value is a literal: no expressions)
-Error: fail: a member of relation request must have a field id, got int
+<stdin>:7: request: it is an int, not a struct (a member of relation request)
 <stdin>:8:9: want : after request (a new value is given as request : value)

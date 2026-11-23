@@ -7,6 +7,7 @@ tick : 4
 account : struct(id = 9, owner = "cy", balance = 1)
 # one that reads none can: the struct is added (or replaces its id)
 note : struct(id = 9, text = "cy")
+# (with contagious None: of another type than its members', 5 for text, it is rejected)
 note : 5
 note : ["dee"]
 note : ["x", "y"]

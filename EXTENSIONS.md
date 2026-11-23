@@ -338,11 +338,15 @@ standard input.
     program, so any definition or observer may read it, even above the
     relation that makes it one; a name that only lone definitions or
     observers read is still "undefined". It is a relation like any other:
-    it has its relation of errors (`requestError`, which only gets a
-    member, with field `""`, when the value assigned is None: its fields
-    aren't known, so a None in one is not an error), and the type checker
+    it has its relation of errors (`requestError`), and the type checker
     gives it the fields that are read (`request: list[struct[name: Any,
-    qty: int, **Any]]`). In the REPL, where an input is compiled when it
+    qty: int, **Any]]`). With contagious None, a member must be a struct
+    with every field that the relations' definitions read from it other
+    than in the left operand of a `??` (`request.qty`, not `request.note ??
+    "-"`); the fields read only there are optional to the type checker
+    (`note: str | None`). A member without such a field, or with a None
+    in a field (see "Input that doesn't fit" below), makes the update fail,
+    and `requestError` gets a member that says why. In the REPL, where an input is compiled when it
     is typed, a name bound only after the relation that reads it is
     implicit too, so that `request : value` (or a struct block `request:`)
     typed after the relation gives it a new value, a member, instead of
@@ -365,6 +369,22 @@ standard input.
     are held to the same rule. This needs contagious None (the default in
     a reactive program: only there is a None something that went wrong;
     with `--nocontagiousnone` a None field is a value like any other).
+  - Input that doesn't fit (with contagious None): a value given on
+    standard input (or in the REPL, or by bin/starserve: a form, a gRPC
+    request) may not have a None inside it, an element, a dict's key or
+    value, a field at any depth, unless its definition allows one there
+    (`?? None` on the field) or writes a None in its value; and it must be
+    of the type of the value it replaces, as far as that shows (an int may
+    be given for a float; of a struct, the fields both have; an empty
+    list or dict says nothing of its elements), which for a relation is
+    its members'. Else the update fails as for a None: `<x>Error` gets a
+    member, with the field (`"[1]"` for an element) and, for a wrong type,
+    a None that carries the reason (`provenance`), which is printed on
+    stderr too (`<stdin>:3: q: it is a string, not an int`). So the
+    types the checker gives reactive variables hold for what standard
+    input gives them. Code: reactive.star (`_r_input_bad`,
+    `_r_inner_nones`, `_r_mismatch`, `_needed`, `_none_inside`); test:
+    tests/extensions/none_reactive_input.star.
   - Errors: each reactive variable `x` (with contagious None; else each
     relation) implicitly defines a relation, `xError` (`order` gives
     `orderError`), right after it. Whenever an update fails because of
@@ -753,7 +773,9 @@ n) ?? None`, it may be None: then `n : 0` prints `half is None`.
     (because it reads an empty relation, say) leaves its variable unset:
     the observers that read it don't run, and it is computed by the
     first update that changes what it reads (which fails if it is still
-    None then). A definition that reads an unset variable reads None.
+    None then). A definition that reads an unset variable isn't computed
+    (on this run or in an update), and its variable is unset too: what it
+    calls never gets that None.
   - `x ?? None` is x itself, its None and where it comes from included:
     it only says that x may be None.
   - A relation that must wait for another (no shipment until there is a
@@ -954,8 +976,9 @@ n) ?? None`, it may be None: then `n : 0` prints `half is None`.
   through the definitions and observers that read it. (A relation's
   `when` condition that is None holds of no member, as before.)
   On standard input a value is a literal (no expressions), so `qty :
-  None` assigns None (provenance: `("literal", "None", "<stdin>",
-  line)`), and `qty : None + 1` is a bad line.
+  None` gives qty a None (provenance: `("literal", "None", "<stdin>",
+  line)`), which fails the update unless qty's definition allows it, and
+  `qty : None + 1` is a bad line.
   A variable recomputed to a None that came another way than the one it
   held counts as changed, so what reads it is recomputed and holds the
   current trace. In a self-referencing definition (`total : total + n`)

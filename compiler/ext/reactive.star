@@ -51,7 +51,7 @@ load("../../lib/dsl.star", "arr_len", "arr_new_default", "arr_set", "as_", "call
 load("../../lib/runtime.star", "S")
 load("../../lib/wasm.star", "EQREF", "I32", "add_func", "import_func", "ref")
 load("../parser.star", "parse_file")
-load("../resolve.star", "called_names", "collect_bindings", "dotted_names", "free_names", "target_names")
+load("../resolve.star", "called_names", "collect_bindings", "dotted_names", "free_names", "read_fields", "target_names")
 
 V = EQREF
 U8A = ref("U8")
@@ -529,7 +529,7 @@ def transform(cg, mc):
     out = [
         _assign(_name(VALUES, first), {"kind": "dict", "entries": [], "colons": [], "pos": first}, first),
         _assign(_name(NODES, first), {"kind": "list", "elems": [], "pos": first}, first),
-        _assign(_name(STATE, first), _state_dict(reactive, relations, [n for n in relations if reactive[n].get("when") != None], first), first),
+        _assign(_name(STATE, first), _state_dict(reactive, relations, [n for n in relations if reactive[n].get("when") != None], _needed(stmts, implicit), first), first),
     ]
     # implicit relations are there from the start, empty (and so are
     # their relations of errors)
@@ -642,7 +642,16 @@ def transform(cg, mc):
                 if required:
                     value = _if_ready(value, required, _name("%prelude._unset", posn))
                 if strict:
-                    # a None its definition doesn't allow leaves it unset
+                    # what it reads may be unset (a None it may not hold
+                    # left it so): then it isn't computed, and is unset too
+                    # (_r_skip); else a None its definition doesn't allow
+                    # leaves it unset
+                    lone = [d for d in deps if d != name and not relations.get(d, False)]
+                    if lone:
+                        names = {"kind": "tuple", "pos": posn, "elems": [_str(d, posn) for d in lone]}
+                        test = _prelude_call("_r_set", [_name(STATE, posn), names], posn)
+                        skip = _prelude_call("_r_skip", [_name(STATE, posn), _str(name, posn)], posn)
+                        value = {"kind": "cond", "test": test, "then": value, "else_": skip, "pos": posn}
                     value = _prelude_call("_r_init", [_name(STATE, posn), _str(name, posn), value], posn)
                 if redef:
                     redef_value = value  # assigned once its node is in place
@@ -846,6 +855,8 @@ def _nullable_tuple(value, posn):
     out = []
     if value.get("kind") != None:
         _nullable(value, "", out)
+        if _none_inside(value):
+            out.append("*")
     return {"kind": "tuple", "pos": posn, "elems": [_str(p, posn) for p in out]}
 
 def _shape(block, posn):
@@ -858,7 +869,34 @@ def _shape(block, posn):
             elems.append({"kind": "tuple", "pos": posn, "elems": [_str(a["name"], posn), sub]})
     return {"kind": "tuple", "pos": posn, "elems": elems}
 
-def _state_dict(reactive, relations, whens, posn):
+def _needed(stmts, implicit):
+    """{implicit relation: the fields its members must have}: those the
+    relations' definitions read other than in the left operand of a `??`
+    (read_fields: where a missing field just gives the default)."""
+    out = {}
+    for n in implicit:
+        fields = {}
+        for s in stmts:
+            if s["kind"] == "reactive" and s.get("relation", False):
+                read_fields([s.get("when"), s["value"]], n, fields)
+        out[n] = sorted([f for f, guarded in fields.items() if not guarded])
+    return out
+
+def _none_inside(x):
+    """Does AST x write None other than as the `?? None` that lets a
+    definition (or field) be None?"""
+    t = type(x)
+    if t == "list" or t == "tuple":
+        return len([v for v in x if _none_inside(v)]) > 0
+    if t != "dict":
+        return False
+    if x.get("kind") == "name" and x.get("id") == "None":
+        return True
+    if x.get("kind") == "binop" and x.get("op") == "??" and type(x.get("y")) == "dict" and x["y"].get("kind") == "name" and x["y"].get("id") == "None":
+        return _none_inside(x["x"])
+    return len([v for k, v in x.items() if k != "pos" and _none_inside(v)]) > 0
+
+def _state_dict(reactive, relations, whens, need, posn):
     """{"lineno": 0, "relations": {name: shape, ...}, "whens": {name: True,
     ...}, "tid": None, "wself": None, "trigger": None, "changed": {}}: the
     runtime's state
@@ -870,7 +908,10 @@ def _state_dict(reactive, relations, whens, posn):
     variable's shape (() for one that isn't a struct block), "nullable":
     the paths in each that may be None (_nullable), "unset": the variables
     not computed yet (_r_init), "abort": the Nones that make the update
-    under way fail (_r_bad, _r_transact)."""
+    under way fail (_r_bad, _r_transact), "need": the fields each member of
+    an implicit relation must have (_needed). (A nullable "*": the
+    definition writes a None somewhere in its value, _none_inside, which a
+    value from standard input may then hold anywhere: _r_input_bad.)"""
     def table(names, what):
         es = []
         for i, n in enumerate(sorted(names)):
@@ -897,6 +938,8 @@ def _state_dict(reactive, relations, whens, posn):
         (_str("trigger", posn), _none(posn)),
         (_str("changed", posn), {"kind": "dict", "entries": [], "colons": [], "pos": posn}),
         (_str("ctors", posn), {"kind": "dict", "entries": [], "colons": [], "pos": posn}),
+        (_str("need", posn), {"kind": "dict", "pos": posn, "colons": [posn for _ in need],
+                              "entries": [(_str(n, posn), {"kind": "tuple", "pos": posn, "elems": [_str(f, posn) for f in fs]}) for n, fs in sorted(need.items())]}),
     ]
     return {"kind": "dict", "entries": entries, "colons": [posn for _ in entries], "pos": posn}
 
@@ -1115,6 +1158,8 @@ def _reactive_update(values, nodes, state, assigns, observers):
     for name, v in assigns:
         v = _r_with_id(values, name, v, name in rels)
         state["trigger"] = name
+        if _r_input_bad(values, state, name, v):
+            return
         if name in rels:
             if _r_reject(values, state, name, [v]):
                 return
@@ -1138,6 +1183,10 @@ def _reactive_update(values, nodes, state, assigns, observers):
         if name == None:
             if _r_set(state, deps):
                 observers.append(f)
+            continue
+        if not _r_set(state, [d for d in deps if d != name]):
+            # (with contagious None: what it reads isn't set yet, so it
+            # isn't computed: it would read a None its type doesn't have)
             continue
         state["trigger"] = [d for d in deps if changed.get(d, False)][0]  # for _r_reject
         if name in rels and not _n_on() and _r_unmatched(values, state, name, deps):
@@ -1167,6 +1216,116 @@ def _r_bad(values, state, name, v):
     mid = getattr(v, "id", None) if type(v) == "struct" else None
     state["abort"] += [(name, mid, state["trigger"], f, x) for f, x in nones]
     return True
+
+def _r_skip(state, name):
+    """Lone variable name's value on the first run when a variable its
+    definition reads is unset: name is unset too, and its definition isn't
+    evaluated (_r_init)."""
+    state["unset"][name] = True
+    return None
+
+def _r_input_bad(values, state, name, v):
+    """With contagious None: is v, given to reactive variable name on
+    standard input, unfit for it? It is if it has a None inside (an
+    element, a field, at any depth) where the definition doesn't allow one
+    (its nullable paths; anywhere, "*", if the definition writes a None in
+    its value), if it is of another type than the value it replaces (for a
+    relation, its members: _r_mismatch), or if a member of an implicit
+    relation lacks a field the program reads from it (state["need"]). Then
+    the update fails, as for a None (_r_bad): each fault is noted in
+    state["abort"], with a None that carries the reason. (Not for a
+    relation of errors, whose members hold a None.)"""
+    if not _n_on() or _n_none(v) or (name.endswith("Error") and name[:-5] in state["shapes"]):
+        return False
+    nullable = state["nullable"].get(name, ())
+    found = []
+    if "*" not in nullable:
+        _r_inner_nones(v, "", nullable, found)
+    why = ""
+    if name in state["relations"]:
+        members = values[name + "[]"]
+        old = members[0] if members else None
+        if type(v) != "struct":
+            why = "it is " + _r_a(type(v)) + ", not a struct (a member of relation " + name + ")"
+        for f in state["need"].get(name, ()):
+            if not why and not hasattr(v, f):
+                why = "it has no field " + f + ", which the program reads"
+    else:
+        old = values[name]
+    if not why and old != None and not _is_unset(old) and not _is_id(old):
+        why = _r_mismatch(old, v, "")
+    if why:
+        _eprint("<stdin>:" + str(state["lineno"]) + ": " + name + ": " + why)
+        found.append(("", _n_tag(None, "error", why, "<stdin>", state["lineno"])))
+    if not found:
+        return False
+    mid = getattr(v, "id", None) if type(v) == "struct" else None
+    state["abort"] += [(name, mid, state["trigger"], f, x) for f, x in found]
+    return True
+
+def _r_inner_nones(v, path, nullable, out):
+    """Append to out (path, the None) for each None inside v (not v itself)
+    at a path not in nullable: "f" for a field (a nested one "f.g"), "[i]"
+    for an element, a dict's value or key."""
+    t = type(v)
+    parts = []
+    if t == "struct":
+        parts = [(path + "." + f if path else f, getattr(v, f)) for f in dir(v)]
+    elif t == "list" or t == "tuple":
+        parts = [(path + "[" + str(i) + "]", x) for i, x in enumerate(v)]
+    elif t == "dict":
+        for k, x in v.items():
+            parts.append((path + "[" + repr(k) + "]", k))
+            parts.append((path + "[" + repr(k) + "]", x))
+    for p, x in parts:
+        if _n_none(x):
+            if p not in nullable:
+                out.append((p, x))
+        else:
+            _r_inner_nones(x, p, nullable, out)
+
+def _r_a(word):
+    return ("an " if word[0] in "aeiou" else "a ") + word
+
+def _r_mismatch(old, new, path):
+    """Why new, a value from standard input, isn't of the type of old, the
+    value it replaces ("" if it is, as far as old shows: an int may be
+    given for a float, an empty list or dict says nothing of its elements;
+    of a struct, the fields both have)."""
+    if _n_none(old) or _n_none(new) or _is_id(old):
+        return ""
+    to = type(old)
+    tn = type(new)
+    where = " (" + path + ")" if path else ""
+    if to != tn and not (to == "float" and tn == "int"):
+        return "it is " + _r_a(tn) + where + ", not " + _r_a(to)
+    if to == "list" and old:
+        for i, x in enumerate(new):
+            m = _r_mismatch(old[0], x, path + "[" + str(i) + "]")
+            if m:
+                return m
+    elif to == "tuple":
+        if len(old) != len(new):
+            return "it is a tuple of " + str(len(new)) + where + ", not of " + str(len(old))
+        for i, x in enumerate(new):
+            m = _r_mismatch(old[i], x, path + "[" + str(i) + "]")
+            if m:
+                return m
+    elif to == "dict" and old:
+        k0, x0 = old.items()[0]
+        for k, x in new.items():
+            m = _r_mismatch(k0, k, path + "[key]") or _r_mismatch(x0, x, path + "[" + repr(k) + "]")
+            if m:
+                return m
+    elif to == "struct":
+        # (the fields of both: a member may have others, a reference; what
+        # it must have, the constructor gives it, or state["need"] asks)
+        for f in dir(new):
+            if hasattr(old, f):
+                m = _r_mismatch(getattr(old, f), getattr(new, f), path + "." + f if path else f)
+                if m:
+                    return m
+    return ""
 
 def _r_init(state, name, v):
     """v, the value of lone variable name's definition on the first run: if

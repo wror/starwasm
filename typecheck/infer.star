@@ -29,7 +29,7 @@
 # A function context fc is {scope, ret, narrow, mod, def, reactive, observer}.
 
 load("../compiler/parser.star", "parse_file")
-load("../compiler/resolve.star", "called_names", "dotted_names", "free_names")
+load("../compiler/resolve.star", "called_names", "dotted_names", "free_names", "read_fields")
 load("../compiler/spell.star", "nearest")
 load("mutation.star", "analyze_module")
 load("nones.star", "safe_setitems", "unbound_def", "unbound_lambda", "unbound_module", nones_follow = "follow")
@@ -285,7 +285,11 @@ def _implicit_relations(stmts, scope, bound, order):
             n = u["id"]
             if called.get(n, False) or not dotted.get(n, False) or n in bound or _find(scope, n) != None:
                 continue
-            _bound(bound, order, n, u["pos"])["reactive"] = {"relation": True}
+            fields = {}
+            for r in stmts:
+                if r["kind"] == "reactive" and r.get("relation", False):
+                    read_fields([r.get("when"), r["value"]], n, fields)
+            _bound(bound, order, n, u["pos"])["reactive"] = {"relation": True, "optional": sorted([f for f, g in fields.items() if g])}
             _bound(bound, order, n + "Error", u["pos"])["reactive"] = {"relation": True, "errors_of": n}
 
 def _bound(bound, order, name, pos):
@@ -351,7 +355,15 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
             _declare(scope, name, {"kind": "relation", "type": rec(row(fields), at), "pos": pos})
             continue
         if info["reactive"] != None and info["reactive"].get("relation", False):
-            _declare(scope, name, {"kind": "relation", "type": _fresh(st, fc), "pos": pos})
+            t = _fresh(st, fc)
+            optional = info["reactive"].get("optional", [])
+            if st["contagious"] and optional:
+                # an implicit relation's members need only have the fields
+                # read other than before a ?? (compiler/ext/reactive.star,
+                # _needed): the others are T | None
+                at = _ctx(fc, pos, "a field that a member may lack (read only before ??)")
+                t = rec(row([field(lit(f), mk_opt(_fresh(st, fc)), at) for f in optional] + [new_var(st, "row", fc["scope"]["level"])]), at)
+            _declare(scope, name, {"kind": "relation", "type": t, "pos": pos})
             continue
         if len(info["defs"]) == 1 and not info["assigned"] and info["reactive"] == None:
             b = {

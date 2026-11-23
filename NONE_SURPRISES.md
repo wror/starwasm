@@ -291,7 +291,35 @@ in", even outside updates).
 
 ## 4. Reactive programs: values from input and the first run
 
+**Status: fixed**, mostly at run time (compiler/ext/reactive.star:
+`_r_input_bad`, `_r_inner_nones`, `_r_mismatch`, `_needed`, `_r_skip`;
+the checker's `_implicit_relations` in typecheck/infer.star; documented
+in EXTENSIONS.md, "Input that doesn't fit" and "Implicit relations";
+test: tests/extensions/none_reactive_input.star). With contagious None,
+a value from standard input that doesn't fit the variable makes the
+update fail, as a None does. It doesn't fit if it has a None inside
+where the definition doesn't allow one, if it is of another type than the
+value it replaces, or if it is a member of an implicit relation that
+lacks a field the program reads. `xError` gets a member that says why,
+and so does stderr. What the fix still leaves out:
+
+- 4.1: a definition whose value may have a None inside without writing
+  one (`xs : [d.get(k) for k in ks]`, a `list[int | None]`) can't be
+  given such a list on stdin. That is stricter than the type, but safe.
+- 4.3: the type is checked against the value being replaced, so where
+  that says nothing (an unset variable, an empty list or dict, the first
+  member of an implicit relation) anything not None goes.
+- 4.6: only the fields that relations' definitions read are required. A
+  field that only an observer reads (`[r.other for r in req]`) may still
+  be missing, and reading it gives None there.
+- 4.7: gRPC requests go through the same checks (a non-finite float
+  arrives as None, a missing message field is a missing field). tests/grpc.sh
+  passes, but no request with such a field was sent.
+
 ### 4.1 A None inside a value from stdin (anywhere)
+
+**Fixed:** `ql : [1, None]` fails the update, and `qlError` gets a member
+with field `"[1]"`.
 
 The rule that a reactive variable is never None only looks at the top
 level and at struct block fields. `ql : [1, 2]` is a `list[int]`, but the
@@ -300,12 +328,21 @@ Every def that `ql` is passed to gets the None as in 1.1.
 
 ### 4.2 Members of an implicit relation with None fields (anywhere)
 
+**Fixed:** `req : struct(id = 1, qty = None)` fails the update
+(`reqError`, field `"qty"`). A field read only before `??` (`req.note ??
+"-"`) may be missing, and the checker now types it `T | None`.
+
 For `an order:` / `qty: req.qty ?? 0`, the checker types `req` as
 `list[struct[qty: int, **Any]]`. The input line `req : struct(id = 1, qty
 = None)` is accepted, and an observer's `[inc(r.qty) for r in req]` calls
 `inc` (`-> T: (int, float)`) with None and gets `[None]`.
 
 ### 4.3 Input of another type (update)
+
+**Fixed:** `q : "x"` fails the update. It prints `<stdin>:3: q: it is a
+string, not an int`, and `qError` gets a None that carries that reason.
+(`note : 5` for a relation whose `text` field is a str failed silently
+before, and is rejected now: tests/extensions/reactive_relation_more.)
 
 `q : 3` is an `int`, but `q : "x"` on stdin is accepted. A def called on
 `q` from an observer (`print(inc(q))`, `def inc(v): return v + 1`) then
@@ -314,6 +351,10 @@ says `int`. Reactive definitions are protected, because their update
 fails, but observers and the defs they call are not.
 
 ### 4.4 First run: an unset reactive variable reads as None (first run)
+
+**Fixed:** a definition that reads an unset variable isn't computed, on
+the first run or in an update, and its variable is unset as well.
+`double` is no longer called with None.
 
 A definition that reads a variable left unset (one computed from an empty
 relation, say `first : order.qty`) gets None and passes it on:
@@ -334,6 +375,10 @@ lone variable there is no id: the input `qq : None` gave
 `value: None` is honest. `x_id` is an `Any` that holds a None.
 
 ### 4.6 Fields of an implicit relation that nothing constrains are `Any`
+
+**Fixed:** a member must have the fields the relations' definitions read
+(except before `??`), and none of them may be None. So the `Any` a field
+gets means "any value but None", as an `Any` in a `.start` file does.
 
 `req.name`, only read into `name: req.name`, makes `order: list[struct[...,
 name: Any]]` and `req: list[struct[..., name: Any, **Any]]`. Members from

@@ -138,6 +138,26 @@ def dotted_names(x, out):
         for v in x:
             dotted_names(v, out)
 
+def read_fields(x, name, out, guarded = False):
+    """out[field] = True if every read of name.field in AST x is in the
+    left operand of a `??` (where a missing field just gives the default,
+    with contagious None), False if one isn't. (For an implicit relation:
+    the fields its members must have, and those they may lack.)"""
+    t = type(x)
+    if t == "dict":
+        if x.get("kind") == "dot" and x["x"].get("kind") == "name" and x["x"]["id"] == name:
+            out[x["name"]] = out.get(x["name"], True) and guarded
+        if x.get("kind") == "binop" and x.get("op") == "??":
+            read_fields(x["x"], name, out, True)
+            read_fields(x["y"], name, out, guarded)
+            return
+        for k, v in x.items():
+            if k != "pos":
+                read_fields(v, name, out, guarded)
+    elif t == "list" or t == "tuple":
+        for v in x:
+            read_fields(v, name, out, guarded)
+
 def new_scope(kind, parent):
     return {"kind": kind, "parent": parent, "bindings": {}, "free": [], "free_index": {}, "wasm": {}}
 

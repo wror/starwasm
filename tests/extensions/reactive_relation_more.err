@@ -1,2 +1,3 @@
 <stdin>:7:1: account is computed from other reactive variables (deposit): it can't be given a new value
-<stdin>:12:8: note takes at most 1 value (text), got 2
+<stdin>:11: note: it is an int (text), not a string
+<stdin>:13:8: note takes at most 1 value (text), got 2
