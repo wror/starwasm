@@ -123,8 +123,8 @@ def issuperset[T, X: Iterable[T]](self: set[T], other: X) -> bool
 def pop[T](self: set[T]) -> T
 def remove[T](self: set[T], x: T) -> None
 def symmetric_difference[T, X: Iterable[T]](self: set[T], other: X) -> set[T]
-def union[T](self: set[T], *others: Any) -> set[T]
-def update[T](self: set[T], *others: Any) -> None
+def union[T, X: Iterable[T]](self: set[T], *others: X) -> set[T]
+def update[T, X: Iterable[T]](self: set[T], *others: X) -> None
 """,
     "bytes": """
 def elems(self: bytes) -> list[int]

@@ -1,0 +1,13 @@
+# Types inferred from contagious_containers.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_containers.start instead.
+
+def defaulted(k: str) -> dict[str, int | None]:
+    d: dict[str, int | None]
+    v: int | None
+def updated[T](e: dict[T, int], k: T) -> dict[str, int | None]:
+    d: dict[str, int | None]
+def unioned[T](e: dict[T, int], k: T) -> set[int]:
+    s: set[int]
+def made[T](e: dict[T, int], k: T) -> bytes | None
+tick: int
+tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]

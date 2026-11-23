@@ -1416,6 +1416,40 @@ def _same_shape(a, b):
         names.append(sorted(ns))
     return names[0] == names[1]
 
+def _dict_store(st, fc, h, kt, vt, ctx):
+    """Store a vt under a kt in dict type h (as d[k] = v: with contagious
+    None, a value that may be None makes the dict literal that made h have
+    optional values, _widen_elements)."""
+    if st["contagious"]:
+        vt = _widen_elements(st, h, vt)
+    add_pred(st, pred("setitem", h, [kt, vt], ctx), ctx)
+
+def _sp_dict_update(st, fc, e, h):
+    """d.update(other), d.update(pairs), d.update(k = v): each entry is
+    stored as by d[k] = v (_dict_store). None (to check the call against
+    the method's signature) if other is of a type not known yet."""
+    pos_args = [a for a in e["args"] if a["name"] == None]
+    if pos_args:
+        x = pos_args[0]["value"]
+        t = head(st, infer_expr(st, fc, x))
+        ctx = _ctx(fc, x["pos"], "argument of .update()")
+        if is_con(t, "dict"):
+            _dict_store(st, fc, h, t["args"][0], t["args"][1], ctx)
+        elif t["k"] == "con" and t["name"] in ["list", "vtuple", "set", "tuple"]:
+            kt = _fresh(st, fc)
+            vt = _fresh(st, fc)
+            add_pred(st, pred("iter", t, [con("tuple", [kt, vt], ctx)], ctx), ctx)
+            _dict_store(st, fc, h, kt, vt, ctx)
+        elif is_con(t, "Any"):
+            pass
+        else:
+            return None
+    for a in e["args"]:
+        if a["name"] != None:
+            ctx = _ctx(fc, a["value"]["pos"], "argument '" + a["name"] + "' of .update()")
+            _dict_store(st, fc, h, con("str", [], ctx), infer_expr(st, fc, a["value"]), ctx)
+    return con("None", [], _ctx(fc, e["pos"], "result of .update()"))
+
 def _hashable(st, fc, t, pos):
     """With contagious None: t is a dict key's type: it must be hashable
     (a list, dict or set fails at run time, and so gives None)."""
@@ -1692,6 +1726,7 @@ PROBE = "_complete_probe_"
 # in"), with contagious None. Their positional arguments that they look
 # inside, and whether what their `key` function returns counts too.
 LOOKS_INSIDE = {
+    "bytes": (0,),
     "sorted": (0,),
     "join": (0,),
     "startswith": (0,),
@@ -1788,6 +1823,20 @@ def infer_call(st, fc, e):
                 dt = infer_expr(st, fc, e["args"][1]["value"])
                 flow_report(st, kt, h["args"][0], _ctx(fc, e["args"][0]["value"]["pos"], "argument 'key' of ." + name + "()"))
                 return join(st, h["args"][1], dt, _ctx(fc, e["args"][1]["value"]["pos"], "the default of ." + name + "() and the dict's values have different types"))
+        if name == "setdefault" and npos == 1 and len(e["args"]) == 1:
+            h = head(st, rt)
+            if is_con(h, "dict"):
+                # d.setdefault(k) with no default stores None (and gives it
+                # back): as d[k] = None
+                kt = infer_expr(st, fc, e["args"][0]["value"])
+                ctx = _ctx(fc, e["args"][0]["value"]["pos"], "argument 'key' of .setdefault()")
+                _dict_store(st, fc, h, kt, con("None", [], _ctx(fc, e["pos"], "the default of .setdefault(), None")), ctx)
+                return mk_opt(h["args"][1])
+        if name == "update" and npos <= 1 and len([a for a in e["args"] if a["star"] != ""]) == 0:
+            h = head(st, rt)
+            t = _sp_dict_update(st, fc, e, h) if is_con(h, "dict") else None
+            if t != None:
+                return t
         ft = attr_type(st, rt, name, _ctx(fc, f["pos"], "." + name + " is used here"), fc["scope"]["level"])
     else:
         ft = infer_expr(st, fc, f)

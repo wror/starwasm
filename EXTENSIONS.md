@@ -1250,7 +1250,7 @@ types (but see None below) and no classes; types are structural.
   the runtime's look inside (`[x] == [1]`, `(1, x) != (1, 2)`, `1 in [x,
   1]`). So is a builtin that looks inside an argument where a None may be
   ("None further in"): `sorted` (and what its `key` returns), `min` and
-  `max` (and of one sequence, which may be empty), `.join`,
+  `max` (and of one sequence, which may be empty), `bytes`, `.join`,
   `.startswith` and `.endswith` with a tuple, `dict` of pairs, and `%`
   formatting (unless with a string written out whose conversions are all
   `%s` and `%r`, which show a None): its result is `T | None`, and the
@@ -1315,6 +1315,12 @@ types (but see None below) and no classes; types are structural.
   `**kwargs` is `T | None` (how many arguments, and which names, isn't
   checked). A dict key or set element must be hashable (`Hashable`,
   below): a list, dict or set, or a tuple or struct with one in it, fails.
+  What a builtin method stores is checked as an item assignment is:
+  `d.setdefault(k)` with no default stores None and gives it back (`V |
+  None`), `d.update(...)` stores a dict's entries, pairs and keyword
+  arguments, and `s.update(...)` and `s.union(...)` the elements of
+  iterables. So a dict made by a literal gets optional values, as with
+  `d[k] = v`, and elsewhere a value that may be None is an error.
   And `Any` is anything, None included: an Any that may be None is shown
   as `Any | None` and treated as a `T | None` (operations on it give one,
   a def that tests or loops over it may fail, a variable assigned one is

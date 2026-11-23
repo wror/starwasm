@@ -1,0 +1,13 @@
+tests/types/err_contagious_containers.star:6:10: error: type mismatch: expected int, got int | None: the value may be None
+    6 | s.update([e.get(1)])
+      |          ^
+tests/types/err_contagious_containers.star:6:2: note: int is expected because of this (.update is used here)
+    6 | s.update([e.get(1)])
+      |  ^
+tests/types/err_contagious_containers.star:7:13: error: type mismatch: expected int, got str
+    7 | t = s.union(["a"])
+      |             ^
+tests/types/err_contagious_containers.star:7:6: note: int is expected because of this (.union is used here)
+    7 | t = s.union(["a"])
+      |      ^
+2 type errors in tests/types/err_contagious_containers.star

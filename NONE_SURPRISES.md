@@ -237,6 +237,22 @@ still surprises, and easy to get wrong):
 
 ## 3. A None stored where the element type has none
 
+**Status: fixed** (typecheck/infer.star: `.setdefault` with one argument
+and `dict.update` are typed where they are called, `_dict_store`,
+`_sp_dict_update`; `bytes` is in `LOOKS_INSIDE`; typecheck/builtins.star:
+`set.update` and `set.union` take iterables of the set's elements, not
+`Any`; tests: tests/types/contagious_containers,
+err_contagious_containers). Now `d.setdefault("b")` is `int | None`, and
+`d` (made by a literal) a `dict[str, int | None]`. `d.update({"b":
+e.get(n)})` does the same for `d`. `s.update([e.get(n)])` into a `set[int]`
+is an error, and so is a set or dict element of the wrong type.
+`bytes([65, x])` is `bytes | None`. The typing of `setdefault`,
+`update` and `union` applies with contagious None off too. There the
+literal's values don't widen, so `{"a": 1}.setdefault("b")` is an error
+("expected int, got None"). A `d.update(x)`
+whose `x` is of a type not known yet is still checked against the `Any`
+signature.
+
 ### 3.1 `d.setdefault(k)` with no default (anywhere)
 
 `def setdefault[K, V](self: dict[K, V], key: K, default: V = ...) -> V`
