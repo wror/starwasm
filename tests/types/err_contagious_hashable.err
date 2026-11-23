@@ -10,4 +10,10 @@ tests/types/err_contagious_hashable.star:9:10: error: list[int] is not hashable:
 tests/types/err_contagious_hashable.star:10:8: error: list[int] is not hashable: it can't be a dict key or a set element
    10 | seen = set([[1]])
       |        ^
-3 type errors in tests/types/err_contagious_hashable.star
+tests/types/err_contagious_hashable.star:17:19: error: argument 's' of keyed(): list[int] is not hashable: it can't be a dict key or a set element
+   17 | by_struct = keyed(struct(a = 1, b = [2]))
+      |                   ^
+tests/types/err_contagious_hashable.star:15:13: note: required here (a dict key)
+   15 |     return {s: s.a}                 # s's other fields are keys' too
+      |             ^
+4 type errors in tests/types/err_contagious_hashable.star

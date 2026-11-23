@@ -1154,10 +1154,15 @@ def dispatch(st, s, p, ctx):
         elif name in ["tuple", "vtuple"]:
             for x in s["args"]:
                 add_pred(st, pred("hashable", x, [], pctx), ctx)
-        elif name == "rec":
-            for it in flatten(s["row"]):
+        elif name == "rec" or name == "row":
+            # (the fields of a struct, and of what its row variable turns
+            # out to stand for: the constraint waits on it; not on a rigid
+            # one, an annotation's, which can't be given the bound)
+            for it in flatten(s["row"] if name == "rec" else s):
                 if it["k"] == "f":
                     add_pred(st, pred("hashable", it["type"], [], pctx), ctx)
+                elif it["k"] == "var" and not it["rigid"]:
+                    add_pred(st, pred("hashable", it, [], pctx), ctx)
     elif k == "contains":
         if name == "list" or name == "set" or name == "vtuple" or name == "dict":
             # (an int is looked for among T | None, or floats, as well)

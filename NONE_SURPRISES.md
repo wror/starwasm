@@ -55,21 +55,25 @@ value may be None all the same: a field of an implicit relation that only
 an observer reads (2.2) is printed `other: Any`, and holds None where a
 member lacks it.
 
-### 1.3 `Hashable` and open structs (update)
+### 1.3 `Hashable` and declared open structs (update)
 
-A struct type with a row variable (`struct[a: T, **R]`) is checked for
-hashability by the fields it shows, so a list in a field that `**R`
-stands for isn't seen:
+A struct used as a dict key or set element must be hashable, and so must
+the fields its row variable (`**R`) turns out to stand for. The checker
+keeps that requirement on the row variable, but the annotation language
+has no way to write it (`**R` takes no bound), so the `.starit` file
+doesn't show it. A def whose signature is declared in a `.start` file
+(the `.starit` used as one, too) has a rigid `**R` without it, and a list
+in one of those fields isn't seen:
 
 ```python
-def keyed(s):              # def keyed[T: Hashable, **R](s: struct[a: T, **R]) -> ...
+# keyed.start:  def keyed[T: Hashable, **R](s: struct[a: T, **R]) -> dict[struct[a: T, **R], T]
+def keyed(s):
     return {s: s.a}
 
-def probe(n):              # def probe[T: Contagious](n: T) -> int
-    if n == 1:
-        return len(keyed(struct(a = 1, b = [n])))   # "unhashable type: list"
-    return 0               # n : 1  ->  None
+bad = keyed(struct(a = 1, b = [2]))   # in an update: "unhashable type: list" -> None
 ```
+
+Without the declaration, that call is a type error.
 
 ### 1.4 A name bound by several defs (update)
 
