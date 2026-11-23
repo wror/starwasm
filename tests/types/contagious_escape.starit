@@ -19,6 +19,9 @@ def collect[X: Sized, T](acc: X, x: T) -> int:
 def collected[T, U](d: dict[T, U], k: T) -> int | None
 def apply[T, U](f: (T) -> U, x: T) -> U
 def applied[T, U: (int, float)](d: dict[T, U], k: T) -> U | None
+def put_in[T, U, **R](box: struct[put: (T) -> U, **R], x: T) -> int
+def boxed_in[T](d: dict[T, int], k: T) -> list[int | None]:
+    acc: list[int | None]
 inc: (x: int) -> int
 keep: (x: int | None) -> list[int | None]
 def lambdas[T](d: dict[T, int], k: T) -> tuple[int | None, list[int | None]]

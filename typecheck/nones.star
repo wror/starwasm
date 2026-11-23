@@ -456,8 +456,9 @@ def escapes(cx, node, start):
     hold escape def node (a def or lambda)?, the mask of what it returns).
     cx: {resolve(scope, name) -> ("def", node, the scope its free names
     are found in, or None) | ("builtin", name) | ("unknown",), stores: name
-    -> positions (infer.star, STORES), scope: the scope node's free names
-    are found in, path: its module's, mod_path(scope), memo, busy}."""
+    -> positions (infer.star, STORES), methods: the names of the builtin
+    types' methods, scope: the scope node's free names are found in, path:
+    its module's, mod_path(scope), memo, busy}."""
     params = param_names(node)
     fresh = {}
     if node["kind"] == "def":
@@ -657,11 +658,16 @@ def _es_call(e, env):
     f = e["fn"]
     args = [(a, _es_expr(a["value"], env)) for a in e["args"]]
     if f["kind"] == "dot":
-        # a method: of a builtin type (a struct's field holding a def can't
-        # be told apart: taken to be a builtin's)
+        # a method: of a builtin type, if it has the name of one (else a
+        # struct's field holding a function, which can't be followed)
         rm = _es_expr(f["x"], env)
         name = f["name"]
         res = W if rm & W else 0
+        if name not in cx["methods"]:
+            if len([m for _, m in args if m != 0]) > 0:
+                env["esc"] = True
+                return res | W | I
+            return res
         if rm & I:
             res = res | W | I  # (its elements: xs.pop(), d.values(), ...)
         stores = cx["stores"].get(name, ())

@@ -780,26 +780,44 @@ def flow(st, actual, expected, ctx):
     if _literal_widens(st, a, e, ctx):
         return None
     if _any_inside(st, a, e):
-        return failure(actual, expected, "an element may be None")
+        return failure(actual, expected, "its result or a parameter may be None" if a["k"] == "fn" else "an element may be None")
     return unify(st, actual, expected, ctx)
+
+def _none_into(st, x, y):
+    """With contagious None: does a value of type x, which may be None (an
+    Any that may be, or a T | None), go where a y is wanted, y not optional
+    (an Any of a .start file isn't)?"""
+    if maybe_any(st, x) and not is_con(y, "opt") and not is_con(y, "Any") and y["k"] != "var":
+        return True
+    return is_some_any(y) and (is_con(x, "opt") or is_con(x, "None") or maybe_any(st, x))
 
 def _any_inside(st, a, e):
     """With contagious None: does a, a list, dict or set, have elements (or
     keys, values) that may be None (an Any, which may be, included) where
-    e's are of a type that isn't optional? (Unification would take an Any
-    for anything.)"""
-    if not st.get("contagious", False) or a["k"] != "con" or e["k"] != "con" or a["name"] != e["name"]:
+    e's are of a type that isn't optional? Or a, a function, a result that
+    may be None where e's isn't, or e a parameter that may be given None
+    where a's can't be? (Unification would take an Any for anything.)"""
+    if not st.get("contagious", False):
+        return False
+    if a["k"] == "fn" and e["k"] == "fn":
+        ra = resolve(a["ret"])
+        re = resolve(e["ret"])
+        if _none_into(st, ra, re) or _any_inside(st, ra, re):
+            return True
+        for i in range(min(len(a["params"]), len(e["params"]))):
+            pa = resolve(a["params"][i]["type"])
+            pe = resolve(e["params"][i]["type"])
+            if _none_into(st, pe, pa) or _any_inside(st, pe, pa):
+                return True
+        return False
+    if a["k"] != "con" or e["k"] != "con" or a["name"] != e["name"]:
         return False
     if a["name"] not in ["list", "dict", "set"] or len(a["args"]) != len(e["args"]):
         return False
     for i in range(len(a["args"])):
         x = resolve(a["args"][i])
         y = resolve(e["args"][i])
-        if maybe_any(st, x) and not is_con(y, "opt") and not is_con(y, "Any") and y["k"] != "var":
-            return True
-        if is_some_any(y) and (is_con(x, "opt") or is_con(x, "None") or maybe_any(st, x)):
-            return True  # (an Any of a .start file isn't None)
-        if _any_inside(st, x, y):
+        if _none_into(st, x, y) or _any_inside(st, x, y):
             return True
     return False
 

@@ -2117,7 +2117,7 @@ def _keeps_none(st, callee, a, i):
         if a["name"] not in names:
             return True  # (into **kwargs)
         p = a["name"]
-    cx = st.setdefault("escape", {"resolve": _resolve_callee, "stores": STORES, "scope": None, "path": "",
+    cx = st.setdefault("escape", {"resolve": _resolve_callee, "stores": STORES, "methods": st["owners"], "scope": None, "path": "",
                                   "memo": {}, "busy": {}, "mod_path": lambda sc: sc["mod"]["path"] if sc.get("mod") != None else ""})
     esc, ret = nones_follow(cx, node, scope, {p: 1})
     return esc or ret & 2 != 0  # (W = 1, I = 2: returned inside a value, it isn't the result's None)

@@ -19,4 +19,10 @@ tests/types/err_contagious_any.star:18:1: error: assignment to 'names': expected
 tests/types/err_contagious_any.start:4:8: note: list[Any] is expected because of this (declared here)
     4 | names: list
       |        ^
-3 type errors in tests/types/err_contagious_any.star
+tests/types/err_contagious_any.star:19:1: error: assignment to 'getter': expected () -> int, got () -> Any | None: its result or a parameter may be None
+   19 | getter = lambda: setting("width")      # its result may be None
+      | ^
+tests/types/err_contagious_any.start:5:9: note: () -> int is expected because of this (declared here)
+    5 | getter: () -> int
+      |         ^
+4 type errors in tests/types/err_contagious_any.star

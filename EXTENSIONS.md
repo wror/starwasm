@@ -1339,8 +1339,9 @@ types (but see None below) and no classes; types are structural.
   shows it: stored in a container the def didn't make
   (`acc.append(x)`), returned inside a value (`return [x]`, `return
   struct(v = x)`), kept by a nested def or lambda, assigned to a field,
-  or given to a function that can't be followed (a parameter; a def or a
-  lambda bound once to a name is followed). So `def push(acc, x):
+  or given to a function that can't be followed (a parameter, a struct's
+  field called as a method whose name no builtin type's method has; a def
+  or a lambda bound once to a name is followed). So `def push(acc, x):
   acc.append(x)` called as `push(xs, d.get(k))` makes `xs` a `list[int |
   None]`, and a def whose parameter is a `str` there (`x.upper()`) is an
   error. A def also fails, and gives None, where a statement fails
@@ -1367,7 +1368,7 @@ types (but see None below) and no classes; types are structural.
   as `Any | None` and treated as a `T | None` (operations on it give one,
   a def that tests or loops over it may fail, a variable assigned one is
   optional, and it can't be used where a type that isn't optional is
-  wanted, as an element or value too); `x ?? y` gives an `Any` that isn't
+  wanted, as an element or value too, nor as a function's result); `x ?? y` gives an `Any` that isn't
   None, shown as `Any`, which is also what `Any` means in a `.start` file.
   Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`, `STORES`,
   `_maybe_fails`, `_records`, `_record_entry`, `assign_target`,

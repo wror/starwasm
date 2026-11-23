@@ -56,6 +56,15 @@ def apply(f, x):
 def applied(d, k):
     return apply(double, d.get(k))
 
+def put_in(box, x):
+    box.put(x)                      # no builtin method's name: a function
+    return 0                        # in a field, which can't be followed
+
+def boxed_in(d, k):
+    acc = [0]
+    put_in(struct(put = lambda v = None: acc.append(v)), d.get(k))
+    return acc                      # list[int | None]
+
 inc = lambda x: x + 1               # a lambda bound once is followed
 keep = lambda x: [x]
 
