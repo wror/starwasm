@@ -1062,7 +1062,8 @@ def dispatch(st, s, p, ctx):
             else:
                 dispatch(st, inner, q, ctx)
             return
-        _pred_error(st, p, ctx, "the value may be None (it is " + show(s) + "): test it against None first")
+        advice = "give a value that isn't None (x ?? default)" if st.get("contagious") else "test it against None first"
+        _pred_error(st, p, ctx, "the value may be None (it is " + show(s) + "): " + advice)
         return
     if k == "iter":
         if name == "list" or name == "set" or name == "vtuple" or name == "dict":

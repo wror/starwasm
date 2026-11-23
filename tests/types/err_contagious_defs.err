@@ -1,0 +1,13 @@
+tests/types/err_contagious_defs.star:16:19: error: argument 'xs' of size(): the value may be None (it is list[int] | None): give a value that isn't None (x ?? default)
+   16 | count = size(lists.get("b"))
+      |                   ^
+tests/types/err_contagious_defs.star:7:14: note: required here (for loop over it)
+    7 |     for _ in xs:
+      |              ^
+tests/types/err_contagious_defs.star:17:19: error: argument 's' of shout(): expected str, got str | None: the value may be None
+   17 | loud = shout(names.get(2))
+      |                   ^
+tests/types/err_contagious_defs.star:12:13: note: str is expected because of this (.upper is used here)
+   12 |     return s.upper() + "!"
+      |             ^
+2 type errors in tests/types/err_contagious_defs.star

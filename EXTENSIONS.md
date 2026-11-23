@@ -1331,20 +1331,17 @@ types (but see None below) and no classes; types are structural.
   ends in `?? None` (or is `None`): an update in which it would be None
   fails as a whole ("Atomic updates"). With contagious None every
   reactive variable `x` has a relation of errors, `xError`.
-  A def called with an argument that may be None runs with the None (a
-  builtin isn't called). The call is checked as if the argument weren't
-  None, and is `T | None`, only where the None can't come out of it but
-  in (what is computed from it in) the result. Where it can come out
-  otherwise, the argument goes in with its None, so the def's type
-  shows it: stored in a container the def didn't make
-  (`acc.append(x)`), returned inside a value (`return [x]`, `return
-  struct(v = x)`), kept by a nested def or lambda, assigned to a field,
-  or given to a function that can't be followed (a parameter, a struct's
-  field called as a method whose name no builtin type's method has; a def
-  or a lambda bound once to a name is followed). So `def push(acc, x):
-  acc.append(x)` called as `push(xs, d.get(k))` makes `xs` a `list[int |
-  None]`, and a def whose parameter is a `str` there (`x.upper()`) is an
-  error. A def also fails, and gives None, where a statement fails
+  A builtin given an argument that may be None isn't called, and gives
+  None: `len(d.get(k))` is `int | None`. A def (or lambda, or any other
+  function) is called with the None, so the argument goes in with it, and
+  the parameter must take it: one that is a type parameter does (`def
+  push(acc, x): acc.append(x)` called as `push(xs, d.get(k))` makes `xs`
+  a `list[int | None]`, and `double(d.get(k))` is an `int | None`), one
+  that can't be None doesn't. So `size(d.get(k))`, with `size` looping
+  over its parameter, and `shout(d.get(k))`, with `shout` calling
+  `.upper()` on it, are errors: give them a value that isn't None
+  (`size(d.get(k) ?? [])`). (Inside a def, then, a parameter is None only
+  where its type says so.) A def also fails, and gives None, where a statement fails
   outside an expression: one that may read a variable before it is
   assigned (`for x in xs: pass` then `return x`; or a global that the
   module doesn't always assign), a recursive one (a call may go too
@@ -1372,9 +1369,9 @@ types (but see None below) and no classes; types are structural.
   None, shown as `Any`, which is also what `Any` means in a `.start` file.
   Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`, `STORES`,
   `_maybe_fails`, `_records`, `_record_entry`, `assign_target`,
-  `_committed`, `maybe_none`, `_keeps_none`, `_recursive`,
+  `_committed`, `maybe_none`, `_calls_builtin`, `_recursive`,
   `_hashable`), typecheck/nones.star (unassigned reads, item
-  assignments, escapes), typecheck/unify.star (the `contagious` cases in
+  assignments), typecheck/unify.star (the `contagious` cases in
   `dispatch`, `solve_binop`, `attr_type`, `flow`; `watch`;
   `maybe_any`), typecheck/types.star (`ANY_SOME`), typecheck/main.star
   (`check`).
@@ -1673,8 +1670,8 @@ reads as empty, and the exit status).
 - `infer.star`: inference over the compiler's AST: scopes, defs on demand
   (cycles of defs by Tarjan's algorithm), narrowing, calls.
 - `nones.star`: with contagious None, what the AST alone tells: reads of
-  variables that may be unassigned, item assignments that can't fail,
-  and where a None given to a def can get out of it (escapes).
+  variables that may be unassigned, and item assignments that can't
+  fail.
 - `main.star`: the command line, diagnostics, the `.starit` writer.
   `bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]...
   [--descriptor_set=FILE] prog.star` runs it interpreted (`--start=` names each `.start` file that

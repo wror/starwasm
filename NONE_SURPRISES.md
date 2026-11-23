@@ -29,30 +29,7 @@ says "update".
 
 ## 1. In the checker
 
-### 1.1 A def's parameter holds the None of its argument (anywhere)
-
-At a call of a def with an argument that may be None, the checker checks
-the call as if the argument weren't None and makes the result optional.
-It does that only where an escape analysis (typecheck/nones.star,
-`escapes`) shows the None can't leave the call except in its result.
-Inside the def, though, the parameter holds the None while typed `T`, and
-so do the locals computed from it:
-
-```python
-def describe(v):           # def describe[T: (int, float)](v: T) -> str
-    w = v * 2              #   w: T   -> None
-    print("double:", w)    #   prints "double: None"
-    return "done"
-
-r = describe(d.get(5))     # r: str | None   (here "done")
-```
-
-The None doesn't get out of the call: what the caller sees is the result,
-which is optional (and may be None where the def returns what it computed
-from the parameter). Only what the def does inside, as the `print` here,
-shows a value of type `T` that is None.
-
-### 1.2 `Hashable` and declared open structs (update)
+### 1.1 `Hashable` and declared open structs (update)
 
 A struct used as a dict key or set element must be hashable, and so must
 the fields its row variable (`**R`) turns out to stand for. The checker
@@ -72,7 +49,7 @@ bad = keyed(struct(a = 1, b = [2]))   # in an update: "unhashable type: list" ->
 
 Without the declaration, that call is a type error.
 
-### 1.3 A name bound by several defs (update)
+### 1.2 A name bound by several defs (update)
 
 A def redefined (`--globalredefine`, the REPL) has one function type for
 all its definitions, compared exactly. Its defs don't get the marks that
@@ -90,7 +67,7 @@ def f(c):                  # f: (c: bool) -> int
     return y               # f(False) in an update  ->  None
 ```
 
-### 1.4 `float` of a huge int (update)
+### 1.3 `float` of a huge int (update)
 
 `float(n)`, and `n` in arithmetic with floats (`n * 0.5`), fail for an int
 beyond about 1.8e308: "int too large to convert to float". The checker

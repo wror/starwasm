@@ -32,7 +32,7 @@ load("../compiler/parser.star", "parse_file")
 load("../compiler/resolve.star", "called_names", "dotted_names", "free_names", "read_fields")
 load("../compiler/spell.star", "nearest")
 load("mutation.star", "analyze_module")
-load("nones.star", "safe_setitems", "unbound_def", "unbound_lambda", "unbound_module", nones_follow = "follow")
+load("nones.star", "safe_setitems", "unbound_def", "unbound_lambda", "unbound_module")
 load("precedence.star", "check_stmts")
 load("proto.star", "grpc_role", "grpc_struct", "GRPC_ROLES", "FIELD", "FILE", "MAP", "MODULE", "TYPE", "file_type", "message_field", pb_field_type = "field_type", pb_hint = "hint", pb_kind = "kind")
 load(
@@ -241,16 +241,13 @@ def collect_bound(stmts, bound, order):
             for n in names:
                 info = _bound(bound, order, n["id"], n["pos"])
                 info["assigned"] = True
-                info["values"].append(s["rhs"] if s["op"] == "=" and s["lhs"]["kind"] == "name" else None)
                 if s["op"] == "=" and s["lhs"]["kind"] == "name" and _is_none(s["rhs"]):
                     info["none"] = True
         elif k == "for":
             names = []
             _targets(s["target"], names)
             for n in names:
-                info = _bound(bound, order, n["id"], n["pos"])
-                info["assigned"] = True
-                info["values"].append(None)
+                _bound(bound, order, n["id"], n["pos"])["assigned"] = True
             collect_bound(s["body"], bound, order)
         elif k == "if":
             collect_bound(s["body"], bound, order)
@@ -302,7 +299,7 @@ def _implicit_relations(stmts, scope, bound, order):
 def _bound(bound, order, name, pos):
     info = bound.get(name)
     if info == None:
-        info = {"pos": pos, "none": False, "defs": [], "assigned": False, "load": None, "reactive": None, "values": []}
+        info = {"pos": pos, "none": False, "defs": [], "assigned": False, "load": None, "reactive": None}
         bound[name] = info
         order.append(name)
     return info
@@ -409,11 +406,7 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
             if name in ann_defs:
                 report(st, {"file": cv["file"], "pos": ann_defs[name]["pos"], "role": None},
                        "'" + name + "' is not (only) a function in " + mod["path"] + ": declare it as `" + name + ": type`")
-        b = {"kind": "var", "type": t, "pos": pos, "declared": d != None}
-        vals = info["values"]
-        if len(vals) == 1 and vals[0] != None and vals[0]["kind"] == "lambda" and not info["defs"] and info["load"] == None:
-            b["lambda"] = vals[0]  # (for nones.escapes: a call of it can be followed)
-        _declare(scope, name, b)
+        _declare(scope, name, {"kind": "var", "type": t, "pos": pos, "declared": d != None})
     for kind, anns in [("variable", ann_vars), ("function", ann_defs)]:
         for name, d in anns.items():
             if name in bound:
@@ -2020,14 +2013,13 @@ def infer_call(st, fc, e):
     args = [{"name": a["name"], "star": a["star"], "type": infer_expr(st, fc, a["value"]), "pos": a["value"]["pos"], "x": a["value"]} for a in e["args"]]
     maybe = False
     if st["contagious"]:
-        # an argument that may be None may make the result None, unless the
-        # builtin or method just stores it (STORES). A builtin isn't called
-        # then: the argument is checked without its None. A def is called,
-        # with the None: the same holds only where the None can't get out
-        # of the call but in its result (nones.escapes); elsewhere the
-        # argument goes in with its None.
+        # an argument that may be None makes the result of a builtin None
+        # (it isn't called), unless the builtin or method just stores it
+        # (STORES): the call is checked on the argument without its None.
+        # A def (or lambda, or any other function) is called with the None:
+        # the argument goes in as it is, and the parameter must take it.
         stores = STORES.get(f["name"] if f["kind"] == "dot" else f["id"] if f["kind"] == "name" else "", ())
-        callee = _callee(st, fc, f, ft)
+        builtin = _calls_builtin(fc, f, ft)
         i = 0
         for a in args:
             positional = a["name"] == None and a["star"] == ""
@@ -2035,10 +2027,8 @@ def infer_call(st, fc, e):
             if positional:
                 i += 1
             s = maybe_none(st, a["type"])
-            if s != None and not kept:
+            if s != None and not kept and builtin:
                 maybe = True
-                if callee[0] != "builtin" and _keeps_none(st, callee, a, i - 1 if positional else None):
-                    continue
                 a["type"] = s
         h = resolve(ft)
         if is_con(h, "opt"):
@@ -2094,72 +2084,14 @@ def infer_call(st, fc, e):
         t = mk_opt(t)
     return t
 
-def _find_scope(scope, name):
-    """(The binding of name seen from scope, the scope that has it)."""
-    for _ in range(1 << 30):
-        if scope == None:
-            return None, None
-        b = scope["vars"].get(name)
-        if b != None:
-            return b, scope
-        scope = scope["parent"]
-    return None, None
-
-def _resolve_callee(scope, name):
-    """What a call of name in scope calls, for nones.escapes: ("def", node,
-    the scope its free names are found in), ("builtin", name) or
-    ("unknown",)."""
-    if scope == None:
-        return ("unknown",)
-    b, sc = _find_scope(scope, name)
-    if b == None:
-        return ("unknown",)
-    if b["kind"] == "alias":
-        b = b["to"]
-        sc = b.get("scope")
-    if b["kind"] == "def":
-        return ("def", b["node"], b["scope"])
-    if b["kind"] == "var" and b.get("lambda") != None and sc != None:
-        return ("def", b["lambda"], sc)
-    if b["kind"] == "builtin":
-        return ("builtin", name)
-    return ("unknown",)
-
-def _callee(st, fc, f, ft):
-    """What call expression f (of type ft) calls: as _resolve_callee; a
-    builtin function or method also when it is a value (f = abs)."""
+def _calls_builtin(fc, f, ft):
+    """Does call expression f (of type ft) call a builtin function or method
+    (also as a value: f = abs)?"""
     h = resolve(ft)
     o = h.get("at") if h["k"] == "fn" else None
     if o != None and (o.get("role") or "").startswith("builtin"):
-        return ("builtin", "")
-    if f["kind"] == "name":
-        return _resolve_callee(fc["scope"], f["id"])
-    return ("unknown",)
-
-def _keeps_none(st, callee, a, i):
-    """Can the None of argument a (positional number i, or named) of a call
-    of callee (_callee) get out of the call other than in its result?"""
-    if callee[0] != "def":
-        return True  # (a function that can't be followed)
-    _, node, scope = callee
-    params = _node_params(node)
-    p = None
-    if a["star"] != "":
         return True
-    if i != None:
-        pos = [x for x in params if x[1] == "" and not x[3]]
-        if i >= len(pos):
-            return True  # (into *args)
-        p = pos[i][0]
-    else:
-        names = [x[0] for x in params if x[1] == ""]
-        if a["name"] not in names:
-            return True  # (into **kwargs)
-        p = a["name"]
-    cx = st.setdefault("escape", {"resolve": _resolve_callee, "stores": STORES, "methods": st["owners"], "scope": None, "path": "",
-                                  "memo": {}, "busy": {}, "mod_path": lambda sc: sc["mod"]["path"] if sc.get("mod") != None else ""})
-    esc, ret = nones_follow(cx, node, scope, {p: 1})
-    return esc or ret & 2 != 0  # (W = 1, I = 2: returned inside a value, it isn't the result's None)
+    return f["kind"] == "name" and _special(fc, f["id"])
 
 def _hashable_args(st, fc, e, f, args, t):
     """With contagious None: the elements of a set that set() makes must be

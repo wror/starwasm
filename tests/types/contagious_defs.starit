@@ -1,0 +1,21 @@
+# Types inferred from contagious_defs.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_defs.start instead.
+
+def push[T](acc: list[T], x: T) -> int
+def pushed[T](d: dict[T, int], k: T) -> list[int | None]:
+    acc: list[int | None]
+def wrap[T](x: T) -> list[T]
+def wrapped[T, U](d: dict[T, U], k: T) -> list[U | None]
+def double[T: (int, float)](x: T) -> T
+def doubled[T, U: (int, float)](d: dict[T, U], k: T) -> U | None
+def size[T: Iterable[U] & Contagious, U](xs: T) -> int:
+    n: int
+    _: U
+def sized[T, U: Contagious](d: dict[T, list[U]], k: T) -> int
+def counted[T, X: Sized](d: dict[T, X], k: T) -> int | None
+def apply[T, U](f: (T) -> U, x: T) -> U
+def applied[T, U: (int, float)](d: dict[T, U], k: T) -> U | None
+inc: (x: int | None) -> int | None
+def lambdas[T](d: dict[T, int], k: T) -> int | None
+tick: int
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]
