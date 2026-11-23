@@ -22,7 +22,8 @@ def sign(xs, i):
 def counter():
     state = {"n": 0}                 # a record: its entries are there
     def inc():
-        state["n"] += 1
+        state["n"] += 1              # but this may fail: once a global holds
+                                     # inc, state is frozen (so inc() is T | None)
         return state["n"]
     return inc
 

@@ -6,13 +6,13 @@ def scaled[T: Div[U, V], U, V: (int, float)](a: T, b: U) -> V | None
 def safe[T: Div[U, int], U](a: T, b: U) -> int
 def half(n: float) -> float
 def sign[T: GetItem[U, int], U](xs: T, i: U) -> int | None
-def counter() -> () -> int:
+def counter() -> () -> int | None:
     state: dict[str, int]
-    def inc() -> int
+    def inc() -> int | None
 def first[T: GetItem[int, U], U](xs: T) -> U | None
 def parse[T](s: T) -> int | None
 def names[T: Iterable[dict[str, U]] & Contagious, U](rows: T) -> list[U | None]:
     out: list[U | None]
     r: dict[str, U]
 tick: int
-tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]

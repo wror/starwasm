@@ -1,0 +1,16 @@
+tests/types/err_contagious_any.star:11:1: error: assignment to 'limit': expected int, got Any | None: the value may be None (it is Any: nothing is known about it, None included)
+   11 | limit = setting("width")
+      | ^
+tests/types/err_contagious_any.start:1:8: note: int is expected because of this (declared here)
+    1 | limit: int
+      |        ^
+tests/types/err_contagious_any.star:7:5: note: Any | None comes from here (definition of setting)
+    7 | def setting(name):
+      |     ^
+tests/types/err_contagious_any.star:14:1: error: assignment to 'items': expected dict[str, Any], got dict[str, Any | None]: an element may be None
+   14 | items = {"b": items.get("a")}
+      | ^
+tests/types/err_contagious_any.start:3:8: note: dict[str, Any] is expected because of this (declared here)
+    3 | items: dict[str, Any]
+      |        ^
+2 type errors in tests/types/err_contagious_any.star

@@ -1,0 +1,16 @@
+# Types inferred from contagious_any.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_any.start instead.
+
+cfg: struct[width: int, name: str]
+def field(name: str) -> Any | None
+def width() -> int | None:
+    w: int | None
+def sure(name: str) -> Any
+def counted(name: str) -> int:
+    n: int
+def loop(name: str) -> int | None:
+    x: Any | None
+def told(name: str) -> Any | None
+stored: list[int | None]
+tick: int
+tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]

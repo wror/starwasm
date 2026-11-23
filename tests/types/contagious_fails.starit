@@ -1,0 +1,32 @@
+# Types inferred from contagious_fails.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_fails.start instead.
+
+def last[T: Iterable[U] & Contagious, U](xs: T) -> U | None:
+    x: U
+def maybe[T: Contagious](c: T) -> int | None:
+    y: int
+def assigned[T: Contagious](c: T) -> int:
+    y: int
+def returned[T: Contagious](c: T) -> int:
+    y: int
+LIMIT: int
+def global_read[T: (int, float)](n: T) -> T
+def depth[T: Contagious & (int, float)](n: T) -> int | None
+def ping[T: Contagious & (int, float)](n: T) -> int | None
+def pong[T: Contagious & (int, float)](n: T) -> int | None
+def counts[T: Iterable[U] & Contagious, U: Hashable](words: T) -> dict[U, int]:
+    seen: dict[U, int]
+    w: U
+def setslot[T: SetItem[U, V], U, V](xs: T, i: U, v: V) -> T | None
+def setfirst(v: int) -> list[int]:
+    xs: list[int]
+def setat(i: int, v: int) -> list[int] | None:
+    xs: list[int]
+def iterated[T: Iterable[U] & SetItem[U, int] & Contagious, U](d: T) -> T | None:
+    k: U
+def pair[T: Add[U, V], U, V](a: T, b: U) -> V
+def spread[T: Iterable[U], U: Add[U, V], V](xs: T) -> V | None
+def named[T, U](kw: T) -> U | None
+firsts: (ps: list[list[int]] = ...) -> list[int] | None
+tick: int
+tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]

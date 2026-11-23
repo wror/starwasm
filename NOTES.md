@@ -48,7 +48,8 @@ instruction-builder API (the Hoot / V8 CSA approach), not hand-written WAT.
                           is its command line; precedence.star, the
                           operator precedence it requires (PRECEDENCE.md);
                           mutation.star, what reactive definitions may
-                          not mutate
+                          not mutate; nones.star, where contagious None
+                          gets past the types otherwise
     host/typecheck.mjs    runs it: node host/typecheck.mjs prog.star
     template/             a template language in plain Starlark, independent
                           of everything else here (template/README.md)

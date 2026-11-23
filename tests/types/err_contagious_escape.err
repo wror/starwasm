@@ -1,0 +1,7 @@
+tests/types/err_contagious_escape.star:11:18: error: argument 'name' of keep(): expected str, got str | None: the value may be None
+   11 | n = keep(names, d.get("a"))
+      |                  ^
+tests/types/err_contagious_escape.star:6:20: note: str is expected because of this (.upper is used here)
+    6 |     acc.append(name.upper())
+      |                    ^
+1 type error in tests/types/err_contagious_escape.star

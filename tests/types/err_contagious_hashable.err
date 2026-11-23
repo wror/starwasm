@@ -1,0 +1,13 @@
+tests/types/err_contagious_hashable.star:6:31: error: comprehension over it: list[int] is not hashable: it can't be a dict key or a set element
+    6 |     return {row: 1 for row in rows}
+      |                               ^
+tests/types/err_contagious_hashable.star:6:13: note: required here (a dict key)
+    6 |     return {row: 1 for row in rows}
+      |             ^
+tests/types/err_contagious_hashable.star:9:10: error: list[int] is not hashable: it can't be a dict key or a set element
+    9 | pairs = {(1, [2]): "a"}
+      |          ^
+tests/types/err_contagious_hashable.star:10:8: error: list[int] is not hashable: it can't be a dict key or a set element
+   10 | seen = set([[1]])
+      |        ^
+3 type errors in tests/types/err_contagious_hashable.star

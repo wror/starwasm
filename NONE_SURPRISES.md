@@ -37,7 +37,42 @@ that run along the way, and in values that get through to an observer.
 
 ## 1. Structural gaps (each covers many cases)
 
+**Status: fixed** in the checker (typecheck/nones.star, new, and
+infer.star, unify.star, types.star, stubs.star; documented in
+EXTENSIONS.md, "Fallible operations"; tests:
+tests/types/contagious_escape, contagious_fails, contagious_any,
+err_contagious_escape, err_contagious_hashable, err_contagious_any). Each
+subsection starts with what the fix does. The line numbers below are from
+before the fix. What it still leaves out:
+
+- 1.1: inside the def the parameter still holds the None while typed
+  `T`. That is safe only because the None can't leave the call except as
+  its (optional) result. The analysis is syntactic, and it takes a
+  method call `s.f(x)` to be a builtin method's. A struct field that holds
+  a def and has the name of a method that stores its argument (`append`,
+  `add`, ...) is a way out it doesn't see.
+- 1.2: an `Any` that may be None is told apart from one that isn't only
+  directly and as a list's, dict's or set's elements. Elsewhere inside a
+  type (a struct's field, a function's parameter) unification still takes
+  it for anything. A type variable that nothing solves is printed as
+  `Any`, so it reads back from a `.starit` as an `Any` that isn't None.
+- 1.3: `Hashable` doesn't look at the fields of a struct that the row
+  variable of an open struct type stands for.
+- 1.3 and 1.4: a name bound by several defs (a def redefined with
+  `--globalreassign`, or in the REPL) has one function type, which the
+  checker compares exactly. So its defs don't get the failure marks:
+  otherwise a fixed version (`-> int`) wouldn't match a failing one
+  (`-> int | None`).
+
 ### 1.1 A def's parameter gets the None the checker stripped from the argument (anywhere)
+
+**Fixed:** the checker still strips the None at a call of a def, but only
+where an escape analysis (`nones.escapes`) shows the None can't come out
+of the call except in its result. Elsewhere the argument goes into the
+call with its None. Now `c_param` is `-> int | None` with `acc: list[int |
+None]`, `w` is a `list[int | None]` and `b` a `struct[v: int | None]`. A
+def whose parameter has a concrete type and keeps the None
+(`acc.append(x.upper())`) is a type error at the call.
 
 `infer_call` (typecheck/infer.star:1665-1690) handles an argument that may
 be None by removing the `None` from its type and making the *result* of
@@ -83,6 +118,14 @@ on the first run (4.4).
 
 ### 1.2 `Any` takes in None (anywhere)
 
+**Fixed:** with contagious None, an `Any` counts as possibly None. It is
+printed `Any | None`, and the checker handles it as a `T | None`: a
+fallible operation's `Any` result, a def that tests, iterates or unpacks
+one, a variable assigned one (it becomes optional), and an `Any` used
+where a type that isn't optional is wanted (an error), elements of lists,
+dicts and sets included. `x ?? y` gives an `Any` that isn't None (printed
+`Any`), which is also what `Any` means in a `.start` file.
+
 `mk_opt(Any)` returns `Any` (types.star:118), and `_strip_opt(Any)` is
 `None` (infer.star:681). So:
 
@@ -97,6 +140,22 @@ on the first run (4.4).
 Every place `Any` comes from is listed in section 5.
 
 ### 1.3 Statements that fail without marking the def as failing (update)
+
+**Fixed:** these now make the def fail, so its result is `T | None`:
+
+- a read of a variable that may be unassigned (`nones.unbound_def`;
+  globals the module may leave unassigned too);
+- recursion, including cycles of defs;
+- an item assignment, except into a dict the def made itself and isn't
+  looping over, or into a list it made, by an index each of its literals
+  has, that it doesn't shrink or give away (`nones.safe_setitems`);
+- a call with `*args` or `**kwargs`, which is `T | None` itself.
+
+Unhashable dict keys and set elements are type errors (a new bound,
+`Hashable`, on what a def makes into a key). A closure that assigns into
+its enclosing def's dict (`counter()` in tests/types/fallible.star) is
+`T | None` now too, rightly: once a global holds the closure, the dict is
+frozen. That was checked at run time.
 
 During an update, an error that is not inside an expression the runtime
 can make None (an operator, index, slice, field or builtin call) makes
@@ -124,6 +183,9 @@ update hits the fourth row. (`G.append(x)` fails too, but that is a
 builtin call, so only the call is None, not the def.)
 
 ### 1.4 Lambdas don't get the "fails" mark (update)
+
+**Fixed:** a lambda has its own mark. `f_lambda` below is now `->
+list[int] | None`, and its failure no longer marks the enclosing def.
 
 `_infer_lambda` (infer.star:1527) copies the enclosing `fc`, so a failing
 unpacking inside a lambda's comprehension marks the *enclosing* def (or
@@ -247,6 +309,8 @@ None all the same.
 
 ### 4.5 Relations of errors: `<x>_id` is `Any`, and is None for a lone variable (anywhere)
 
+(Now `Any | None`, with the fix of 1.2.)
+
 `xError: list[struct[id: int, x_id: Any, trigger: str, field: str,
 value: None]]` (the field comes from `_fresh`, infer.star:332). For a
 lone variable there is no id: the input `qq : None` gave
@@ -274,8 +338,11 @@ there (proto.star:490).
 
 ## 5. Every source of `Any` (and of results that act like it)
 
-Because of 1.2, each of these is a place where a None can enter without
-the checker noticing.
+Before the fix of 1.2, each of these was a place where a None could
+enter without the checker noticing. Now each counts as possibly None
+(printed `Any | None`), within the limits listed at the top of section 1.
+An `Any` written in a `.start` file means a value that isn't None; for
+one that may be None, write `Any | None`.
 
 ### 5.1 `Any` the checker infers
 

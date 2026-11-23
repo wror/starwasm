@@ -79,7 +79,7 @@ def format_errors(st, main):
     return out
 
 def _child_namer(nm):
-    c = new_namer(True)
+    c = new_namer(True, nm["contagious"] if nm != None else False)
     if nm != None:
         c["names"] = dict(nm["names"])
         c["used"] = dict(nm["used"])
@@ -122,7 +122,7 @@ def render_types(mod):
         "# Rewritten by every check: put annotations in " + base + "t instead.",
         "",
     ]
-    nm = new_namer(True)
+    nm = new_namer(True, mod.get("contagious", False))
     nm["closed"] = True
     _render_scope(mod["scope"], "", nm, out, False)
     return "\n".join(out) + "\n"
@@ -133,12 +133,12 @@ def render_one(mod, name):
     if b != None and b["kind"] == "var" and not b.get("loaded", False):
         # a variable: what is still unknown in its type is shown as type
         # parameters, as for a def ("[T](x: T) -> T" for an identity lambda)
-        nm = new_namer(True)
+        nm = new_namer(True, mod.get("contagious", False))
         nm["all"] = True
         collect_generic(b["type"], nm)
         tparams = show_tparams(nm)
         return name + ": " + tparams + show(b["type"], nm)
-    nm = new_namer(True)
+    nm = new_namer(True, mod.get("contagious", False))
     nm["closed"] = True
     out = []
     _render_scope(mod["scope"], "", nm, out, False, name)
@@ -163,14 +163,14 @@ def parameters(st, mod, name):
     parameters), with the types they hold."""
     t = _queried(st, mod, name)
     if t != None and t["k"] == "con" and t["name"] == TYPE and pb_kind(st["pb"], resolve(t["args"][0])) == "msg":
-        nm = new_namer(True)
+        nm = new_namer(True, st["contagious"])
         nm["all"] = True
         return [f["name"] + "\t" + show(pb_field_type(st["pb"], f), nm) + "\tkw" for f in st["pb"]["msgs"][resolve(t["args"][0])["name"]]["fields"]]
     if t == None or t["k"] != "fn":
         return []
     role = (t.get("at") or {}).get("role") or ""
     named = role.startswith("definition of") or role == "declared here" or role == "a lambda"
-    nm = new_namer(True)
+    nm = new_namer(True, st["contagious"])
     nm["all"] = True
     out = []
     for p in t["params"]:
@@ -189,7 +189,7 @@ def attributes(st, mod, name):
         t = resolve(t["args"][0])
     out = []
     if t["k"] == "rec":
-        nm = new_namer(True)  # (one for all the fields: unknown types get different names)
+        nm = new_namer(True, st["contagious"])  # (one for all the fields: unknown types get different names)
         nm["all"] = True
         for it in flatten(t["row"]):
             if it["k"] == "f":
@@ -201,7 +201,7 @@ def attributes(st, mod, name):
     if t["k"] == "con" and t["name"] == REPEATED:
         ms = [("append", fn([param("x", t["args"][0])], con("None")))]  # (its only method)
     if ms != None:
-        nm = new_namer(True)
+        nm = new_namer(True, st["contagious"])
         nm["all"] = True
         return [n + "\t" + show(mt, nm) for n, mt in ms]
     tyname = None
@@ -212,7 +212,7 @@ def attributes(st, mod, name):
     for m in sorted(st["methods"].get(tyname, {})):
         # the method's type for this receiver (a list[int]'s append takes an int)
         recv = t if t["k"] == "con" else con("str")
-        nm = new_namer(True)
+        nm = new_namer(True, st["contagious"])
         nm["all"] = True
         out.append(m + "\t" + show(method_type(st, recv, tyname, m, {"file": mod["path"], "pos": (0, 0), "role": None}, 0), nm))
     return out

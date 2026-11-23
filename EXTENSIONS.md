@@ -1289,11 +1289,46 @@ types (but see None below) and no classes; types are structural.
   ends in `?? None` (or is `None`): an update in which it would be None
   fails as a whole ("Atomic updates"). With contagious None every
   reactive variable `x` has a relation of errors, `xError`.
+  A def called with an argument that may be None runs with the None (a
+  builtin isn't called). The call is checked as if the argument weren't
+  None, and is `T | None`, only where the None can't come out of it but
+  in (what is computed from it in) the result. Where it can come out
+  otherwise, the argument goes in with its None, so the def's type
+  shows it: stored in a container the def didn't make
+  (`acc.append(x)`), returned inside a value (`return [x]`, `return
+  struct(v = x)`), kept by a nested def or lambda, assigned to a field,
+  or given to a function that can't be followed (a parameter; a def or a
+  lambda bound once to a name is followed). So `def push(acc, x):
+  acc.append(x)` called as `push(xs, d.get(k))` makes `xs` a `list[int |
+  None]`, and a def whose parameter is a `str` there (`x.upper()`) is an
+  error. A def also fails, and gives None, where a statement fails
+  outside an expression: one that may read a variable before it is
+  assigned (`for x in xs: pass` then `return x`; or a global that the
+  module doesn't always assign), a recursive one (a call may go too
+  deep), and one that assigns an item (`x[k] = v`, `x[k] += v`) of
+  anything but a dict it made itself, not while looping over it, or a
+  list it made, by an index each of its literals has, that it doesn't
+  shrink or give away: a list index may be out of range, a value
+  iterated over can't change, and every global is frozen after the first
+  run (a closure's dict too, with the global that holds the closure). A
+  lambda that may fail is `T | None` itself. A call with `*args` or
+  `**kwargs` is `T | None` (how many arguments, and which names, isn't
+  checked). A dict key or set element must be hashable (`Hashable`,
+  below): a list, dict or set, or a tuple or struct with one in it, fails.
+  And `Any` is anything, None included: an Any that may be None is shown
+  as `Any | None` and treated as a `T | None` (operations on it give one,
+  a def that tests or loops over it may fail, a variable assigned one is
+  optional, and it can't be used where a type that isn't optional is
+  wanted, as an element or value too); `x ?? y` gives an `Any` that isn't
+  None, shown as `Any`, which is also what `Any` means in a `.start` file.
   Code: typecheck/infer.star (`_fallible_op`, `_fallible_call`, `STORES`,
   `_maybe_fails`, `_records`, `_record_entry`, `assign_target`,
-  `_committed`),
-  typecheck/unify.star (the `contagious` cases in `dispatch`,
-  `solve_binop`, `attr_type`; `watch`), typecheck/main.star (`check`).
+  `_committed`, `maybe_none`, `_keeps_none`, `_recursive`,
+  `_hashable`), typecheck/nones.star (unassigned reads, item
+  assignments, escapes), typecheck/unify.star (the `contagious` cases in
+  `dispatch`, `solve_binop`, `attr_type`, `flow`; `watch`;
+  `maybe_any`), typecheck/types.star (`ANY_SOME`), typecheck/main.star
+  (`check`).
 - **Numbers**: an `int` is accepted where a `float` is wanted. An int
   literal is an `int` unless it is put where a float is kept: after `total
   = 0`, `total += 1.5` makes `total` a float; `[1, 2.5]` is a
@@ -1317,7 +1352,8 @@ types (but see None below) and no classes; types are structural.
   is an `R`; likewise `Sub Mul Div FloorDiv Mod Or And Xor LShift
   RShift`, and `RAdd[A, R]` etc. for the right operand), and, with
   contagious None, `Contagious` (a None in it makes the call None: see
-  "Fallible operations"). One exception
+  "Fallible operations") and `Hashable` (a dict key or set element that
+  the def makes). One exception
   keeps common code simple: an operand of unknown type next to a number
   is taken to be a number. Next to an int it is either kind, and so is
   the result, of its kind (`def inc(x): return x + 1` is `def inc[T:
@@ -1334,7 +1370,9 @@ types (but see None below) and no classes; types are structural.
   different types, and where a type would have to contain itself (there
   are no recursive types: a tree whose nodes are structs has `kids:
   list[Any]` at the point where it would recur). Annotate with `Any` (e.g.
-  `dict[str, Any]`) to opt a value out of checking.
+  `dict[str, Any]`) to opt a value out of checking. (With contagious None,
+  an inferred Any may be None, `Any | None`, and one in a `.start` file
+  isn't: see "Fallible operations".)
 - **Reactive variables** (above) have the type of their definition; a
   struct block is a struct with the `id` it gets, and a relation is a
   table, `list[struct[...]]` (its member type where a definition reads
@@ -1580,6 +1618,9 @@ reads as empty, and the exit status).
   the types of the proto module's values from it.
 - `infer.star`: inference over the compiler's AST: scopes, defs on demand
   (cycles of defs by Tarjan's algorithm), narrowing, calls.
+- `nones.star`: with contagious None, what the AST alone tells: reads of
+  variables that may be unassigned, item assignments that can't fail,
+  and where a None given to a def can get out of it (escapes).
 - `main.star`: the command line, diagnostics, the `.starit` writer.
   `bin/starhost --recursion typecheck/main.star [--print] [--start=FILE]...
   [--descriptor_set=FILE] prog.star` runs it interpreted (`--start=` names each `.start` file that

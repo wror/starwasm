@@ -30,6 +30,7 @@ load(
     "flatten",
     "fn",
     "is_con",
+    "is_some_any",
     "lab",
     "lit",
     "mk_opt",
@@ -82,7 +83,7 @@ def hint(name, candidates):
 def describe_failure(st, ctx, actual, expected, err, flowing):
     """The message and notes for a failure to make `actual` and `expected`
     the same type (flowing: to use actual where expected is wanted)."""
-    nm = new_namer(False)
+    nm = new_namer(False, st.get("contagious", False))
     a = show(actual, nm)
     e = show(expected, nm)
     role = ctx.get("role") or "type mismatch"
@@ -289,12 +290,17 @@ def _parts(t, deep, out):
             if it["k"] == "f":
                 _parts(it["type"], deep, out)
 
+def maybe_any(st, t):
+    """With contagious None: is t (resolved) an Any that may be None (not
+    the Any of `x ?? y`: types.star, ANY_SOME)?"""
+    return st.get("contagious", False) and is_con(t, "Any") and not is_some_any(t)
+
 def _solve_watch(st, p):
     parts = []
     for t in p["args"]:
         _parts(t, p.get("deep", False), parts)
     for r in parts:
-        if is_con(r, "opt"):
+        if is_con(r, "opt") or maybe_any(st, r):
             _watch_fire(st, p, True)
             return
     for r in parts:
@@ -322,7 +328,7 @@ def _watch_fire(st, p, opt):
     elif opt:
         x["fails"] = True
 
-MERGED = {"iter": True, "contains": True, "sized": True, "ordered": True, "slice": True, "hasattr": True}
+MERGED = {"iter": True, "contains": True, "sized": True, "ordered": True, "slice": True, "hasattr": True, "hashable": True}
 
 def head(st, t):
     """t resolved, for code about to look at what kind of type it is: a
@@ -718,6 +724,19 @@ def flow(st, actual, expected, ctx):
     float is, and tuples are compared element by element."""
     a = resolve(actual)
     e = resolve(expected)
+    if maybe_any(st, a) and not is_con(e, "opt") and not is_con(e, "None") and not maybe_any(st, e):
+        # with contagious None, an Any may be None: it is used as a T | None
+        if e["k"] == "var" and not e["rigid"]:
+            if e["lit"] == None and not e["num"]:
+                return bind(st, e, a, ctx)
+            k = new_var(st, "type", e["level"])
+            k["num"] = e["num"]
+            k["lit"] = e["lit"]
+            return bind(st, e, con("opt", [k], ctx), ctx)
+        return failure(actual, expected, "the value may be None (it is Any: nothing is known about it, None included)")
+    if is_some_any(e) and st.get("contagious", False) and (is_con(a, "opt") or is_con(a, "None")):
+        # (an Any of a .start file, with contagious None: not None)
+        return failure(actual, expected, "the value may be None")
     if is_con(e, "Any"):
         return None  # used as Any: nothing is learned about the value
     if is_con(a, "Any"):
@@ -760,7 +779,29 @@ def flow(st, actual, expected, ctx):
         return unify_rows(st, pb_rec(st["pb"], a)["row"], e["row"], ctx, True)
     if _literal_widens(st, a, e, ctx):
         return None
+    if _any_inside(st, a, e):
+        return failure(actual, expected, "an element may be None")
     return unify(st, actual, expected, ctx)
+
+def _any_inside(st, a, e):
+    """With contagious None: does a, a list, dict or set, have elements (or
+    keys, values) that may be None (an Any, which may be, included) where
+    e's are of a type that isn't optional? (Unification would take an Any
+    for anything.)"""
+    if not st.get("contagious", False) or a["k"] != "con" or e["k"] != "con" or a["name"] != e["name"]:
+        return False
+    if a["name"] not in ["list", "dict", "set"] or len(a["args"]) != len(e["args"]):
+        return False
+    for i in range(len(a["args"])):
+        x = resolve(a["args"][i])
+        y = resolve(e["args"][i])
+        if maybe_any(st, x) and not is_con(y, "opt") and not is_con(y, "Any") and y["k"] != "var":
+            return True
+        if is_some_any(y) and (is_con(x, "opt") or is_con(x, "None") or maybe_any(st, x)):
+            return True  # (an Any of a .start file isn't None)
+        if _any_inside(st, x, y):
+            return True
+    return False
 
 # the list and dict literals (and comprehensions) whose elements may be
 # made optional from the start (infer.star, _widen_elements)
@@ -962,6 +1003,11 @@ def dispatch(st, s, p, ctx):
     name = s["name"] if s["k"] == "con" else s["k"]
     args = p["args"]
     if name == "Any":
+        # (with contagious None: what comes out of an Any, its elements,
+        # items, slices, methods, is an Any that may be None)
+        out = {"iter": 0, "getitem": 1, "slice": 0, "hasattr": 0}.get(k)
+        if st.get("contagious") and out != None and resolve(args[out])["k"] == "var":
+            unify(st, args[out], T_ANY, pctx)
         return
     if name == "opt" and k in ["among", "ordered"] and st.get("contagious"):
         # contagious None: checked on what the value is otherwise
@@ -974,7 +1020,7 @@ def dispatch(st, s, p, ctx):
             dispatch(st, inner, q, ctx)
         return
     if name == "opt" and k != "among":
-        if st.get("contagious") and k in ["getitem", "slice", "sized", "contains", "hasattr"]:
+        if st.get("contagious") and k in ["getitem", "slice", "sized", "contains", "hasattr", "hashable"]:
             # contagious None: on None, the operation gives None; else it is
             # checked on what the value is otherwise
             inner = head(st, s["args"][0])
@@ -1061,6 +1107,18 @@ def dispatch(st, s, p, ctx):
     elif k == "sized":
         if name not in ["list", "dict", "set", "tuple", "vtuple", "str", "bytes", "range", REPEATED, MAP]:
             _pred_error(st, p, ctx, show(s) + " has no len()")
+    elif k == "hashable":
+        # (with contagious None: a dict key or set element, which fails at
+        # run time, and so gives None, if it can't be hashed)
+        if name in ["list", "dict", "set", REPEATED, MAP]:
+            _pred_error(st, p, ctx, show(s) + " is not hashable: it can't be a dict key or a set element")
+        elif name in ["tuple", "vtuple"]:
+            for x in s["args"]:
+                add_pred(st, pred("hashable", x, [], pctx), ctx)
+        elif name == "rec":
+            for it in flatten(s["row"]):
+                if it["k"] == "f":
+                    add_pred(st, pred("hashable", it["type"], [], pctx), ctx)
     elif k == "contains":
         if name == "list" or name == "set" or name == "vtuple" or name == "dict":
             # (an int is looked for among T | None, or floats, as well)

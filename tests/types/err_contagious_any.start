@@ -1,0 +1,3 @@
+limit: int
+other: int
+items: dict[str, Any]

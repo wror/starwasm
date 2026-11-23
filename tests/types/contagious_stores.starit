@@ -11,9 +11,9 @@ def first_two[X: Iterable[T], T](xs: X) -> T | None:
     a: T
     b: T
 def halved[T: FloorDiv[U, T], U](n: T | None, k: U) -> T | None
-def counter() -> () -> int:
+def counter() -> () -> int | None:
     state: dict[str, int]
-    def inc() -> int
+    def inc() -> int | None
 def aliased() -> int | None:
     state: dict[str, int]
     other: dict[str, int]
@@ -33,4 +33,4 @@ def filled[T, X: Iterable[T]](d: dict[T, int], ks: X) -> int | None:
 def cleared() -> list[int | None]:
     xs: list[int | None]
 tick: int
-tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]

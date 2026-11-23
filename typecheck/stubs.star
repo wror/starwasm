@@ -49,6 +49,7 @@ load("../compiler/spell.star", "nearest")
 load(
     "types.star",
     "BINOP_NAMES",
+    "ANY_SOME",
     "T_ANY",
     "con",
     "field",
@@ -437,6 +438,7 @@ PROTOS = {
     "GetItem": ("getitem", 2),
     "SetItem": ("setitem", 2),
     "Sized": ("sized", 0),
+    "Hashable": ("hashable", 0),
     "Container": ("contains", 1),
     "Sliceable": ("slice", 1),
     "Ordered": ("ordered", 0),
@@ -598,6 +600,8 @@ def to_type(cv, a):
     if name in SIMPLE:
         if args != None:
             _err(cv, pos, name + " takes no type arguments")
+        if name == "Any" and cv["st"] != None and cv["st"].get("contagious", False):
+            return ANY_SOME  # (with contagious None, `Any | None` may be None, Any not)
         return con(name, [], _at(cv, pos))
     if name in ARITY:
         n = ARITY[name]

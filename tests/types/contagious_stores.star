@@ -35,7 +35,8 @@ def halved(n, k):
 
 # A record (a dict or list literal bound once, as closures share state) has
 # the entries it is written with; not once it is passed on or aliased, as
-# other code may then remove them.
+# other code may then remove them. (Assigning to an entry from a closure
+# may fail all the same: a global that holds the closure freezes state.)
 def counter():
     state = {"n": 0}
     def inc():

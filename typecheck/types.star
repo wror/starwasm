@@ -90,6 +90,17 @@ def lab(label, at = None):
 
 T_ANY = con("Any")
 
+# With contagious None, Any is any value, None included: what nothing is
+# known about may be None. ANY_SOME is any value but None: what `x ?? y`
+# gives for an x of type Any (and what stripping the None from an Any
+# leaves). It is shown, and unifies, as Any; only the checks for None
+# (infer.star, maybe_none) tell them apart. Without contagious None there is
+# no difference.
+ANY_SOME = {"k": "con", "name": "Any", "args": [], "at": None, "some": True}
+
+def is_some_any(t):
+    return t["k"] == "con" and t["name"] == "Any" and t.get("some", False)
+
 def is_con(t, name):
     return t["k"] == "con" and t["name"] == name
 
@@ -103,7 +114,9 @@ def resolve(t):
             break
     if t["k"] == "con" and t["name"] == "opt":
         a = resolve(t["args"][0])
-        if a["k"] == "con" and (a["name"] == "opt" or a["name"] == "None" or a["name"] == "Any"):
+        if a["k"] == "con" and a["name"] == "Any":
+            return T_ANY  # (Any | None: Any, which may be None)
+        if a["k"] == "con" and (a["name"] == "opt" or a["name"] == "None"):
             return a
     return t
 
@@ -117,7 +130,9 @@ def resolve_label(l):
 
 def mk_opt(t, at = None):
     r = resolve(t)
-    if r["k"] == "con" and (r["name"] == "opt" or r["name"] == "None" or r["name"] == "Any"):
+    if r["k"] == "con" and r["name"] == "Any":
+        return T_ANY
+    if r["k"] == "con" and (r["name"] == "opt" or r["name"] == "None"):
         return r
     return con("opt", [t], at)
 
@@ -190,13 +205,15 @@ BINOP_NAMES = {
 
 TYPE_NAMES = ["T", "U", "V", "W", "X", "Y", "Z"]
 
-def new_namer(sig):
+def new_namer(sig, contagious = False):
     """Names for the variables of the types printed together. sig: a
     signature is being printed (a .starit file): quantified variables get
     names (T, U, ...; rows R, R2, ...; labels L, L2, ...) and anything else
     unsolved is Any. Otherwise (an error message) unknown types are "_" and
-    an open row ends in "..."."""
-    return {"sig": sig, "names": {}, "order": [], "n": {"type": 0, "row": 0, "label": 0}, "used": {}}
+    an open row ends in "...". contagious: with contagious None, an Any
+    that may be None (not ANY_SOME) is shown as `Any | None`, as what
+    nothing is known about is in a signature."""
+    return {"sig": sig, "names": {}, "order": [], "n": {"type": 0, "row": 0, "label": 0}, "used": {}, "contagious": contagious}
 
 def var_name(nm, v):
     name = nm["names"].get(v["id"])
@@ -250,6 +267,8 @@ def _show(t, nm, prec):
     if k == "con":
         name = t["name"]
         args = t["args"]
+        if name == "Any" and nm.get("contagious", False) and not t.get("some", False):
+            return "Any | None"
         if name == "opt":
             a0 = resolve(args[0])
             if nm["sig"] and a0["k"] == "var" and a0["lit"] == None and not a0["num"] and not _named(nm, a0):
@@ -334,6 +353,8 @@ def show_pred(p, nm):
         return "SetItem[" + a[0] + ", " + a[1] + "]"
     if k == "sized":
         return "Sized"
+    if k == "hashable":
+        return "Hashable"
     if k == "contains":
         return "Container[" + a[0] + "]"
     if k == "slice":
@@ -365,6 +386,8 @@ def describe_pred(p):
         return "assignable by index"
     if k == "sized":
         return "something with a length"
+    if k == "hashable":
+        return "hashable (a dict key, a set element)"
     if k == "contains":
         return "a container"
     if k == "slice":

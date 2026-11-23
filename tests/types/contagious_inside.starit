@@ -19,4 +19,4 @@ def fmt_ok[T: Contagious](n: T) -> str
 def starts[T, U](s: str, d: dict[T, U], k: T) -> bool | None
 def length[T, U](d: dict[T, U], k: T) -> int
 tick: int
-tickError: list[struct[id: int, tick_id: Any, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: Any | None, trigger: str, field: str, value: None]]
