@@ -39,13 +39,18 @@ Inside the def, though, the parameter holds the None while typed `T`, and
 so do the locals computed from it:
 
 ```python
-def inc(v):                # def inc[T: (int, float)](v: T) -> T
-    w = v + 1              #   w: T   -> None, when inc(d.get(k)) is None
-    return w
+def describe(v):           # def describe[T: (int, float)](v: T) -> str
+    w = v * 2              #   w: T   -> None
+    print("double:", w)    #   prints "double: None"
+    return "done"
+
+r = describe(d.get(5))     # r: str | None   (here "done")
 ```
 
-Nothing outside the call can see that None other than through the
-optional result. But a `print` inside the def shows it.
+The None doesn't get out of the call: what the caller sees is the result,
+which is optional (and may be None where the def returns what it computed
+from the parameter). Only what the def does inside, as the `print` here,
+shows a value of type `T` that is None.
 
 ### 1.2 `Hashable` and declared open structs (update)
 
