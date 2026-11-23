@@ -263,6 +263,8 @@ def _show(t, nm, prec):
             return "int"
         if _named(nm, t):
             return var_name(nm, t)
+        if nm["sig"] and nm.get("contagious", False):
+            return "Any | None"  # (nothing told its type: with contagious None, it may be None)
         return "Any" if nm["sig"] else "_"
     if k == "con":
         name = t["name"]

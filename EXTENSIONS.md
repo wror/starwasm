@@ -1423,7 +1423,10 @@ types (but see None below) and no classes; types are structural.
   list[Any]` at the point where it would recur). Annotate with `Any` (e.g.
   `dict[str, Any]`) to opt a value out of checking. (With contagious None,
   an inferred Any may be None, `Any | None`, and one in a `.start` file
-  isn't: see "Fallible operations".)
+  isn't: see "Fallible operations". So is what nothing tells the type
+  of, shown as `Any | None` in a `.starit` file, but in a reactive
+  variable's value and in the fields an implicit relation's members must
+  have, which can't be None: shown as `Any`.)
 - **Reactive variables** (above) have the type of their definition; a
   struct block is a struct with the `id` it gets, and a relation is a
   table, `list[struct[...]]` (its member type where a definition reads

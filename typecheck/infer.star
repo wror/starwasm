@@ -198,6 +198,7 @@ def check_module(st, path, from_ctx = None):
         # nothing told: anything, or None; not "None" alone)
         if resolve(v)["k"] == "var":
             unify(st, v, ANY_SOME, _ctx(fc, (0, 0)))
+    _pin_committed(st, fc)
     # what its functions mutate, and reactive definitions that mutate what
     # they didn't make (mutation.star)
     loaded = {}
@@ -294,7 +295,8 @@ def _implicit_relations(stmts, scope, bound, order):
             for r in stmts:
                 if r["kind"] == "reactive" and r.get("relation", False):
                     read_fields([r.get("when"), r["value"]], n, fields)
-            _bound(bound, order, n, u["pos"])["reactive"] = {"relation": True, "optional": sorted([f for f, g in fields.items() if g])}
+            _bound(bound, order, n, u["pos"])["reactive"] = {"relation": True, "optional": sorted([f for f, g in fields.items() if g]),
+                                                             "needed": sorted([f for f, g in fields.items() if not g])}
             _bound(bound, order, n + "Error", u["pos"])["reactive"] = {"relation": True, "errors_of": n}
 
 def _bound(bound, order, name, pos):
@@ -371,6 +373,9 @@ def declare_scope(st, fc, stmts, cv, ann_vars, ann_defs, where):
                 st.setdefault("optional_fields", []).extend(vs)
                 t = rec(row([field(lit(f), mk_opt(vs[i]), at) for i, f in enumerate(optional)] + [new_var(st, "row", fc["scope"]["level"])]), at)
             _declare(scope, name, {"kind": "relation", "type": t, "pos": pos})
+            if st["contagious"]:
+                # (the fields a member must have aren't None: _pin_committed)
+                st.setdefault("needed_fields", []).append((t, info["reactive"].get("needed", [])))
             continue
         if len(info["defs"]) == 1 and not info["assigned"] and info["reactive"] == None:
             b = {
@@ -1261,6 +1266,7 @@ def _infer_reactive(st, fc, s):
         return
     if st["contagious"]:
         t = _committed(st, s["value"], t)
+        st.setdefault("committed", []).append(t)  # (_pin_committed)
     flow_report(st, t, b["type"], _ctx(fc, s["pos"], "definition of '" + s["name"] + "'"))
 
 def _marked_none(e):
@@ -1269,6 +1275,39 @@ def _marked_none(e):
     if e["kind"] == "binop" and e["op"] == "??":
         e = e["y"]
     return e["kind"] == "name" and e["id"] == "None"
+
+def _pin_committed(st, fc):
+    """With contagious None, at the end of the module: what nothing told the
+    type of, in a reactive variable's value (or a relation's members), or in
+    a field that an implicit relation's members must have, isn't None (an
+    update in which it would be fails; standard input can't give one):
+    anything but None (ANY_SOME, shown as Any). Anything else that nothing
+    told the type of is shown as `Any | None` (types.star)."""
+    ctx = _ctx(fc, (0, 0))
+    for t in st.get("committed", []):
+        _pin(st, t, ctx, 0)
+    for t, needed in st.get("needed_fields", []):
+        h = resolve(t)
+        if h["k"] != "rec":
+            continue
+        for it in flatten(h["row"]):
+            if it["k"] == "f" and resolve_label(it["label"])["k"] == "lit" and resolve_label(it["label"])["name"] in needed:
+                _pin(st, it["type"], ctx, 0)
+
+def _pin(st, t, ctx, depth):
+    t = resolve(t)
+    if depth > 20:
+        return
+    if t["k"] == "var":
+        if t["kind"] == "type" and not t["rigid"] and t["lit"] == None and not t["num"]:
+            unify(st, t, ANY_SOME, ctx)
+    elif t["k"] == "con":
+        for a in t["args"]:
+            _pin(st, a, ctx, depth + 1)
+    elif t["k"] == "rec":
+        for it in flatten(t["row"]):
+            if it["k"] == "f":
+                _pin(st, it["type"], ctx, depth + 1)
 
 def _committed(st, e, t):
     """With contagious None: t, the type of reactive definition e, as the

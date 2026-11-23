@@ -1,0 +1,12 @@
+# Types inferred from contagious_unknown.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_unknown.start instead.
+
+order: list[struct[id: int, qty: Any]]
+orderError: list[struct[id: int, order_id: int | None, trigger: str, field: str, value: None]]
+xs: list[Any]
+seen: list[Any | None]
+tick: int
+req: list[struct[qty: Any, other: Any | None, **Any]]
+reqError: list[struct[id: int, req_id: int | None, trigger: str, field: str, value: None]]
+xsError: list[struct[id: int, xs_id: int | None, trigger: str, field: str, value: None]]
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

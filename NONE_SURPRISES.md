@@ -47,15 +47,7 @@ def inc(v):                # def inc[T: (int, float)](v: T) -> T
 Nothing outside the call can see that None other than through the
 optional result. But a `print` inside the def shows it.
 
-### 1.2 An unsolved type variable prints as `Any`
-
-A type variable that nothing solves is printed as `Any` in a `.starit`
-file, which, read back as annotations, means a value that isn't None. The
-value may be None all the same: a field of an implicit relation that only
-an observer reads (2.2) is printed `other: Any`, and holds None where a
-member lacks it.
-
-### 1.3 `Hashable` and declared open structs (update)
+### 1.2 `Hashable` and declared open structs (update)
 
 A struct used as a dict key or set element must be hashable, and so must
 the fields its row variable (`**R`) turns out to stand for. The checker
@@ -75,7 +67,7 @@ bad = keyed(struct(a = 1, b = [2]))   # in an update: "unhashable type: list" ->
 
 Without the declaration, that call is a type error.
 
-### 1.4 A name bound by several defs (update)
+### 1.3 A name bound by several defs (update)
 
 A def redefined (`--globalredefine`, the REPL) has one function type for
 all its definitions, compared exactly. Its defs don't get the marks that
@@ -93,7 +85,7 @@ def f(c):                  # f: (c: bool) -> int
     return y               # f(False) in an update  ->  None
 ```
 
-### 1.5 `float` of a huge int (update)
+### 1.4 `float` of a huge int (update)
 
 `float(n)`, and `n` in arithmetic with floats (`n * 0.5`), fail for an int
 beyond about 1.8e308: "int too large to convert to float". The checker
@@ -125,13 +117,15 @@ print([inc(x) for x in xs])   # xs : ["a"]  ->  [None]
 
 A member of an implicit relation must have the fields that the relations'
 definitions read (except before `??`). A field that only an observer reads
-may be missing, and reading it gives None:
+may be missing, and reading it gives None. Where nothing tells the field's
+type, the checker says so (`other: Any | None`); where the observer's use
+does, it doesn't:
 
 ```python
 an order:
-    qty: req.qty           # req: list[struct[qty: Any, other: Any, **Any]]
+    qty: req.qty           # req: list[struct[qty: Any, other: int, **Any]]
 
-print([r.other for r in req])   # req : struct(id = 1, qty = 2)  ->  [None]
+print([r.other + 1 for r in req])   # req : struct(id = 1, qty = 2)  ->  [None]
 ```
 
 ---
@@ -139,7 +133,7 @@ print([r.other for r in req])   # req : struct(id = 1, qty = 2)  ->  [None]
 ## 3. Where the checker gives `Any`
 
 With contagious None, every `Any` the checker infers is `Any | None`, and
-treated as possibly None (except as in 1.2). These are the places
+treated as possibly None. These are the places
 it infers one:
 
 | where | code |
