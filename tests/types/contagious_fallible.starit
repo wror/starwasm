@@ -1,0 +1,21 @@
+# Types inferred from contagious_fallible.star by starwasm's type checker (typecheck/main.star).
+# Rewritten by every check: put annotations in contagious_fallible.start instead.
+
+def formatted[T](fmt: str, n: T) -> str | None
+def filled[T: (int, float)](n: T) -> str
+def named[T](n: T) -> str
+def parted(s: str, sep: str) -> str | None
+def parted_ok(s: str) -> str
+def popped[T, U](d: dict[T, U]) -> tuple[T, U] | None
+def record() -> int | None:
+    d: dict[str, int]
+def stepped[T: Sliceable[U], U](xs: T, k: int) -> U | None
+def reversed_ok[T: Sliceable[U], U](xs: T) -> U
+def made[T: Contagious](xs: T) -> bytes | None
+def read(path: str) -> str | None
+def based[T](s: T, b: int) -> int | None
+def percent[T: (int, float) & Contagious](n: T) -> str
+def percent_s[T](x: T) -> str
+def starts[T: Contagious](s: str, p: T) -> bool | None
+tick: int
+tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]

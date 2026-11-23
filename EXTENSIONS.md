@@ -1260,9 +1260,28 @@ types (but see None below) and no classes; types are structural.
   empty (one not written out), `range` with a step that may be 0,
   unpacking a list (or other sequence that isn't a tuple: it may have
   another length),
-  `.index`, `.rindex`, `.remove`, `.pop` (without a default), `getattr`
-  without a default, `min` and `max` of one sequence, and `fail`. So
+  `.index`, `.rindex`, `.remove`, `.pop` (without a default), `.popitem`,
+  `.partition` and `.rpartition` by a separator that may be empty,
+  `.format` of a format not written out, a slice by a step that may be 0
+  (not written out), `bytes` of anything but a string, `int` by a base not
+  written out, `%` formatting with a format written out of values whose
+  types aren't known (a `%d`'s value not known yet must be a number,
+  `(int, float)`), `.startswith` and `.endswith` by a prefix whose type
+  isn't known, `read_file`, `getattr` without a default, `min` and `max`
+  of one sequence, and `fail`. So
   `def f(a, b): return a / b` is `-> V | None`, and so is what calls it.
+  What is written out is checked instead, as a type error, since it fails
+  whatever the values are: `int("zz")`, `int("12", 2)`, `float("1e")`,
+  `chr(1114112)`, a `.format` whose fields the arguments can't fill or
+  that uses what starlark-go's doesn't (`{:d}`, `{a.b}`), a `%` format
+  with another number of values than conversions, a value of the wrong
+  type (`"%d" % "x"`), a key its dict written out lacks, a conversion
+  that doesn't exist; and so is a prefix of `.startswith` that is neither
+  a string nor a tuple of them, and, with contagious None, `hash` of what
+  isn't hashable. (Not covered: `float` of an int beyond about 1.8e308,
+  and an int that large in arithmetic with floats. Marking every int to
+  float conversion would make all of them `| None`, for ints no program
+  is likely to have.)
   Operations on a `T | None` are then allowed and give `T | None` too
   (None is contagious): so do `x or y`, `x and y`, `not x`, `a if x else
   b` and comparisons, as None is never taken for False, and only `x ?? y`

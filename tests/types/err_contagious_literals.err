@@ -1,0 +1,43 @@
+tests/types/err_contagious_literals.star:2:9: error: int() can't read "zz" (base 10)
+    2 | a = int("zz")
+      |         ^
+tests/types/err_contagious_literals.star:3:9: error: int() can't read "12" (base 2)
+    3 | b = int("12", 2)
+      |         ^
+tests/types/err_contagious_literals.star:4:11: error: float() can't read "1e"
+    4 | c = float("1e")
+      |           ^
+tests/types/err_contagious_literals.star:5:9: error: chr(1114112): not a Unicode code point (at most 0x10FFFF)
+    5 | d = chr(1114112)
+      |         ^
+tests/types/err_contagious_literals.star:6:5: error: the format has more fields than there are arguments
+    6 | e = "{} {}".format(1)
+      |     ^
+tests/types/err_contagious_literals.star:7:5: error: format spec features are not supported in replacement fields: :d
+    7 | f = "{:d}".format(1)
+      |     ^
+tests/types/err_contagious_literals.star:8:5: error: attribute or element syntax is not supported in replacement fields: a.b
+    8 | g = "{a.b}".format(a = 1)
+      |     ^
+tests/types/err_contagious_literals.star:9:12: error: %d wants a number, got str
+    9 | h = "%d" % "x"
+      |            ^
+tests/types/err_contagious_literals.star:10:15: error: the format has 2 conversions, but 1 value is given
+   10 | i = "%s %s" % ("x",)
+      |               ^
+tests/types/err_contagious_literals.star:11:5: error: the format's %(a) has no value: the dict has no key "a"
+   11 | j = "%(a)s" % {"b": 1}
+      |     ^
+tests/types/err_contagious_literals.star:12:5: error: unknown conversion %y in the format
+   12 | k = "%y" % 1
+      |     ^
+tests/types/err_contagious_literals.star:13:22: error: prefix of .startswith(): expected str, got int
+   13 | l = "abc".startswith(1)
+      |                      ^
+tests/types/err_contagious_literals.star:14:20: error: suffix of .endswith(): expected str, got int
+   14 | m = "abc".endswith(("a", 2))
+      |                    ^
+tests/types/err_contagious_literals.star:15:10: error: list[int] is not hashable: it can't be a dict key or a set element
+   15 | n = hash([1])
+      |          ^
+14 type errors in tests/types/err_contagious_literals.star

@@ -200,6 +200,48 @@ f_lambda([[1, 2, 3]])      # None: "too many values to unpack"
 
 ## 2. Operations that can fail but aren't in the checker's lists (update)
 
+**Status: fixed**, except `float` of a huge int (below). Code:
+typecheck/infer.star (`_fallible_call`, `FALLIBLE_METHODS`, `_literal_args`,
+`_format_check`, `_percent_check`, `_conv_fits`, `_int_literal_ok`,
+`_float_literal_ok`, the slice case of `infer_expr`, `_removals`); tests:
+tests/types/contagious_fallible, err_contagious_literals. Each row of the
+first table is now `T | None` where it depends on the values, and a type
+error where it can't succeed:
+
+- `str.format`: `| None` unless the format is written out and the
+  arguments fill its fields. A format written out that can't be filled, or
+  that uses `{:d}` or `{a.b}`, is an error.
+- `partition`/`rpartition`: `| None` unless the separator is a non-empty
+  string written out.
+- `popitem`: `| None`, and a dict it is called on is no longer a record.
+- A slice by a step that isn't a non-zero int written out: `| None`.
+- `bytes(x)`: `| None` unless x is a string or bytes.
+- `startswith`/`endswith`: a prefix that is neither a str nor a tuple of
+  str is an error, and one of a type not known yet makes the call `|
+  None`.
+- set `union`/`update` and dict `update`: typed (section 3).
+- `hash` of what isn't hashable is an error (the `Hashable` bound).
+- `read_file`: `| None`.
+- `getattr` and `struct(**d).b`: `Any | None` (sections 1.2 and 5).
+
+The literals the checker took to be valid are now checked:
+- `int("zz")` and `int("12", 2)` are errors (following starlark-go: no
+  spaces, no `_`, base 0 reads `0x`/`0o`/`0b` and no leading 0);
+  `int(s, b)` with a base not written out is `| None`.
+- `float("1e")` is an error.
+- `chr(1114112)` is an error.
+- `%` with a format written out: a conversion that doesn't exist, another
+  number of values than conversions, a `%d` of a `str`, or a `%(key)` its
+  dict written out doesn't have, is an error. A value whose type isn't
+  known yet is required to be a number for `%d` etc. A dict not written
+  out, or a tuple of unknown length, makes it `| None`.
+
+**Not fixed: `float` of an int beyond about 1.8e308**, and such an int in
+arithmetic with floats (`big * 0.5`). The checker can't tell a huge int
+from any other, so the only fix would be making every `float(n)` and
+every int-float operation `| None`, for ints almost no program has. That
+seemed worse than the hole. It is documented in EXTENSIONS.md.
+
 `_fallible_op`, `_fallible_call` and `FALLIBLE_METHODS = {index, rindex,
 remove, pop}` (infer.star:1439, 1747-1788) leave these out. Each one gives
 None in an update, and so does every def that returns it:

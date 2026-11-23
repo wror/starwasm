@@ -931,7 +931,7 @@ def _removals(x, out):
     AST x."""
     t = type(x)
     if t == "dict":
-        if x.get("kind") == "call" and x["fn"]["kind"] == "dot" and x["fn"]["name"] in ["pop", "remove", "clear"] and x["fn"]["x"]["kind"] == "name":
+        if x.get("kind") == "call" and x["fn"]["kind"] == "dot" and x["fn"]["name"] in ["pop", "popitem", "remove", "clear"] and x["fn"]["x"]["kind"] == "name":
             out[x["fn"]["x"]["id"]] = True
         for k, v in x.items():
             if k != "pos":
@@ -1406,6 +1406,12 @@ def infer_expr(st, fc, e):
         res = _fresh(st, fc)
         ctx = _ctx(fc, pos, "slicing")
         add_pred(st, pred("slice", ct, [res], ctx), ctx)
+        step = e["step"]
+        if st["contagious"] and step != None and not _is_none(step):
+            # (by a step that may be 0)
+            k = -step["x"]["val"] if step["kind"] == "unop" and step["op"] == "-" and step["x"]["kind"] == "int" else step.get("val") if step["kind"] == "int" else 0
+            if k == 0:
+                return mk_opt(res)
         return res
     if k == "dot":
         xt = infer_expr(st, fc, e["x"])
@@ -1559,7 +1565,9 @@ def _infer_binop(st, fc, e):
         a = sa if sa != None else a
         b = sb if sb != None else b
     t = _infer_binop_on(st, fc, e, a, b)
-    if maybe or (st["contagious"] and _fallible_op(e)):
+    # (a format written out: checked against the values, _percent_check)
+    pct = op == "%" and e["x"]["kind"] == "string" and _percent_check(st, fc, e, b)
+    if maybe or (st["contagious"] and (_fallible_op(e) or pct)):
         return mk_opt(t)
     if st["contagious"] and op == "%" and _formats(e["x"]):
         # formatting with values that may have a None inside (in a tuple or
@@ -1575,6 +1583,117 @@ def _infer_binop(st, fc, e):
         watch(st, [a, b], ("res", res), _ctx(fc, pos, "a comparison"), True)
         return res
     return t
+
+def _percent_convs(text):
+    """The conversions of `text % values`: (an error, or None, [(the
+    mapping key or None, the conversion character)])."""
+    out = []
+    i = text.find("%")
+    for _ in range(len(text) + 1):
+        if i < 0:
+            break
+        j = i + 1
+        key = None
+        if j < len(text) and text[j] == "(":
+            k = text.find(")", j)
+            if k < 0:
+                return "an unclosed '(' in the format", []
+            key = text[j + 1:k]
+            j = k + 1
+        for _ in range(len(text)):
+            if j < len(text) and text[j] in "0123456789.-+ #":
+                j += 1
+            else:
+                break
+        if j >= len(text):
+            return "the format ends in the middle of a conversion", []
+        c = text[j]
+        if c == "*":
+            return None, None  # (a width given by the values: not followed)
+        if c != "%":
+            if c not in "sdirxXoeEfFgGc":
+                return "unknown conversion %" + c + " in the format", []
+            out.append((key, c))
+        i = text.find("%", j + 1)
+    if len([k for k, _ in out if k != None]) not in [0, len(out)]:
+        return "the format mixes %(name) conversions with others", []
+    return None, out
+
+def _conv_fits(st, c, t, ctx):
+    """(Is a value of type t (resolved) wrong for conversion %c, whatever
+    it is?, may it be?) A type not known yet is taken to be a number for a
+    number's conversion (as for x + 1)."""
+    h = head(st, t)
+    if c in "sr" or is_con(h, "Any"):
+        return False, False
+    if is_con(h, "opt"):
+        # (a None: a look inside, _formats, makes the result T | None)
+        wrong, _ = _conv_fits(st, c, h["args"][0], ctx)
+        return wrong, True
+    if h["k"] == "var" and c in "diouxXeEfFgG" and not h["rigid"]:
+        add_pred(st, pred("among", h, [], ctx, ["int", "float"]), ctx)
+        return False, False
+    if h["k"] == "var" and c in "diouxXeEfFgG":
+        # a type parameter of an annotation: fine if its bound says number
+        for q in h["preds"]:
+            if q["kind"] == "among" and len([n for n in q["op"] if n not in ["int", "float", "bool"]]) == 0:
+                return False, False
+    if h["k"] == "var":
+        return False, True
+    if c in "diouxXeEfFgG":
+        return not (is_con(h, "int") or is_con(h, "float") or is_con(h, "bool")), False
+    if c == "c":
+        return not (is_con(h, "int") or is_con(h, "str")), is_con(h, "str")  # (a str of one character)
+    return False, False
+
+def _percent_check(st, fc, e, b):
+    """`text % values` with text written out: report what fails whatever
+    the values are (a conversion that doesn't exist, as many values as
+    conversions, a value of the wrong type for its conversion, a key the
+    dict written out doesn't have); and whether it may fail on others (a
+    type not known yet, a dict not written out, a tuple of unknown
+    length, a %c of a string)."""
+    err, convs = _percent_convs(e["x"]["val"])
+    pos = e["x"]["pos"]
+    if err != None:
+        report(st, _ctx(fc, pos), err)
+        return True
+    if convs == None:
+        return True
+    if not convs:
+        return False
+    h = head(st, b)
+    y = e["y"]
+    may = False
+    if convs[0][0] != None:
+        # %(name)s: the values are a dict
+        if not is_con(h, "dict"):
+            return True
+        keys = [k["val"] for k, _ in y["entries"] if k["kind"] == "string"] if y["kind"] == "dict" else None
+        for key, c in convs:
+            if keys != None and key not in keys:
+                report(st, _ctx(fc, pos), "the format's %(" + key + ") has no value: the dict has no key " + repr(key))
+            wrong, maybe_wrong = _conv_fits(st, c, h["args"][1], _ctx(fc, y["pos"], "value of %(" + key + ")" + c))
+            if wrong:
+                report(st, _ctx(fc, y["pos"]), "%(" + key + ")" + c + " wants a number, got " + show(h["args"][1]))
+            may = may or maybe_wrong
+        return may or keys == None
+    if is_con(h, "tuple"):
+        ts = h["args"]
+    elif h["k"] == "var" or is_con(h, "vtuple") or is_con(h, "Any"):
+        return True
+    else:
+        ts = [h]
+    if len(ts) != len(convs):
+        report(st, _ctx(fc, y["pos"]), "the format has " + str(len(convs)) + " conversion" + ("" if len(convs) == 1 else "s") +
+                                       ", but " + str(len(ts)) + (" value is" if len(ts) == 1 else " values are") + " given")
+        return True
+    for i, (_, c) in enumerate(convs):
+        wrong, maybe_wrong = _conv_fits(st, c, ts[i], _ctx(fc, y["pos"], "value of %" + c))
+        if wrong:
+            report(st, _ctx(fc, y["pos"]), "%" + c + " wants a number" + (" or a string" if c == "c" else "") + ", got " + show(ts[i]))
+        may = may or maybe_wrong
+    return may
 
 def _formats(x):
     """Is `x % values` formatting that may fail on a None among the values:
@@ -1925,6 +2044,7 @@ def infer_call(st, fc, e):
             unknown += unk
     if not maybe:
         t = _lift_later(st, fc, unknown, t, pos)
+    _literal_args(st, fc, e, args)
     if st["contagious"]:
         _hashable_args(st, fc, e, f, args, t)
         if len([a for a in args if a["star"] != ""]) > 0 and not (f["kind"] == "name" and f["id"] == "print" and _special(fc, "print")):
@@ -2033,7 +2153,161 @@ STORES = {
 }
 
 # builtins and methods that can fail on arguments of the right types
-FALLIBLE_METHODS = {"index": True, "rindex": True, "remove": True, "pop": True}
+FALLIBLE_METHODS = {"index": True, "rindex": True, "remove": True, "pop": True, "popitem": True}
+
+# ---- what a call or operation written with literals can be told about
+# without running it: an int or float written out that int() or float()
+# can't read, a format whose fields the arguments can't fill (each fails at
+# run time, whatever the values: a type error here); where it depends on the
+# values, the result is T | None (with contagious None).
+
+DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+def _int_literal_ok(s, base):
+    """Does int(s, base) read s (as starlark-go does: a sign, then, with
+    base 0, 0x, 0o, 0b or a number not starting with 0)?"""
+    if s.startswith("+") or s.startswith("-"):
+        s = s[1:]
+    low = s.lower()
+    for prefix, b in [("0x", 16), ("0o", 8), ("0b", 2)]:
+        if low.startswith(prefix) and (base == 0 or base == b):
+            s = s[2:]
+            low = low[2:]
+            base = b
+            break
+    if base == 0:
+        if low.startswith("0") and low.strip("0") != "":
+            return False  # (but 0, 00, ...)
+        base = 10
+    if base < 2 or base > 36 or low == "":
+        return False
+    return len([c for c in low.elems() if c not in DIGITS[:base]]) == 0
+
+def _float_literal_ok(s):
+    """Does float(s) read s? (A sign, then inf, infinity, nan, or digits
+    with a point and an exponent; underscores pass, as in Go.)"""
+    low = s.lower()
+    if low.startswith("+") or low.startswith("-"):
+        low = low[1:]
+    if low in ["inf", "infinity", "nan"]:
+        return True
+    mant, exp = low, None
+    if "e" in low:
+        mant, exp = low.split("e", 1)
+        if exp.startswith("+") or exp.startswith("-"):
+            exp = exp[1:]
+        if exp == "" or len([c for c in exp.elems() if c not in "0123456789_"]) > 0:
+            return False
+    if len([c for c in mant.elems() if c not in "0123456789._"]) > 0 or mant.count(".") > 1:
+        return False
+    return len([c for c in mant.elems() if c in "0123456789"]) > 0
+
+def _format_fields(text):
+    """The replacement fields of str.format's text: (an error, or None,
+    [(name: "" for the next one, the index as a string, or a name)])."""
+    fields = []
+    i = 0
+    n = len(text)
+    for _ in range(n + 1):
+        if i >= n:
+            break
+        c = text[i]
+        if c == "}":
+            if i + 1 < n and text[i + 1] == "}":
+                i += 2
+                continue
+            return "a single '}' in the format", []
+        if c != "{":
+            i += 1
+            continue
+        if i + 1 < n and text[i + 1] == "{":
+            i += 2
+            continue
+        j = text.find("}", i)
+        if j < 0:
+            return "an unclosed '{' in the format", []
+        inner = text[i + 1:j]
+        if ":" in inner:
+            return "format spec features are not supported in replacement fields: " + inner, []
+        name = inner
+        if "!" in inner:
+            name, conv = inner.split("!", 1)
+            if conv not in ["r", "s"]:
+                return "unknown conversion !" + conv + " in the format", []
+        if "." in name or "[" in name:
+            return "attribute or element syntax is not supported in replacement fields: " + name, []
+        fields.append(name)
+        i = j + 1
+    auto = [f for f in fields if f == ""]
+    if auto and len(auto) != len(fields) and len([f for f in fields if f.isdigit()]) > 0:
+        return "the format mixes automatic and manual field numbers", []
+    return None, fields
+
+def _format_check(e):
+    """For a call x.format(...): (an error it will meet whatever the values,
+    or None; whether it may fail on others: x not written out, *args or
+    **kwargs)."""
+    x = e["fn"]["x"]
+    if x["kind"] != "string":
+        return None, True
+    err, fields = _format_fields(x["val"])
+    if err != None:
+        return err, True
+    if len([a for a in e["args"] if a["star"] != ""]) > 0:
+        return None, True
+    npos = len([a for a in e["args"] if a["name"] == None])
+    names = {a["name"]: True for a in e["args"] if a["name"] != None}
+    auto = 0
+    for f in fields:
+        if f == "":
+            auto += 1
+            if auto > npos:
+                return "the format has more fields than there are arguments", True
+        elif f.isdigit():
+            if int(f) >= npos:
+                return "the format's field {" + f + "} has no argument", True
+        elif f not in names:
+            return "the format's field {" + f + "} has no argument " + f + " = ...", True
+    return None, False
+
+def _format_fallible(e):
+    return _format_check(e)[1]
+
+def _literal_args(st, fc, e, args):
+    """Report what call e, with values written out, will fail on whatever
+    else happens: int() or float() of a string it can't read, chr() of a
+    number that is no code point, a format whose fields the arguments
+    can't fill; a prefix of startswith or endswith that isn't a string or
+    a tuple of them; and, with contagious None, hash() of a value that
+    isn't hashable."""
+    f = e["fn"]
+    vals = [a["value"] for a in e["args"] if a["name"] == None and a["star"] == ""]
+    if f["kind"] == "name" and _special(fc, f["id"]) and vals:
+        n = f["id"]
+        v = vals[0]
+        if n == "int" and v["kind"] == "string" and (len(vals) == 1 or vals[1]["kind"] == "int"):
+            base = vals[1]["val"] if len(vals) > 1 else 10
+            if not _int_literal_ok(v["val"], base):
+                report(st, _ctx(fc, v["pos"]), "int() can't read " + repr(v["val"]) + " (base " + str(base) + ")")
+        elif n == "float" and v["kind"] == "string" and not _float_literal_ok(v["val"]):
+            report(st, _ctx(fc, v["pos"]), "float() can't read " + repr(v["val"]))
+        elif n == "chr" and v["kind"] == "int" and v["val"] > 1114111:
+            report(st, _ctx(fc, v["pos"]), "chr(" + str(v["val"]) + "): not a Unicode code point (at most 0x10FFFF)")
+        elif n == "hash" and st["contagious"] and args:
+            ctx = _ctx(fc, v["pos"], "argument of hash()")
+            add_pred(st, pred("hashable", args[0]["type"], [], ctx), ctx)
+    if f["kind"] == "dot" and f["name"] == "format" and f["x"]["kind"] == "string":
+        err, _ = _format_check(e)
+        if err != None:
+            report(st, _ctx(fc, f["x"]["pos"]), err)
+    if f["kind"] == "dot" and f["name"] in ["startswith", "endswith"] and args and args[0]["name"] == None and args[0]["star"] == "":
+        t = head(st, args[0]["type"])
+        ctx = _ctx(fc, args[0]["pos"], "prefix of ." + f["name"] + "()" if f["name"] == "startswith" else "suffix of .endswith()")
+        if is_con(t, "tuple") or is_con(t, "vtuple"):
+            for x in t["args"]:
+                flow_report(st, x, con("str"), ctx)
+        elif t["k"] != "var" and not is_con(t, "Any") and not is_con(t, "opt"):
+            flow_report(st, t, con("str"), ctx)
 
 def _fallible_call(st, e, args):
     """Can call e (args: its arguments' types) fail on arguments of the
@@ -2047,13 +2321,28 @@ def _fallible_call(st, e, args):
         if f["name"] == "split" or f["name"] == "rsplit":
             # by an empty separator
             return first != None and not (first["kind"] == "string" and first["val"] != "")
+        if f["name"] == "partition" or f["name"] == "rpartition":
+            # by an empty separator
+            return not (first != None and first["kind"] == "string" and first["val"] != "")
+        if f["name"] == "format":
+            # a format that isn't written out, or whose fields the
+            # arguments may not fill (_format_fields)
+            return _format_fallible(e)
+        if (f["name"] == "startswith" or f["name"] == "endswith") and args:
+            # by a prefix whose type isn't known here (_literal_args checks
+            # one that is)
+            t = resolve(args[0]["type"])
+            return t["k"] == "var" and t["lit"] == None
         return FALLIBLE_METHODS.get(f["name"], False)
     if f["kind"] != "name":
         return False
     n = f["id"]
     if n == "int" or n == "float":
-        # from a string (not one written out: taken to be right); int of
-        # a float that is infinite or not a number
+        # from a string (not one written out: that is checked,
+        # _literal_args); int of a float that is infinite or not a
+        # number; int by a base not written out
+        if n == "int" and npos >= 2 and e["args"][1]["value"]["kind"] != "int":
+            return True
         if len(args) == 0 or e["args"][0]["value"]["kind"] in ["string", "int", "float"]:
             return False
         t = resolve(args[0]["type"])
@@ -2074,7 +2363,13 @@ def _fallible_call(st, e, args):
         return npos == 1  # of a sequence, which may be empty
     if n == "getattr":
         return npos == 2
-    return n == "fail"
+    if n == "bytes":
+        # of anything but a string or bytes (ints out of range, ...)
+        if len(args) == 0 or (first != None and first["kind"] in ["string", "bytes"]):
+            return False
+        t = resolve(args[0]["type"])
+        return not (is_con(t, "str") or is_con(t, "bytes") or (t["k"] == "var" and t["lit"] != None))
+    return n == "fail" or n == "read_file"  # (a file that can't be read)
 
 def apply(st, fc, ft, args, pos, fname):
     """The type of calling a value of type ft with args ({name, star,

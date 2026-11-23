@@ -12,11 +12,11 @@ def mx_args[T](d: dict[T, int], k: T) -> int | None
 def joined[T](d: dict[T, str], k: T) -> str | None
 def joined_ok[X: Iterable[str] & Contagious](ss: X) -> str
 def pairs[T](d: dict[T, tuple[str, int]], k: T) -> dict[str, int] | None
-def fmt[T, U](d: dict[T, U], k: T) -> str | None
+def fmt[T, U: (int, float)](d: dict[T, U], k: T) -> str | None
 def fmt_s[T, U](d: dict[T, U], k: T) -> str
-def fmt_key[T, U](d: dict[T, U], k: T) -> str | None
-def fmt_ok[T: Contagious](n: T) -> str
-def starts[T, U](s: str, d: dict[T, U], k: T) -> bool | None
+def fmt_key[T, U: (int, float)](d: dict[T, U], k: T) -> str | None
+def fmt_ok[T: (int, float) & Contagious](n: T) -> str
+def starts[T](s: str, d: dict[T, str], k: T) -> bool | None
 def length[T, U](d: dict[T, U], k: T) -> int
 tick: int
 tickError: list[struct[id: int, tick_id: int | None, trigger: str, field: str, value: None]]
