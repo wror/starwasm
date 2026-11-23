@@ -109,7 +109,7 @@ def keys[K, V](self: dict[K, V]) -> list[K]
 def pop[K, V](self: dict[K, V], key: K, default: V = ...) -> V
 def popitem[K, V](self: dict[K, V]) -> tuple[K, V]
 def setdefault[K, V](self: dict[K, V], key: K, default: V = ...) -> V
-def update[K, V](self: dict[K, V], *args: Any, **kwargs: V) -> None
+def update[K, V, X: Updates[K, V]](self: dict[K, V], *args: X, **kwargs: V) -> None
 def values[K, V](self: dict[K, V]) -> list[V]
 """,
     "set": """

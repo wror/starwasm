@@ -6,6 +6,8 @@ def defaulted(k: str) -> dict[str, int | None]:
     v: int | None
 def updated[T](e: dict[T, int], k: T) -> dict[str, int | None]:
     d: dict[str, int | None]
+def put[T: HasAttr["update", (U) -> V], U, V](d: T, x: U) -> T
+def put_maybe[T](e: dict[T, int], k: T) -> dict[str, int | None]
 def unioned[T](e: dict[T, int], k: T) -> set[int]:
     s: set[int]
 def made[T](e: dict[T, int], k: T) -> bytes | None

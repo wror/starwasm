@@ -17,6 +17,13 @@ def updated(e, k):
     d.update([("c", 3)], z = 4)
     return d
 
+def put(d, x):
+    d.update(x)                     # d not known to be a dict here:
+    return d                        # checked where it is (Updates[K, V])
+
+def put_maybe(e, k):
+    return put({"a": 1}, {"b": e.get(k)})   # so the literal's values widen
+
 def unioned(e, k):
     s = set([1])
     s.update([e.get(k) ?? 0])

@@ -96,20 +96,6 @@ beyond about 1.8e308: "int too large to convert to float". The checker
 types them as `float`. Making every int-to-float conversion `| None` would
 cost every program for ints almost none has.
 
-### 1.6 `d.update(x)` where `d` isn't known to be a dict yet (anywhere)
-
-Inside a def whose `d` is a parameter, `d.update(x)` is checked against
-the method's `Any` signature, so the values it stores (Nones among them)
-aren't checked against `d`'s:
-
-```python
-def put(d, x):             # def put[T: HasAttr["update", (U) -> V], U, V](d: T, x: U) -> T
-    d.update(x)
-    return d
-
-d = put({"a": 1}, {"b": e.get(5)})   # d: dict[str, int]  -> {"a": 1, "b": None}
-```
-
 ---
 
 ## 2. In reactive programs

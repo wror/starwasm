@@ -485,6 +485,11 @@ def unify_fn(st, a, b, a0, b0, ctx):
         for p in longer[n:]:
             if not p["opt"] and not shorter_star:
                 return failure(a0, b0, "functions of " + str(len(pa)) + " and " + str(len(pb)) + " parameters")
+            if shorter_star:
+                # (a positional parameter that the other's *args takes)
+                err = unify(st, p["type"], shorter_star[0]["type"], ctx)
+                if err != None:
+                    return err
     if sa and sb:
         err = unify(st, sa[0]["type"], sb[0]["type"], ctx)
         if err != None:
@@ -1038,7 +1043,7 @@ def dispatch(st, s, p, ctx):
             dispatch(st, inner, q, ctx)
         return
     if name == "opt" and k != "among":
-        if st.get("contagious") and k in ["getitem", "slice", "sized", "contains", "hasattr", "hashable"]:
+        if st.get("contagious") and k in ["getitem", "slice", "sized", "contains", "hasattr", "hashable", "updates"]:
             # contagious None: on None, the operation gives None; else it is
             # checked on what the value is otherwise
             inner = head(st, s["args"][0])
@@ -1125,6 +1130,22 @@ def dispatch(st, s, p, ctx):
     elif k == "sized":
         if name not in ["list", "dict", "set", "tuple", "vtuple", "str", "bytes", "range", REPEATED, MAP]:
             _pred_error(st, p, ctx, show(s) + " has no len()")
+    elif k == "updates":
+        # (dict.update's argument: a dict, or pairs, of keys args[0] and
+        # values args[1])
+        if name == "dict" or name == MAP:
+            _check(st, p, ctx, s["args"][0], args[0], "key of the dict given", True)
+            _check(st, p, ctx, s["args"][1], args[1], "value of the dict given", True)
+        elif name in ["list", "set", "vtuple", "tuple"]:
+            elems = s["args"] if name == "tuple" else [s["args"][0]]
+            for el in elems:
+                kv = new_var(st, "type", _level_of(args[0]))
+                vv = new_var(st, "type", _level_of(args[1]))
+                _check(st, p, ctx, el, con("tuple", [kv, vv]), "pair given", True)
+                _check(st, p, ctx, kv, args[0], "key given", True)
+                _check(st, p, ctx, vv, args[1], "value given", True)
+        else:
+            _pred_error(st, p, ctx, "a dict can't be updated from " + show(s) + ": a dict or pairs (key, value) are wanted")
     elif k == "hashable":
         # (with contagious None: a dict key or set element, which fails at
         # run time, and so gives None, if it can't be hashed)

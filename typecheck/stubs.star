@@ -439,6 +439,7 @@ PROTOS = {
     "SetItem": ("setitem", 2),
     "Sized": ("sized", 0),
     "Hashable": ("hashable", 0),
+    "Updates": ("updates", 2),
     "Container": ("contains", 1),
     "Sliceable": ("slice", 1),
     "Ordered": ("ordered", 0),

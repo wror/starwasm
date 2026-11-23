@@ -355,6 +355,8 @@ def show_pred(p, nm):
         return "Sized"
     if k == "hashable":
         return "Hashable"
+    if k == "updates":
+        return "Updates[" + a[0] + ", " + a[1] + "]"
     if k == "contains":
         return "Container[" + a[0] + "]"
     if k == "slice":
@@ -388,6 +390,8 @@ def describe_pred(p):
         return "something with a length"
     if k == "hashable":
         return "hashable (a dict key, a set element)"
+    if k == "updates":
+        return "a dict, or pairs (key, value), to update a dict from"
     if k == "contains":
         return "a container"
     if k == "slice":

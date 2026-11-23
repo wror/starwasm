@@ -1401,8 +1401,9 @@ types (but see None below) and no classes; types are structural.
   is an `R`; likewise `Sub Mul Div FloorDiv Mod Or And Xor LShift
   RShift`, and `RAdd[A, R]` etc. for the right operand), and, with
   contagious None, `Contagious` (a None in it makes the call None: see
-  "Fallible operations") and `Hashable` (a dict key or set element that
-  the def makes). One exception
+  "Fallible operations"), `Hashable` (a dict key or set element that
+  the def makes) and `Updates[K, V]` (what `dict.update` takes: a dict
+  with keys K and values V, or pairs of them). One exception
   keeps common code simple: an operand of unknown type next to a number
   is taken to be a number. Next to an int it is either kind, and so is
   the result, of its kind (`def inc(x): return x + 1` is `def inc[T:
