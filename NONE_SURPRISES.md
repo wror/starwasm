@@ -114,9 +114,16 @@ fail, which gives None:
 def inc(v):                # def inc[T: (int, float)](v: T) -> T
     return v + 1
 
-xs : []                    # xs: list[Any]
-print([inc(x) for x in xs])   # xs : ["a"]  ->  [None]
+xs : [1]                   # xs: list[int]
+print([inc(x) for x in xs])
 ```
+
+On standard input, `xs : []` is accepted (a list), and then so is `xs :
+["a"]`: the empty list it replaces says nothing of the elements. `xs`, a
+`list[int]`, now holds a string, and `inc` (`-> int` here) gives None:
+the observer prints `[None]`. And the string is what the next value is
+checked against: `xs : [2]` is then rejected ("it is an int ([0]), not a
+string").
 
 ### 2.2 Fields that only observers read (update)
 
