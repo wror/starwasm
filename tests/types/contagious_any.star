@@ -34,4 +34,7 @@ def told(name):
 stored = [1]
 stored.append(field("width"))            # a list[int | None]
 
+print(field("name"))                     # (a builtin's Any takes one that
+shown = str(field("name"))               # may be None)
+
 tick : 1

@@ -458,6 +458,12 @@ def child_scope(cv):
 def _at(cv, pos, role = "declared here"):
     return {"file": cv["file"], "pos": pos, "role": role}
 
+def _some_any(cv):
+    """Is Any here, with contagious None, a value that isn't None: in a
+    .start file (not in the builtins' signatures, whose Any takes
+    anything, None included)?"""
+    return cv["st"] != None and cv["st"].get("contagious", False) and not cv["file"].startswith("<builtins")
+
 def _err(cv, pos, msg):
     report(cv["st"], _at(cv, pos, None), msg)
 
@@ -600,14 +606,14 @@ def to_type(cv, a):
     if name in SIMPLE:
         if args != None:
             _err(cv, pos, name + " takes no type arguments")
-        if name == "Any" and cv["st"] != None and cv["st"].get("contagious", False):
+        if name == "Any" and _some_any(cv):
             return ANY_SOME  # (with contagious None, `Any | None` may be None, Any not)
         return con(name, [], _at(cv, pos))
     if name in ARITY:
         n = ARITY[name]
         if args == None:
             # (list: list[Any], with contagious None an Any that isn't None)
-            some = cv["st"] != None and cv["st"].get("contagious", False)
+            some = _some_any(cv)
             return con(name, [ANY_SOME if some else T_ANY] * n, _at(cv, pos))
         if len(args) != n:
             _err(cv, pos, name + " takes " + str(n) + " type argument" + ("" if n == 1 else "s") + ": " + ("dict[K, V]" if n == 2 else name + "[T]"))
@@ -615,7 +621,7 @@ def to_type(cv, a):
         return con(name, [to_type(cv, x) for x in args], _at(cv, pos))
     if name == "tuple":
         if args == None:
-            some = cv["st"] != None and cv["st"].get("contagious", False)
+            some = _some_any(cv)
             return con("vtuple", [ANY_SOME if some else T_ANY], _at(cv, pos))
         if len(args) == 1 and args[0]["t"] == "unit":
             return con("tuple", [], _at(cv, pos))
