@@ -39,6 +39,19 @@ check_eq(
 )
 check_eq("brackets join lines", kinds("f(1,\n  2)\n"), ["name:f", "(", "int:1", ",", "int:2", ")", "newline", "eof"])
 check_eq("backslash continuation", kinds("x = 1 + \\\n  2\n"), ["name:x", "=", "int:1", "+", "int:2", "newline", "eof"])
+# more tokens than characters: each indent and dedent reads none
+check_eq(
+    "indents outnumber characters",
+    kinds("a:\n\tx:0\nb:\n\tx:0\n"),
+    ["name:a", ":", "newline", "indent", "name:x", ":", "int:0", "newline", "dedent",
+     "name:b", ":", "newline", "indent", "name:x", ":", "int:0", "newline", "dedent", "eof"],
+)
+check_eq(
+    "nested one-letter blocks",
+    kinds("if a:\n if b:\n  if c:\n   d\n"),
+    ["if", "name:a", ":", "newline", "indent", "if", "name:b", ":", "newline", "indent",
+     "if", "name:c", ":", "newline", "indent", "name:d", "newline", "dedent", "dedent", "dedent", "eof"],
+)
 check_eq("dedent at eof", kinds("if x:\n    y"), ["if", "name:x", ":", "newline", "indent", "name:y", "newline", "dedent", "eof"])
 
 def strval(src):

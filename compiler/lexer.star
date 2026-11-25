@@ -636,7 +636,11 @@ def lex(src, filename):
         "indents": [0],
         "depth": 0,  # bracket nesting; newlines inside brackets are ignored
     }
-    for _ in range(len(src) + 2):
+    # Each call to next_token emits one token, or a run of dedents. A
+    # call that reads no characters emits an indent or dedents (at most
+    # one such call per line) or, at the end, the closing newline,
+    # dedents and eof: 2 * len(src) + 4 calls at most.
+    for _ in range(2 * len(src) + 4):
         if next_token(st):
-            break
-    return st["toks"]
+            return st["toks"]
+    fail("lexer: no eof after " + str(len(st["toks"])) + " tokens")
